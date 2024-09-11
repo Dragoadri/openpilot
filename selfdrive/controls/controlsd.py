@@ -116,6 +116,8 @@ class Controls:
 
     # read params
     self.is_metric = self.params.get_bool("IsMetric")
+    self.is_alerta_SICUEM = self.params.get_bool("ActivateEvent") #Adrian Cañadas Gsllardo
+
     self.is_ldw_enabled = self.params.get_bool("IsLdwEnabled")
 
     # detect sound card presence and ensure successful init
@@ -931,6 +933,8 @@ class Controls:
   def params_thread(self, evt):
     while not evt.is_set():
       self.is_metric = self.params.get_bool("IsMetric")
+      self.is_alerta_SICUEM = self.params.get_bool("ActivateEvent")  # Adrian Cañadas Gsllardo
+
       self.experimental_mode = self.params.get_bool("ExperimentalMode") and self.CP.openpilotLongitudinalControl
       self.personality = self.read_personality_param()
       self.dynamic_personality = self.params.get_bool("DynamicPersonality")
