@@ -9,6 +9,16 @@
 #include "selfdrive/ui/qt/onroad/buttons.h"
 #include "selfdrive/ui/qt/util.h"
 
+//Adrian Cañadas Gallardo
+#include <QPixmap>
+#include <QRect>
+float v_egoo=0;
+float a_egoo=0;
+float steeringAngleDeg=0;
+float combustible=0;
+bool LeftBlinker = false;
+bool RightBlinker = false;
+
 // Window that shows camera view and variety of info drawn on top
 AnnotatedCameraWidget::AnnotatedCameraWidget(VisionStreamType type, QWidget* parent) : fps_filter(UI_FREQ, 3, 1. / UI_FREQ), CameraWidget("camerad", type, true, parent) {
   pm = std::make_unique<PubMaster, const std::initializer_list<const char *>>({"uiDebug"});
@@ -32,6 +42,8 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
   const auto car_state = sm["carState"].getCarState();
 
   is_metric = s.scene.is_metric;
+   //Adrian Cañadas Gallardo
+  is_activateEvent = s.scene.is_activateEvent;
 
   // Handle older routes where vCruiseCluster is not set
   float v_cruise = cs.getVCruiseCluster() == 0.0 ? cs.getVCruise() : cs.getVCruiseCluster();
@@ -44,6 +56,18 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
   // Handle older routes where vEgoCluster is not set
   v_ego_cluster_seen = v_ego_cluster_seen || car_state.getVEgoCluster() != 0.0;
   float v_ego = v_ego_cluster_seen ? car_state.getVEgoCluster() : car_state.getVEgo();
+
+   //Adrian Cañadas Gallardo
+  float a_ego = car_state.getAEgo();
+  v_egoo = v_ego;
+  a_egoo = a_ego;
+  steeringAngleDeg = car_state.getSteeringAngleDeg();
+  combustible = car_state.getFuelGauge();//Devuelve de 0 a 1 asiq ue haremos el porcentaje
+  LeftBlinker = car_state.getLeftBlinker();
+  RightBlinker = car_state.getRightBlinker();
+
+
+  
   speed = cs_alive ? std::max<float>(0.0, v_ego) : 0.0;
   speed *= is_metric ? MS_TO_KPH : MS_TO_MPH;
 
@@ -65,50 +89,204 @@ void AnnotatedCameraWidget::updateState(const UIState &s) {
 void AnnotatedCameraWidget::drawHud(QPainter &p) {
   p.save();
 
-  // Header gradient
-  QLinearGradient bg(0, UI_HEADER_HEIGHT - (UI_HEADER_HEIGHT / 2.5), 0, UI_HEADER_HEIGHT);
+  
+
+ if(is_activateEvent){
+   QLinearGradient bg(0, UI_HEADER_HEIGHT - (UI_HEADER_HEIGHT / 2.5), 0, UI_HEADER_HEIGHT);
   bg.setColorAt(0, QColor::fromRgbF(0, 0, 0, 0.45));
   bg.setColorAt(1, QColor::fromRgbF(0, 0, 0, 0));
   p.fillRect(0, 0, width(), UI_HEADER_HEIGHT, bg);
 
-  QString speedStr = QString::number(std::nearbyint(speed));
-  QString setSpeedStr = is_cruise_set ? QString::number(std::nearbyint(setSpeed)) : "–";
+  QString speedStr = is_cruise_set ? QString::number(std::nearbyint(speed)) : "-";
+  QString setSpeedStr = is_cruise_set ? QString::number(std::nearbyint(setSpeed)) : "-";
+
+//Adrian Cañadas Gallardo
+  QString v_egoStr =  is_cruise_set ? QString::number(std::nearbyint(v_egoo)) : "-";
+    QString acelStr =  is_cruise_set ? QString::number(std::nearbyint(a_egoo)) : "-";
+
+
+
+  //Adrian Cañadas Gallardo MAX velocidad
 
   // Draw outer box + border to contain set speed
   const QSize default_size = {172, 204};
   QSize set_speed_size = default_size;
+
   if (is_metric) set_speed_size.rwidth() = 200;
 
-  QRect set_speed_rect(QPoint(60 + (default_size.width() - set_speed_size.width()) / 2, 45), set_speed_size);
-  p.setPen(QPen(whiteColor(75), 6));
-  p.setBrush(blackColor(166));
-  p.drawRoundedRect(set_speed_rect, 32, 32);
+ // Definir colores
+QColor max_color = QColor(0x80, 0xd8, 0xa6, 0xff);
+QColor set_speed_color = whiteColor();
+//QColor label_color = whiteColor(); // Color para las etiquetas
 
-  // Draw MAX
-  QColor max_color = QColor(0x80, 0xd8, 0xa6, 0xff);
-  QColor set_speed_color = whiteColor();
-  if (is_cruise_set) {
+// Configurar colores basados en el estado del crucero
+if (is_cruise_set) {
     if (status == STATUS_DISENGAGED) {
-      max_color = whiteColor();
+        max_color = whiteColor();
     } else if (status == STATUS_OVERRIDE) {
-      max_color = QColor(0x91, 0x9b, 0x95, 0xff);
+        max_color = QColor(0x91, 0x9b, 0x95, 0xff);
+
     }
-  } else {
+} else {
     max_color = QColor(0xa6, 0xa6, 0xa6, 0xff);
     set_speed_color = QColor(0x72, 0x72, 0x72, 0xff);
-  }
-  p.setFont(InterFont(40, QFont::DemiBold));
-  p.setPen(max_color);
-  p.drawText(set_speed_rect.adjusted(0, 27, 0, 0), Qt::AlignTop | Qt::AlignHCenter, tr("MAX"));
-  p.setFont(InterFont(90, QFont::Bold));
-  p.setPen(set_speed_color);
-  p.drawText(set_speed_rect.adjusted(0, 77, 0, 0), Qt::AlignTop | Qt::AlignHCenter, setSpeedStr);
+}
 
-  // current speed
-  p.setFont(InterFont(176, QFont::Bold));
-  drawText(p, rect().center().x(), 210, speedStr);
-  p.setFont(InterFont(66));
-  drawText(p, rect().center().x(), 290, speedUnit, 200);
+// Configurar fuente para las etiquetas y valores
+QFont labelFont("Inter", 7, QFont::DemiBold); // Tamaño más pequeño para etiquetas
+QFont valueFont("Inter", 7, QFont::Bold); // Tamaño más pequeño para valores
+
+// Establecer posiciones y ajustar el rectángulo
+
+
+
+// Ajustar el rectángulo negro (o fondo) para cada texto
+int rectWidth = 100; // Ajustar el ancho del rectángulo según sea necesario
+int rectHeight = 750; // Ajustar la altura del rectángulo según sea necesario
+
+int xOffset = 100-rectWidth; // Ajusta el margen izquierdo
+//int xIncrement = 100; // Espaciado entre columnas
+
+int yOffset = 100-rectHeight; // Ajusta el margen superior
+int yIncrement = 100; // Espaciado entre líneas
+
+QRect set_speed_rect(QPoint(60, 45), QSize(rectWidth, rectHeight));
+
+// Dibujar el rectángulo negro de fondo
+p.setPen(QPen(whiteColor(75), 6));
+p.setBrush(blackColor(166));
+p.drawRoundedRect(set_speed_rect, 32, 32);
+
+// Configurar fuente y dibujar textos
+p.setFont(labelFont);
+
+// DIBUJAR SICUEM
+
+
+// DIBUJAR SICUEM
+QRect text_rect = set_speed_rect.adjusted(xOffset, yOffset -20, 0, 0);
+//Color rojo
+p.setPen(QColor(255, 0, 0, 255));
+p.setFont(labelFont);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, tr("SICUEM"));
+
+// Cargar la imagen
+QPixmap imagen("../assets/offroad/alerta.png"); // Cambia la ruta a la ubicación de tu imagen
+
+// Obtener el tamaño de la imagen
+int imagenAncho = imagen.width();
+int imagenAlto = imagen.height();
+
+//int centerX = width() / 2;
+//int centerY = height() / 2;
+
+// Definir la posición para dibujar la imagen debajo del texto
+QRect imagen_rect = QRect(xOffset+85, yOffset*2+text_rect.height() - 10, imagenAncho/3.25, imagenAlto/3.25); // Ajusta el 10 para el espacio entre el texto y la imagen
+
+// Dibujar la imagen
+p.drawPixmap(imagen_rect, imagen);
+
+// MAX
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 2 * yIncrement, 0, 0);
+p.setPen(max_color);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, tr("MAX"));
+
+// Set Speed
+p.setFont(valueFont);
+p.setPen(set_speed_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 3 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, setSpeedStr);
+
+// Veloc d
+p.setFont(labelFont);
+p.setPen(max_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 4 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, tr("Vel. MAX"));
+
+p.setFont(valueFont);
+p.setPen(set_speed_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 5 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, speedStr + " " + speedUnit);
+
+// Veloc r
+p.setFont(labelFont);
+p.setPen(max_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 6 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, tr("Vel REAL"));
+
+p.setFont(valueFont);
+p.setPen(set_speed_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 7 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, v_egoStr + " " + speedUnit);
+
+// acel
+p.setFont(labelFont);
+p.setPen(max_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 8 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, tr("Acel."));
+
+p.setFont(valueFont);
+p.setPen(set_speed_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 9 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, acelStr + " m/s²");
+
+// Angulo
+p.setFont(labelFont);
+p.setPen(max_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 10 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, tr("Angulo"));
+
+p.setFont(valueFont);
+p.setPen(set_speed_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 11 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, QString::number(steeringAngleDeg) + " °");
+
+// Combustible
+p.setFont(labelFont);
+p.setPen(max_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 12 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, tr("FUEL ⛽"));
+
+p.setFont(valueFont);
+p.setPen(set_speed_color);
+text_rect = set_speed_rect.adjusted(xOffset, yOffset + 13 * yIncrement, 0, 0);
+p.drawText(text_rect, Qt::AlignHCenter | Qt::AlignVCenter, QString::number(combustible*100) + " %");
+
+
+
+
+
+  //Adrian Cañadas Gallardo
+
+  // Ajustar el rectángulo negro (o fondo) para cada texto
+int rectWidth2 = 300; // Ajustar el ancho del rectángulo según sea necesario
+int rectHeight2 = 300; // Ajustar la altura del rectángulo según sea necesario
+
+
+
+
+QRect set_speed_rect2(QPoint(1775, 700), QSize(rectWidth2, rectHeight2));
+// Dibujar el rectángulo negrrectHeighto de fondo
+p.setPen(QPen(whiteColor(75), 6));
+p.setBrush(blackColor(166));
+p.drawRoundedRect(set_speed_rect2, 32, 32);
+
+// Configurar fuente y dibujar textos
+p.setFont(labelFont);
+
+
+
+    QPixmap imagen2(LeftBlinker?"./assets/offroad/blinkers_left.png" : RightBlinker?"../assets/offroad/blinkers_rigth.png":"../assets/offroad/blinkers.png"); // Path to your image
+    int imagen2Ancho = imagen2.width();
+    int imagen2Alto = imagen2.height();
+    int image2Width = imagen2Ancho / 3.25;
+    int image2Height = imagen2Alto / 3.25;
+
+
+    QRect imagen2_rect(width() - image2Width- 200 / 2, height() - image2Height - 200 / 2, image2Width, image2Height);
+    p.drawPixmap(imagen2_rect, imagen2);
+}
+
 
   p.restore();
 }
