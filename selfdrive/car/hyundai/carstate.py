@@ -43,6 +43,8 @@ class CarState(CarStateBase):
     self.cruise_btns_msg_canfd = "CRUISE_BUTTONS_ALT" if CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS else \
                                  "CRUISE_BUTTONS"
     self.is_metric = False
+    self.is_activateevent = False #Adrian Cañadas
+
     self.buttons_counter = 0
 
     self.cruise_info = {}
