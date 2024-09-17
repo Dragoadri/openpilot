@@ -130,22 +130,19 @@ TogglesPanelSP::TogglesPanelSP(SettingsWindow *parent) : TogglesPanel(parent) {
   };
 
 
-  std::vector<QString> longi_button_texts{tr("Aggressive"), tr("Moderate"), tr("Standard"), tr("Relaxed")};
-  long_personality_setting = new ButtonParamControlSP("LongitudinalPersonality", tr("Driving Personality"),
-                                          tr("Standard is recommended. In moderate/aggressive mode, sunnypilot will follow lead cars closer and be more aggressive with the gas and brake. "
-                                             "In relaxed mode sunnypilot will stay further away from lead cars. On supported cars, you can cycle through these personalities with "
-                                             "your steering wheel distance button."),
+
+  std::vector<QString> longi_button_texts{tr("OP 1"), tr("OP 2"), tr("OP 3"), tr("OP 4")};
+  long_personality_setting = new ButtonParamControlSP("LongitudinalPersonality", tr("OPCIONES UEM 1"),
+                                          tr(""),
                                           "",
                                           longi_button_texts,
                                           380);
   long_personality_setting->showDescription();
 
   // accel controller
-  std::vector<QString> accel_personality_texts{tr("Sport"), tr("Normal"), tr("Eco"), tr("Stock")};
-  accel_personality_setting = new ButtonParamControlSP("AccelPersonality", tr("Acceleration Personality"),
-                                          tr("Normal is recommended. In sport mode, sunnypilot will provide aggressive acceleration for a dynamic driving experience. "
-                                             "In eco mode, sunnypilot will apply smoother and more relaxed acceleration. On supported cars, you can cycle through these "
-                                             "acceleration personality within Onroad Settings on the driving screen."),
+  std::vector<QString> accel_personality_texts{tr("OP 1"), tr("OP 2"), tr("OP 3"), tr("OP 4")};
+  accel_personality_setting = new ButtonParamControlSP("AccelPersonality", tr("OPCIONES UEM 2"),
+                                          tr(""),
                                           "",
                                           accel_personality_texts);
   accel_personality_setting->showDescription();
@@ -313,6 +310,147 @@ void TogglesPanelSP::updateToggles() {
   }
 }
 
+
+
+//Adri ini
+
+
+
+
+
+TogglesPanelUEM::TogglesPanelUEM(SettingsWindow *parent) : TogglesPanel(parent) {
+  // param, title, desc, icon
+  std::vector<std::tuple<QString, QString, QString, QString>> toggle_defs{
+    {
+      "Toggle1",
+      tr("OPCION 1"),
+      tr("Descripción del OPCION 1."),
+      "../assets/navigation/uem_logo.svg",
+    },
+    {
+      "Toggle2",
+      tr("OPCION 2"),
+      tr("Descripción del OPCION 2."),
+      "../assets/navigation/uem_logo.svg",
+    },
+    {
+      "Toggle3",
+      tr("OPCION 3"),
+      tr("Descripción del OPCION 3."),
+      "../assets/navigation/uem_logo.svg",
+    },
+     {
+      "Toggle4",
+      tr("OPCION 4"),
+      tr("Descripción del OPCION 4."),
+      "../assets/navigation/uem_logo.svg",
+    },
+    {
+      "Toggle5",
+      tr("OPCION 5"),
+      tr("Descripción del OPCION 5."),
+      "../assets/navigation/uem_logo.svg",
+    },
+    {
+      "Toggle6",
+      tr("OPCION 6"),
+      tr("Descripción del OPCION 6."),
+      "../assets/navigation/uem_logo.svg",
+    }
+  };
+
+
+
+ std::vector<QString> longi_button_texts{tr("OP 1"), tr("OP 2"), tr("OP 3"), tr("OP 4")};
+  long_personality_setting = new ButtonParamControlSP("LongitudinalPersonality", tr("OPCIONES UEM 1"),
+                                          tr(""),
+                                          "",
+                                          longi_button_texts,
+                                          380);
+  long_personality_setting->showDescription();
+
+  // accel controller
+  std::vector<QString> accel_personality_texts{tr("OP 1"), tr("OP 2"), tr("OP 3"), tr("OP 4")};
+  accel_personality_setting = new ButtonParamControlSP("AccelPersonality", tr("OPCIONES UEM 2"),
+                                          tr(""),
+                                          "",
+                                          accel_personality_texts);
+  accel_personality_setting->showDescription();
+
+
+  // set up uiState update for personality setting
+  QObject::connect(uiStateSP(), &UIStateSP::uiUpdate, this, &TogglesPanelUEM::updateState);
+
+  for (auto &[param, title, desc, icon] : toggle_defs) {
+    auto toggle = new ParamControlSP(param, title, desc, icon, this);
+
+    bool locked = params.getBool((param + "Lock").toStdString());
+    toggle->setEnabled(!locked);
+
+    addItem(toggle);
+    toggles[param.toStdString()] = toggle;
+
+    // insert longitudinal personality after NDOG toggle
+    if (param == "Toggle6") {
+      addItem(long_personality_setting);
+      addItem(accel_personality_setting);
+    }
+  }
+
+  param_watcher = new ParamWatcher(this);
+
+  QObject::connect(param_watcher, &ParamWatcher::paramChanged, [=](const QString &param_name, const QString &param_value) {
+    updateToggles();
+  });
+}
+
+void TogglesPanelUEM::updateState(const UIStateSP &s) {
+  const SubMaster &sm = *(s.sm);
+
+  if (sm.updated("controlsState")) {
+    auto personality = sm["controlsState"].getControlsState().getPersonality();
+    if (personality != s.scene.personality && s.scene.started && isVisible()) {
+      long_personality_setting->setCheckedButton(static_cast<int>(personality));
+    }
+    uiStateSP()->scene.personality = personality;
+  }
+
+  if (sm.updated("controlsStateSP")) {
+    auto accel_personality = sm["controlsStateSP"].getControlsStateSP().getAccelPersonality();
+    if (accel_personality != s.scene.accel_personality && s.scene.started && isVisible()) {
+      accel_personality_setting->setCheckedButton(static_cast<int>(accel_personality));
+    }
+    uiStateSP()->scene.accel_personality = accel_personality;
+  }
+}
+
+void TogglesPanelUEM::showEvent(QShowEvent *event) {
+  updateToggles();
+}
+
+void TogglesPanelUEM::updateToggles() {
+  param_watcher->addParam("LongitudinalPersonality");
+
+  if (!isVisible()) return;
+
+  auto toggle1 = toggles["Toggle1"];
+  auto toggle2 = toggles["Toggle2"];
+  auto toggle3 = toggles["Toggle3"];
+
+  const bool is_release = params.getBool("IsReleaseBranch");
+
+  toggle1->setEnabled(!is_release);
+  toggle2->setEnabled(!is_release);
+  toggle3->setEnabled(!is_release);
+
+  toggle1->refresh();
+  toggle2->refresh();
+  toggle3->refresh();
+}
+
+
+//Adri fin
+
 SettingsWindowSP::SettingsWindowSP(QWidget *parent) : SettingsWindow(parent) {
 
   // setup two main layouts
@@ -356,8 +494,20 @@ SettingsWindowSP::SettingsWindowSP(QWidget *parent) : SettingsWindow(parent) {
   TogglesPanelSP *toggles = new TogglesPanelSP(this);
   QObject::connect(this, &SettingsWindow::expandToggleDescription, toggles, &TogglesPanel::expandToggleDescription);
 
+//Adri ini
+
+    TogglesPanelUEM *togglesUEM = new TogglesPanelUEM(this);
+    QObject :: connect(this, &SettingsWindow::expandToggleDescription, togglesUEM, &TogglesPanel::expandToggleDescription);
+
+//Adri fin
+
+
   QList<PanelInfo> panels = {
-    PanelInfo("   " + tr("UEM"), device, "../assets/navigation/uem_logo.svg"),//Adrian
+//Adri ini
+
+    PanelInfo("   " + tr("UEM"), togglesUEM, "../assets/navigation/uem_logo.svg"),//Adrian
+
+//Adri fin
     PanelInfo("   " + tr("Device"), device, "../assets/navigation/icon_home.svg"),
     PanelInfo("   " + tr("Network"), new NetworkingSP(this), "../assets/offroad/icon_network.png"),
     PanelInfo("   " + tr("sunnylink"), new SunnylinkPanel(this), "../assets/offroad/icon_wifi_strength_full.svg"),
