@@ -49,6 +49,27 @@ private:
   void updateToggles() override;
 };
 
+//Adri ini
+class TogglesPanelUEM : public TogglesPanel {
+  Q_OBJECT
+
+public:
+  explicit TogglesPanelUEM(SettingsWindow *parent);
+  void showEvent(QShowEvent *event) override;
+
+private slots:
+  void updateState(const UIStateSP &s);
+
+private:
+  ParamWatcher *param_watcher;
+  ButtonParamControlSP *long_personality_setting;
+  ButtonParamControlSP *accel_personality_setting;
+
+  void updateToggles() override;
+};
+
+//Adri fin
+
 class SettingsWindowSP : public SettingsWindow {
   Q_OBJECT
 
