@@ -14,7 +14,7 @@ from openpilot.tools.sim.lib.camerad import W, H
 
 
 class MetaDriveWorld(World):
-  def __init__(self, status_q, config, test_duration, test_run, dual_camera=False):
+  def __init__(self, status_q, config, test_duration, test_run, dual_camera=False, modmenu_opts=None):
     super().__init__(dual_camera)
     self.status_q = status_q
     self.camera_array = Array(ctypes.c_uint8, W*H*3)
@@ -27,11 +27,13 @@ class MetaDriveWorld(World):
     self.controls_send, self.controls_recv = Pipe()
     self.simulation_state_send, self.simulation_state_recv = Pipe()
     self.vehicle_state_send, self.vehicle_state_recv = Pipe()
+    self.mod_cmd_send, self.mod_cmd_recv = Pipe()
 
     self.exit_event = multiprocessing.Event()
     self.op_engaged = multiprocessing.Event()
 
     self.test_run = test_run
+    self.modmenu_opts = modmenu_opts or {}
 
     self.first_engage = None
     self.last_check_timestamp = 0
@@ -41,7 +43,9 @@ class MetaDriveWorld(World):
                               functools.partial(metadrive_process, dual_camera, config,
                                                 self.camera_array, self.wide_camera_array, self.image_lock,
                                                 self.controls_recv, self.simulation_state_send,
-                                                self.vehicle_state_send, self.exit_event, self.op_engaged, test_duration, self.test_run))
+                                                self.vehicle_state_send, self.exit_event, self.op_engaged,
+                                                test_duration, self.test_run,
+                                                self.mod_cmd_recv, self.modmenu_opts))
 
     self.metadrive_process.start()
     self.status_q.put(QueueMessage(QueueMessageType.START_STATUS, "starting"))
@@ -125,6 +129,9 @@ class MetaDriveWorld(World):
 
   def reset(self):
     self.should_reset = True
+
+  def send_command(self, cmd):
+    self.mod_cmd_send.send(cmd)
 
   def close(self, reason: str):
     self.status_q.put(QueueMessage(QueueMessageType.CLOSE_STATUS, reason))
