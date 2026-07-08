@@ -15,6 +15,8 @@ from openpilot.common.realtime import Ratekeeper
 
 from openpilot.tools.sim.lib.common import vec3
 from openpilot.tools.sim.lib.camerad import W, H
+from openpilot.tools.sim.bridge.metadrive.metadrive_modmenu import ModMenu
+from openpilot.tools.sim.bridge.metadrive.metadrive_maps import get_map_config
 
 C3_POSITION = Vec3(0.0, 0, 1.22)
 C3_HPR = Vec3(0, 0,0)
@@ -50,7 +52,8 @@ def apply_metadrive_patches(arrive_dest_done=True):
 
 def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera_array, image_lock,
                       controls_recv: Connection, simulation_state_send: Connection, vehicle_state_send: Connection,
-                      exit_event, op_engaged, test_duration, test_run):
+                      exit_event, op_engaged, test_duration, test_run,
+                      mod_cmd_recv: Connection = None, modmenu_opts: dict = None):
   arrive_dest_done = config.pop("arrive_dest_done", True)
   apply_metadrive_patches(arrive_dest_done)
 
@@ -82,6 +85,9 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
 
   lane_idx_prev = reset()
   start_time = None
+
+  modmenu = ModMenu(env, modmenu_opts or {})
+  modmenu.create_hud()
 
   def get_cam_as_rgb(cam):
     cam = env.engine.sensors[cam]
@@ -120,6 +126,25 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
         lane_idx_prev = reset()
         start_time = None
 
+    if mod_cmd_recv is not None:
+      while mod_cmd_recv.poll(0):
+        modmenu.apply(mod_cmd_recv.recv())
+
+      if modmenu.pending_reset:
+        modmenu.pending_reset = False
+        env.config["traffic_density"] = modmenu.traffic_density
+        lane_idx_prev = reset()
+        modmenu.on_reset()
+
+      if modmenu.pending_map is not None:
+        name = modmenu.pending_map
+        modmenu.pending_map = None
+        env.config["map_config"] = get_map_config(name, modmenu.track_size)
+        env.engine.map_manager.clear_stored_maps()   # bust the store_map cache
+        lane_idx_prev = reset()
+        modmenu.on_reset()
+        modmenu.create_hud()                          # recreate HUD after engine reset
+
     is_engaged = op_engaged.is_set()
     if is_engaged and start_time is None:
       start_time = time.monotonic()
@@ -150,5 +175,7 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
         wide_road_image[...] = get_cam_as_rgb("rgb_wide")
       road_image[...] = get_cam_as_rgb("rgb_road")
       image_lock.release()
+
+      modmenu.draw_hud()
 
     rk.keep_time()
