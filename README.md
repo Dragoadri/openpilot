@@ -17,6 +17,12 @@
 
 <br/>
 
+<a href="https://github.com/dragoadri"><img src="docs/images/logo-drago.png" alt="dragoadri" height="104" align="middle"/></a>
+&nbsp;&nbsp;&nbsp;&nbsp;<b>ft</b>&nbsp;&nbsp;&nbsp;&nbsp;
+<a href="https://universidadeuropea.com"><img src="docs/images/logo-uem.png" alt="Universidad Europea de Madrid" height="104" align="middle"/></a>
+
+<br/>
+
 **[Researcher profile](https://portalcientifico.universidadeuropea.com/investigadores/1299129/detalle)**
 · **[Research group — SICUEM](https://portalcientifico.universidadeuropea.com/grupos/216432/detalle)**
 · **[Backend + app (ORBIT-IoV) ↗](https://github.com/Dragoadri/ORBIT-IoV)**

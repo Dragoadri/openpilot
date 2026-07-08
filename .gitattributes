@@ -19,3 +19,6 @@ sunnypilot/selfdrive/assets/offroad/uem_*.png -filter -diff -merge -text
 
 # ORBIT: keep the small ORBIT logo as a normal git blob (NOT LFS), same reason.
 selfdrive/assets/img_orbit_logo.png -filter -diff -merge -text
+
+# ORBIT: README logos as normal git blobs (NOT LFS) so they render + push to the fork.
+docs/images/*.png -filter -diff -merge -text
