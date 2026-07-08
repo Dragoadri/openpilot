@@ -68,13 +68,21 @@ class ModMenu:
     if not self.spawned_ids:
       return
     tm = getattr(eng, "traffic_manager", None)
-    if tm is not None and hasattr(tm, "_traffic_vehicles"):
-      tm._traffic_vehicles = [v for v in tm._traffic_vehicles if v.id not in self.spawned_ids]
+    if tm is not None:
+      if hasattr(tm, "_traffic_vehicles"):
+        tm._traffic_vehicles = [v for v in tm._traffic_vehicles if v.id not in self.spawned_ids]
+      # cut-ins are registered in the traffic manager too; drop the stale refs so the
+      # manager's own before_reset() does not KeyError clearing an already-gone id.
+      if hasattr(tm, "spawned_objects"):
+        for _id in self.spawned_ids:
+          tm.spawned_objects.pop(_id, None)
     eng.clear_objects(list(self.spawned_ids))
     self.spawned_ids = []
 
   def on_reset(self):
-    # env.reset() destroys all spawned objects and rebuilds traffic; just drop our refs.
+    # Objects spawned via engine.spawn_object are NOT owned by a manager, and
+    # env.reset() asserts none remain — so callers must clear() BEFORE reset().
+    # This only drops any leftover refs afterwards as a safety net.
     self.spawned_ids = []
 
   # ---- spawns (lazy metadrive imports) -----------------------------------
@@ -104,7 +112,7 @@ class ModMenu:
     if lane is None:
       return
     lon, lat = lane.local_coordinates(ego.position)
-    s = lon + 25.0
+    s = min(lon + 25.0, getattr(lane, "length", lon + 25.0))
     w = lane.width_at(s)
     pos = lane.position(s, lat + w)
     heading = lane.heading_theta_at(s)
@@ -138,6 +146,8 @@ class ModMenu:
       return
     from direct.gui.OnscreenText import OnscreenText
     from panda3d.core import TextNode
+    if self.hud is not None:
+      self.hud.destroy()                       # avoid stacking/orphaning nodes on map switch
     self.hud = OnscreenText(
       text="", parent=self.env.engine.aspect2d, pos=(-1.31, 0.92), scale=0.045,
       fg=(1, 1, 1, 1), bg=(0, 0, 0, 0.55), align=TextNode.ALeft, mayChange=True,

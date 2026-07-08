@@ -98,3 +98,7 @@ class World(ABC):
   @abstractmethod
   def reset(self):
     pass
+
+  def send_command(self, cmd):
+    # Mod-menu commands; worlds that support them (e.g. MetaDriveWorld) override this.
+    pass

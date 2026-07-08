@@ -123,6 +123,7 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
       vc = [steer_metadrive, gas]
 
       if should_reset:
+        modmenu.clear()                        # engine.reset() asserts no stray spawned objects
         lane_idx_prev = reset()
         start_time = None
 
@@ -133,6 +134,7 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
       if modmenu.pending_reset:
         modmenu.pending_reset = False
         env.config["traffic_density"] = modmenu.traffic_density
+        modmenu.clear()                        # clear owned objects BEFORE reset (see C1)
         lane_idx_prev = reset()
         modmenu.on_reset()
 
@@ -141,6 +143,7 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
         modmenu.pending_map = None
         env.config["map_config"] = get_map_config(name, modmenu.track_size)
         env.engine.map_manager.clear_stored_maps()   # bust the store_map cache
+        modmenu.clear()                        # clear owned objects BEFORE reset (see C1)
         lane_idx_prev = reset()
         modmenu.on_reset()
         modmenu.create_hud()                          # recreate HUD after engine reset
