@@ -15,6 +15,7 @@ from openpilot.selfdrive.test.helpers import set_params_enabled
 from openpilot.tools.sim.lib.common import SimulatorState, World
 from openpilot.tools.sim.lib.simulated_car import SimulatedCar
 from openpilot.tools.sim.lib.simulated_sensors import SimulatedSensors
+from openpilot.tools.sim.bridge.metadrive import metadrive_command
 
 QueueMessage = namedtuple("QueueMessage", ["type", "info"], defaults=[None])
 
@@ -132,6 +133,9 @@ Ignition: {self.simulator_state.ignition} Engaged: {self.simulator_state.is_enga
       if not q.empty():
         message = q.get()
         if message.type == QueueMessageType.CONTROL_COMMAND:
+          if metadrive_command.is_mod_command(message.info):
+            self.world.send_command(message.info)
+            continue
           m = message.info.split('_')
           if m[0] == "steer":
             steer_manual = float(m[1])
