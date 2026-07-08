@@ -4,7 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-Onroad CT/AT/JT numeric torque HUD for SIC-UEM / AdriPilot.
+Onroad CT/AT/JT numeric torque HUD for SIC-UEM / Orbit.
 
 Port of the bottom-right torque readout in AnnotatedCameraWidgetSP::drawHud
 (selfdrive/ui/sunnypilot/qt/onroad/annotated_camera.cc:1227-1270). Three stacked

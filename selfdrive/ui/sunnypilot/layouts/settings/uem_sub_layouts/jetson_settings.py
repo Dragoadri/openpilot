@@ -4,7 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-JetsonSettings sub-panel (SIC-UEM / AdriPilot).
+JetsonSettings sub-panel (SIC-UEM / Orbit).
 
 Port of the old Qt JetsonSettings (selfdrive/ui/sunnypilot/qt/offroad/settings/
 sunnypilot/jetson_settings.cc) to the raylib/Python sunnypilot UI.
@@ -14,7 +14,7 @@ Lets the user:
     TEST MAX) with a confirmation dialog before each change. COMMA+JETSON also
     asks how the Jetson should dodge (curvature vs torque).
   - Edit the Jetson connection config (IPs / ports / JPEG quality) stored in
-    sicuem/adripilot/config_jetson.json (atomic write, bumps _version, sets
+    sicuem/orbit/config_jetson.json (atomic write, bumps _version, sets
     JetsonConfigChanged).
   - See a live JetsonObstacleStatus label (throttled param read).
 
@@ -69,8 +69,8 @@ CONFIG_DEFAULTS = {
 def _resolve_config_path() -> str:
   """Resolve config_jetson.json, preferring BASEDIR with a /data/openpilot fallback."""
   candidates = [
-    os.path.join(BASEDIR, "sicuem", "adripilot", "config_jetson.json"),
-    "/data/openpilot/sicuem/adripilot/config_jetson.json",
+    os.path.join(BASEDIR, "sicuem", "orbit", "config_jetson.json"),
+    "/data/openpilot/sicuem/orbit/config_jetson.json",
   ]
   for path in candidates:
     if os.path.exists(path):

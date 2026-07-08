@@ -4,13 +4,13 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-ServerIpSettings sub-panel (SIC-UEM / AdriPilot).
+ServerIpSettings sub-panel (SIC-UEM / Orbit).
 
 Port of the old Qt ServerIpSettings (selfdrive/ui/sunnypilot/qt/offroad/settings/
 sunnypilot/server_ip_settings.cc).
 
 Edits two server IPs, preserving all other keys in each JSON file:
-  - AdriPilot MQTT broker: key "broker" in sicuem/adripilot/config_mqtt.json
+  - Orbit MQTT broker: key "broker" in sicuem/orbit/config_mqtt.json
   - SICUEM server:         config.IpServer.value in sicuem/config.json
 
 Paths resolve under BASEDIR/sicuem/... with a /data/openpilot fallback.
@@ -77,18 +77,18 @@ class ServerIpSettingsLayout(Widget):
     self._back_button = NavButton(tr("Back"))
     self._back_button.set_click_callback(back_btn_callback)
 
-    self._adripilot_path = _resolve_path("sicuem/adripilot/config_mqtt.json")
+    self._orbit_path = _resolve_path("sicuem/orbit/config_mqtt.json")
     self._sicuem_path = _resolve_path("sicuem/config.json")
 
     items = self._initialize_items()
     self._scroller = Scroller(items, line_separator=False, spacing=0)
 
   def _initialize_items(self):
-    self._adripilot_button = button_item_sp(
-      title=lambda: tr("Servidor AdriPilot (broker MQTT)"),
+    self._orbit_button = button_item_sp(
+      title=lambda: tr("Servidor Orbit (broker MQTT)"),
       button_text=lambda: tr("EDITAR"),
-      description=lambda: tr("IP actual:") + f" {self._read_adripilot_ip() or '-'}",
-      callback=self._edit_adripilot,
+      description=lambda: tr("IP actual:") + f" {self._read_orbit_ip() or '-'}",
+      callback=self._edit_orbit,
     )
     self._sicuem_button = button_item_sp(
       title=lambda: tr("Servidor SICUEM (Universidad Europea)"),
@@ -98,14 +98,14 @@ class ServerIpSettingsLayout(Widget):
     )
 
     return [
-      self._adripilot_button,
+      self._orbit_button,
       LineSeparatorSP(40),
       self._sicuem_button,
     ]
 
   # ---------------------------------------------------------------- reads
-  def _read_adripilot_ip(self) -> str:
-    root = _load_json(self._adripilot_path)
+  def _read_orbit_ip(self) -> str:
+    root = _load_json(self._orbit_path)
     broker = root.get("broker")
     return broker if isinstance(broker, str) else ""
 
@@ -121,8 +121,8 @@ class ServerIpSettingsLayout(Widget):
     return ""
 
   # ---------------------------------------------------------------- edits
-  def _edit_adripilot(self):
-    current = self._read_adripilot_ip()
+  def _edit_orbit(self):
+    current = self._read_orbit_ip()
 
     def on_input(result: DialogResult, text: str):
       if result != DialogResult.CONFIRM:
@@ -130,11 +130,11 @@ class ServerIpSettingsLayout(Widget):
       text = text.strip()
       if not text:
         return
-      root = _load_json(self._adripilot_path)  # preserve broker_port and any other keys
+      root = _load_json(self._orbit_path)  # preserve broker_port and any other keys
       root["broker"] = text
-      _save_json(self._adripilot_path, root)
+      _save_json(self._orbit_path, root)
 
-    InputDialogSP(tr("IP Servidor AdriPilot"), current_text=current, min_text_size=1, callback=on_input).show()
+    InputDialogSP(tr("IP Servidor Orbit"), current_text=current, min_text_size=1, callback=on_input).show()
 
   def _edit_sicuem(self):
     current = self._read_sicuem_ip()

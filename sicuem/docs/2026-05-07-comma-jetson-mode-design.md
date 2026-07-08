@@ -132,9 +132,9 @@ con cache, 1 vez/s), si `params.get(key)` devuelve `None` se usa el default
 hardcoded en el módulo y se escribe en el param para que aparezca en la UI
 la primera vez. La UI/app permitirá editarlos posteriormente.
 
-### 4.2 Módulo nuevo `sicuem/adripilot/adripilot_obstacle_pulse.py`
+### 4.2 Módulo nuevo `sicuem/orbit/orbit_obstacle_pulse.py`
 
-Encapsula el estado del esquive activo. Análogo a `adripilot_steering_pulse.py`
+Encapsula el estado del esquive activo. Análogo a `orbit_steering_pulse.py`
 pero leyendo de Params (no globals — el productor `zmq_client` está en otro
 proceso) y con cancelaciones más completas.
 
@@ -198,12 +198,12 @@ if CC.latActive and steer_mode == 3:
 Inicialización en `Controls.__init__`:
 
 ```python
-from openpilot.sicuem.adripilot.adripilot_obstacle_pulse import ObstaclePulseState
+from openpilot.sicuem.orbit.orbit_obstacle_pulse import ObstaclePulseState
 self._obstacle_pulse_state = ObstaclePulseState()
 self._last_obstacle_status = ""
 ```
 
-### 4.4 `sicuem/adripilot/zmq_client.py`
+### 4.4 `sicuem/orbit/zmq_client.py`
 
 En `_torque_listener()`, distinguir formato por longitud:
 
@@ -254,7 +254,7 @@ Mini indicador debajo de los botones que lee `JetsonObstacleStatus` cada 500 ms:
 - `CANCELED_DRIVER` → "⚠ Cancelado por conductor" gris (3 s)
 - `CANCELED_STALE` → "❌ Jetson sin respuesta" rojo (3 s)
 
-### 4.6 UI app Flutter (`adripilot_app/lib/screens/jetson_config_screen.dart`)
+### 4.6 UI app Flutter (`orbit_app/lib/screens/jetson_config_screen.dart`)
 
 Añadir 4ª tarjeta en `_buildSteerTorqueModeCard()` después de la del modo 0
 y antes de la del modo 1:
@@ -277,7 +277,7 @@ patrón del listener `steer_torque_mode` ya existente.
 `_changeSteerMode(int mode)` ya acepta cualquier int; basta validar 0..3 si se
 quiere ser estricto.
 
-### 4.7 MQTT bridge (`sicuem/adripilot/mqtt_envio_general.py`)
+### 4.7 MQTT bridge (`sicuem/orbit/mqtt_envio_general.py`)
 
 Publicador del payload `JetsonObstacleStatusMqttPayload` en topics:
 - `telemetry_config/{dongle_id}/jetson_obstacle_status`
@@ -285,7 +285,7 @@ Publicador del payload `JetsonObstacleStatusMqttPayload` en topics:
 
 Sentido único Comma → app (la app no envía esquives, sólo los muestra).
 
-### 4.8 `sicuem/adripilot/mqtt_comandos.py`
+### 4.8 `sicuem/orbit/mqtt_comandos.py`
 
 `handle_steer_torque_mode` ya parsea int. Sólo asegurar que acepta `3` como
 valor válido (validación explícita opcional `if mode not in (0,1,2,3): reject`).
@@ -367,7 +367,7 @@ Cancelaciones posibles entre T=0.02 y T=1.5:
 ## 10. Plan de implementación (alto nivel — el plan detallado lo hará writing-plans)
 
 1. Añadir params en `common/params.cc` y compilar.
-2. Crear `adripilot_obstacle_pulse.py` con tests unitarios.
+2. Crear `orbit_obstacle_pulse.py` con tests unitarios.
 3. Extender `zmq_client.py` con la rama JSON.
 4. Modificar `controlsd.py` con la rama `steer_mode == 3`.
 5. Modificar `jetson_settings.cc/.h` (4º botón + indicador).

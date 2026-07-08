@@ -60,7 +60,7 @@ class LongControl:
                              rate=1 / DT_CTRL)
     self.last_output_accel = 0.0
 
-    # [AdriPilot] corte periódico del control longitudinal por intervalos (demo MQTT)
+    # [Orbit] corte periódico del control longitudinal por intervalos (demo MQTT)
     self.params = Params()
     threading.Thread(target=self._toggle_long_control, daemon=True).start()
 
@@ -87,7 +87,7 @@ class LongControl:
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
 
-    # [AdriPilot] corte longitudinal (intervalos_toggle): frena/coasting hasta reactivar
+    # [Orbit] corte longitudinal (intervalos_toggle): frena/coasting hasta reactivar
     if self.params.get_bool("DisableLongControl"):
       return float(np.clip(-1.0, accel_limits[0], accel_limits[1]))
 

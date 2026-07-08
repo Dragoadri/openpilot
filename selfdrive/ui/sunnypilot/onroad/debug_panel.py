@@ -4,7 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-MQTT debug panel onroad overlay (SIC-UEM / AdriPilot).
+MQTT debug panel onroad overlay (SIC-UEM / Orbit).
 
 Port of the old Qt DebugPanel (selfdrive/ui/sunnypilot/qt/onroad/debug_panel.cc).
 When the "modo_debug" param is on, tails /tmp/mqtt_debug_messages.txt (written by

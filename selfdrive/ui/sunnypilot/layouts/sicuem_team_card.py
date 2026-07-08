@@ -7,7 +7,7 @@ See the LICENSE.md file in the root directory for more details.
 SIC-UEM team card for the offroad home screen.
 
 Replaces the stock "comma prime" advertisement (PrimeWidget) in the left column
-with SIC-UEM / AdriPilot research-group branding: logo, group + university,
+with SIC-UEM / Orbit research-group branding: logo, group + university,
 the TFG project, and author/director credits. Palette matches sicuem_splash.py.
 Text avoids accents to stay consistent with the splash and dodge missing glyphs.
 """
@@ -32,7 +32,7 @@ LOGO_SIZE = 150
 
 
 class SicuemTeamCard(Widget):
-  """SIC-UEM / AdriPilot branding card (left column of the home screen)."""
+  """SIC-UEM / Orbit branding card (left column of the home screen)."""
 
   def _render(self, rect: rl.Rectangle):
     rl.draw_rectangle_rounded(rect, 0.025, 10, CARD_BG)
@@ -66,7 +66,7 @@ class SicuemTeamCard(Widget):
     y += 4 + 40
 
     # Proyecto
-    rl.draw_text_ex(bold, "AdriPilot  -  TFG", rl.Vector2(x, y), 60, 0, WHITE)
+    rl.draw_text_ex(bold, "Orbit  -  TFG", rl.Vector2(x, y), 60, 0, WHITE)
     y += 60 + 14
     desc = "Conduccion asistida con telemetria y control remoto"
     for line in wrap_text(normal, desc, 38, w):

@@ -58,6 +58,9 @@ dependencies = [
   "sentry-sdk",
   "xattr",  # used in place of 'os.getxattr' for macOS compatibility
 
+  # SIC-UEM / Orbit telemetry (also vendored under /paho on the device image via PYTHONPATH; declared here so clean/CI envs resolve the import)
+  "paho-mqtt",
+
   # athena
   "PyJWT",
   "json-rpc",

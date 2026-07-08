@@ -4,7 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-Onroad overtake (adelantamiento) status badge for SIC-UEM / AdriPilot.
+Onroad overtake (adelantamiento) status badge for SIC-UEM / Orbit.
 
 Port of AnnotatedCameraWidgetSP::drawOvertakeIndicator
 (selfdrive/ui/sunnypilot/qt/onroad/annotated_camera.cc:715-849). Shown only when

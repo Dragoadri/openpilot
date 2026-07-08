@@ -13,20 +13,20 @@
 ## File Structure
 
 **Archivos nuevos:**
-- `sicuem/adripilot/adripilot_obstacle_pulse.py` — clase `ObstaclePulseState` con ingest, get_offsets, cancelaciones.
-- `sicuem/adripilot/test/test_obstacle_pulse.py` — tests unitarios.
-- `sicuem/adripilot/test/test_obstacle_pulse_zmq.py` — test integrado de protocolo.
+- `sicuem/orbit/orbit_obstacle_pulse.py` — clase `ObstaclePulseState` con ingest, get_offsets, cancelaciones.
+- `sicuem/orbit/test/test_obstacle_pulse.py` — tests unitarios.
+- `sicuem/orbit/test/test_obstacle_pulse_zmq.py` — test integrado de protocolo.
 
 **Archivos modificados:**
 - `common/params.cc:175` — 4 params CLEAR + 4 params PERSISTENT.
-- `sicuem/adripilot/zmq_client.py:147` — distinguir formato por longitud, parsear JSON.
+- `sicuem/orbit/zmq_client.py:147` — distinguir formato por longitud, parsear JSON.
 - `selfdrive/controls/controlsd.py:60-130 (init), 988 (selector), 1110 (post-selector)` — rama `steer_mode==3` y aplicación de offsets.
 - `selfdrive/ui/sunnypilot/qt/offroad/settings/sunnypilot/jetson_settings.h` — declarar 4º botón.
 - `selfdrive/ui/sunnypilot/qt/offroad/settings/sunnypilot/jetson_settings.cc` — añadir botón, conectar a `tryChangeSteerMode(3)`, indicador de estado.
-- `sicuem/adripilot/mqtt_envio_general.py` — publicador del status.
-- `sicuem/adripilot/mqtt_comandos.py:746` — validar `mode in (0,1,2,3)`.
-- `/home/drago/Escritorio/PROYECTS/ADRIPILOT/adripilot_app/lib/screens/jetson_config_screen.dart` — 4ª tarjeta, listener status.
-- `/home/drago/Escritorio/PROYECTS/ADRIPILOT/adripilot_app/lib/services/mqtt_service.dart` — listener nuevo topic.
+- `sicuem/orbit/mqtt_envio_general.py` — publicador del status.
+- `sicuem/orbit/mqtt_comandos.py:746` — validar `mode in (0,1,2,3)`.
+- `/home/drago/Escritorio/PROYECTS/ORBIT/orbit_app/lib/screens/jetson_config_screen.dart` — 4ª tarjeta, listener status.
+- `/home/drago/Escritorio/PROYECTS/ORBIT/orbit_app/lib/services/mqtt_service.dart` — listener nuevo topic.
 
 ---
 
@@ -94,19 +94,19 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 2 — Módulo `ObstaclePulseState` (TDD)
 
 **Files:**
-- Create: `sicuem/adripilot/adripilot_obstacle_pulse.py`
-- Create: `sicuem/adripilot/test/test_obstacle_pulse.py`
+- Create: `sicuem/orbit/orbit_obstacle_pulse.py`
+- Create: `sicuem/orbit/test/test_obstacle_pulse.py`
 
 - [ ] **Step 1: Crear esqueleto del archivo de tests primero**
 
-Crear `sicuem/adripilot/test/test_obstacle_pulse.py`:
+Crear `sicuem/orbit/test/test_obstacle_pulse.py`:
 
 ```python
 """Tests unitarios del esquive de obstáculos (modo 3 COMMA+JETSON)."""
 import unittest
 from unittest.mock import MagicMock
 
-from openpilot.sicuem.adripilot.adripilot_obstacle_pulse import (
+from openpilot.sicuem.orbit.orbit_obstacle_pulse import (
     ObstaclePulseState,
     DEFAULT_MAX_DURATION_MS,
     DEFAULT_WATCHDOG_MS,
@@ -140,14 +140,14 @@ if __name__ == "__main__":
 
 Run:
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m pytest sicuem/adripilot/test/test_obstacle_pulse.py -v
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m pytest sicuem/orbit/test/test_obstacle_pulse.py -v
 ```
 
-Expected: FAIL con `ModuleNotFoundError: No module named 'openpilot.sicuem.adripilot.adripilot_obstacle_pulse'`.
+Expected: FAIL con `ModuleNotFoundError: No module named 'openpilot.sicuem.orbit.orbit_obstacle_pulse'`.
 
-- [ ] **Step 3: Crear el módulo `adripilot_obstacle_pulse.py` mínimo**
+- [ ] **Step 3: Crear el módulo `orbit_obstacle_pulse.py` mínimo**
 
-Crear `sicuem/adripilot/adripilot_obstacle_pulse.py`:
+Crear `sicuem/orbit/orbit_obstacle_pulse.py`:
 
 ```python
 #!/usr/bin/env python3
@@ -155,7 +155,7 @@ Crear `sicuem/adripilot/adripilot_obstacle_pulse.py`:
 """
 Esquive de obstáculos para el modo 3 (COMMA+JETSON).
 
-A diferencia de adripilot_steering_pulse.py (cruceta MQTT, valores fijos,
+A diferencia de orbit_steering_pulse.py (cruceta MQTT, valores fijos,
 dos fases), este módulo:
   - lee el último mensaje de la Jetson desde Params (productor: zmq_client en
     otro proceso, no globals)
@@ -271,7 +271,7 @@ class ObstaclePulseState:
 
 Run:
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m pytest sicuem/adripilot/test/test_obstacle_pulse.py::TestObstaclePulseState::test_idle_returns_zero_offsets -v
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m pytest sicuem/orbit/test/test_obstacle_pulse.py::TestObstaclePulseState::test_idle_returns_zero_offsets -v
 ```
 
 Expected: PASS.
@@ -309,7 +309,7 @@ Añadir al final de `test_obstacle_pulse.py` (dentro de la clase):
 
 Run:
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m pytest sicuem/adripilot/test/test_obstacle_pulse.py -v
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m pytest sicuem/orbit/test/test_obstacle_pulse.py -v
 ```
 
 Expected: 4 PASS.
@@ -394,7 +394,7 @@ Añadir:
 
 Run:
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m pytest sicuem/adripilot/test/test_obstacle_pulse.py -v
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m pytest sicuem/orbit/test/test_obstacle_pulse.py -v
 ```
 
 Expected: 13 PASS.
@@ -402,7 +402,7 @@ Expected: 13 PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && git add -f sicuem/adripilot/adripilot_obstacle_pulse.py sicuem/adripilot/test/test_obstacle_pulse.py && git commit -m "obstacle-pulse: módulo ObstaclePulseState con tests
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && git add -f sicuem/orbit/orbit_obstacle_pulse.py sicuem/orbit/test/test_obstacle_pulse.py && git commit -m "obstacle-pulse: módulo ObstaclePulseState con tests
 
 - Ingest del JSON Jetson, clamp intensity, cap duration
 - Cancelaciones: steering, brake, watchdog, lat inactivo, obstacle=false
@@ -418,11 +418,11 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 3 — Extender `zmq_client.py` para JSON
 
 **Files:**
-- Modify: `sicuem/adripilot/zmq_client.py:147-194`
+- Modify: `sicuem/orbit/zmq_client.py:147-194`
 
 - [ ] **Step 1: Añadir import de `json` arriba**
 
-En `sicuem/adripilot/zmq_client.py`, asegurar que `import json` está al principio (junto con `import math`, `import struct`, etc.):
+En `sicuem/orbit/zmq_client.py`, asegurar que `import json` está al principio (junto con `import math`, `import struct`, etc.):
 
 ```python
 import json
@@ -529,7 +529,7 @@ Justo encima de `_torque_listener` (o donde encaje en el orden del archivo), añ
 
 - [ ] **Step 4: Crear test integrado de protocolo**
 
-Crear `sicuem/adripilot/test/test_obstacle_pulse_zmq.py`:
+Crear `sicuem/orbit/test/test_obstacle_pulse_zmq.py`:
 
 ```python
 """Test integrado: enviar JSON por ZMQ → leer params → modo 1 sigue funcionando."""
@@ -542,7 +542,7 @@ import unittest
 import zmq
 
 from openpilot.common.params import Params
-from openpilot.sicuem.adripilot.zmq_client import ZMQClient
+from openpilot.sicuem.orbit.zmq_client import ZMQClient
 
 
 class TestObstacleZmqProtocol(unittest.TestCase):
@@ -603,7 +603,7 @@ if __name__ == "__main__":
 
 Run:
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m pytest sicuem/adripilot/test/test_obstacle_pulse_zmq.py -v
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m pytest sicuem/orbit/test/test_obstacle_pulse_zmq.py -v
 ```
 
 Expected: 3 PASS. Si falla por puerto en uso, cambiar `PORT = 5566` en el test.
@@ -611,7 +611,7 @@ Expected: 3 PASS. Si falla por puerto en uso, cambiar `PORT = 5566` en el test.
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && git add sicuem/adripilot/zmq_client.py && git add -f sicuem/adripilot/test/test_obstacle_pulse_zmq.py && git commit -m "zmq_client: parsear JSON de obstáculo (modo 3) en mismo socket
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && git add sicuem/orbit/zmq_client.py && git add -f sicuem/orbit/test/test_obstacle_pulse_zmq.py && git commit -m "zmq_client: parsear JSON de obstáculo (modo 3) en mismo socket
 
 Coexistencia con modo 1: distinguimos por longitud
 - len == 4 → float legacy → JetsonTorque (sin cambios)
@@ -635,7 +635,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 Localizar la zona de imports al principio de `controlsd.py` (alrededor de línea 28) y verificar que `import json` y `import time` están. Añadir el import del módulo nuevo:
 
 ```python
-from openpilot.sicuem.adripilot.adripilot_obstacle_pulse import (
+from openpilot.sicuem.orbit.orbit_obstacle_pulse import (
     ObstaclePulseState,
     DEFAULT_MAX_DURATION_MS,
     DEFAULT_WATCHDOG_MS,
@@ -703,7 +703,7 @@ En `controlsd.py:1086-1092`, dentro del bloque `if CC.latActive:` después del `
 
 - [ ] **Step 4: Añadir aplicación de offsets después del bloque del pulso de cruceta**
 
-Justo después del bloque `try: from openpilot.sicuem.adripilot.adripilot_steering_pulse import ...` y su except (alrededor de línea 1148), antes del `if self.model_use_lateral_planner:` de la línea 1150, añadir:
+Justo después del bloque `try: from openpilot.sicuem.orbit.orbit_steering_pulse import ...` y su except (alrededor de línea 1148), antes del `if self.model_use_lateral_planner:` de la línea 1150, añadir:
 
 ```python
       # ────────────────────────────────────────────────────────────────
@@ -983,13 +983,13 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 6 — Bridge MQTT del status (`mqtt_envio_general.py`)
 
 **Files:**
-- Modify: `sicuem/adripilot/mqtt_envio_general.py`
+- Modify: `sicuem/orbit/mqtt_envio_general.py`
 
 - [ ] **Step 1: Localizar el patrón de `SteerTorqueModeMqttPayload`**
 
 Run:
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && grep -n "SteerTorqueModeMqttPayload\|_publish_to_topics\|telemetry_config" sicuem/adripilot/mqtt_envio_general.py | head -30
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && grep -n "SteerTorqueModeMqttPayload\|_publish_to_topics\|telemetry_config" sicuem/orbit/mqtt_envio_general.py | head -30
 ```
 
 Expected: ver el bloque que publica `SteerTorqueModeMqttPayload`. Lo reproduciremos para el nuevo payload.
@@ -1026,7 +1026,7 @@ Localizar el método donde se publica `SteerTorqueModeMqttPayload`. Inmediatamen
 
 Run:
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && grep -n "UnknownKeyName" sicuem/adripilot/mqtt_envio_general.py
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && grep -n "UnknownKeyName" sicuem/orbit/mqtt_envio_general.py
 ```
 
 Expected: si no aparece, añadirlo arriba: `from openpilot.common.params import Params, UnknownKeyName`.
@@ -1035,7 +1035,7 @@ Expected: si no aparece, añadirlo arriba: `from openpilot.common.params import 
 
 Run:
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m py_compile sicuem/adripilot/mqtt_envio_general.py
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m py_compile sicuem/orbit/mqtt_envio_general.py
 ```
 
 Expected: sin output.
@@ -1043,7 +1043,7 @@ Expected: sin output.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && git add sicuem/adripilot/mqtt_envio_general.py && git commit -m "mqtt: publicar JetsonObstacleStatus a topics telemetry/global
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && git add sicuem/orbit/mqtt_envio_general.py && git commit -m "mqtt: publicar JetsonObstacleStatus a topics telemetry/global
 
 Mismo patrón que SteerTorqueModeMqttPayload. Sentido único Comma→app
 (la app sólo lo muestra, no envía esquives).
@@ -1060,13 +1060,13 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 7 — Validación en `mqtt_comandos.py`
 
 **Files:**
-- Modify: `sicuem/adripilot/mqtt_comandos.py:746-775`
+- Modify: `sicuem/orbit/mqtt_comandos.py:746-775`
 
 - [ ] **Step 1: Localizar la validación actual del modo**
 
 Run:
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && sed -n '740,780p' sicuem/adripilot/mqtt_comandos.py
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && sed -n '740,780p' sicuem/orbit/mqtt_comandos.py
 ```
 
 Expected: ver el `try: mode = int(...)` y el rango aceptado.
@@ -1087,7 +1087,7 @@ Localizar el bloque tras `mode = int(data["steer_torque_mode"])` y añadir/modif
 
 Run:
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m py_compile sicuem/adripilot/mqtt_comandos.py
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && python3 -m py_compile sicuem/orbit/mqtt_comandos.py
 ```
 
 Expected: sin output.
@@ -1095,7 +1095,7 @@ Expected: sin output.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && git add sicuem/adripilot/mqtt_comandos.py && git commit -m "mqtt_comandos: aceptar SteerTorqueMode=3 (COMMA+JETSON)
+cd /home/drago/Escritorio/OPENPILOTSIC/openpilot-img && git add sicuem/orbit/mqtt_comandos.py && git commit -m "mqtt_comandos: aceptar SteerTorqueMode=3 (COMMA+JETSON)
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
@@ -1105,8 +1105,8 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 8 — App Flutter: 4ª tarjeta y listener
 
 **Files:**
-- Modify: `/home/drago/Escritorio/PROYECTS/ADRIPILOT/adripilot_app/lib/screens/jetson_config_screen.dart`
-- Modify: `/home/drago/Escritorio/PROYECTS/ADRIPILOT/adripilot_app/lib/services/mqtt_service.dart`
+- Modify: `/home/drago/Escritorio/PROYECTS/ORBIT/orbit_app/lib/screens/jetson_config_screen.dart`
+- Modify: `/home/drago/Escritorio/PROYECTS/ORBIT/orbit_app/lib/services/mqtt_service.dart`
 
 - [ ] **Step 1: Añadir tarjeta del modo 3 antes de la tarjeta del modo 1**
 
@@ -1281,7 +1281,7 @@ Helpers:
 
 Run:
 ```bash
-cd /home/drago/Escritorio/PROYECTS/ADRIPILOT/adripilot_app && flutter analyze
+cd /home/drago/Escritorio/PROYECTS/ORBIT/orbit_app && flutter analyze
 ```
 
 Expected: 0 errores. Warnings de "info" se aceptan.
@@ -1289,7 +1289,7 @@ Expected: 0 errores. Warnings de "info" se aceptan.
 - [ ] **Step 9: Commit en el repo de la app**
 
 ```bash
-cd /home/drago/Escritorio/PROYECTS/ADRIPILOT && git add adripilot_app/lib/ && git commit -m "feat: 4ª tarjeta COMMA+JETSON e indicador de esquive
+cd /home/drago/Escritorio/PROYECTS/ORBIT && git add orbit_app/lib/ && git commit -m "feat: 4ª tarjeta COMMA+JETSON e indicador de esquive
 
 - Tarjeta azul para mode=3 entre COMMA y JETSON.
 - Listener mqtt jetson_obstacle_status (telemetry_config/+ y global).
@@ -1304,7 +1304,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ## Task 9 — Documentación final
 
 **Files:**
-- Modify: `/home/drago/Escritorio/PROYECTS/ADRIPILOT/STEER_TORQUE_MODE.md`
+- Modify: `/home/drago/Escritorio/PROYECTS/ORBIT/STEER_TORQUE_MODE.md`
 
 - [ ] **Step 1: Actualizar la tabla de modos**
 
@@ -1328,7 +1328,7 @@ Ver:
 - [ ] **Step 2: Commit**
 
 ```bash
-cd /home/drago/Escritorio/PROYECTS/ADRIPILOT && git add STEER_TORQUE_MODE.md && git commit -m "docs: documentar modo 3 COMMA+JETSON
+cd /home/drago/Escritorio/PROYECTS/ORBIT && git add STEER_TORQUE_MODE.md && git commit -m "docs: documentar modo 3 COMMA+JETSON
 
 Referencias al spec/plan/protocolo. Tabla actualizada a 4 modos.
 

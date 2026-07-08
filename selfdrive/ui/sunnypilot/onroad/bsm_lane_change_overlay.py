@@ -4,7 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-Onroad BSM lane-change alert badge for SIC-UEM / AdriPilot.
+Onroad BSM lane-change alert badge for SIC-UEM / Orbit.
 
 Port of AnnotatedCameraWidgetSP::drawBsmLaneChangeAlert
 (selfdrive/ui/sunnypilot/qt/onroad/annotated_camera.cc:851-936). Reads the

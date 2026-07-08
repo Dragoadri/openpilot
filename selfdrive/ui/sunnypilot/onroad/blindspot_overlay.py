@@ -4,7 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-Onroad blind-spot ("Angulo Muerto") status block for SIC-UEM / AdriPilot.
+Onroad blind-spot ("Angulo Muerto") status block for SIC-UEM / Orbit.
 
 Port of the blind-spot block in AnnotatedCameraWidgetSP::drawHud
 (selfdrive/ui/sunnypilot/qt/onroad/annotated_camera.cc:990-1036). Gated by the

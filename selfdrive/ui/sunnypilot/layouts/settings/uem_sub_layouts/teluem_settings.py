@@ -4,19 +4,20 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-TelUemSettings sub-panel (SIC-UEM / AdriPilot).
+TelUemSettings sub-panel (SIC-UEM / Orbit).
 
 Port of the old Qt TelUemSettings (selfdrive/ui/sunnypilot/qt/offroad/settings/
 sunnypilot/teluem_settings.cc). Per-channel telemetry toggles that gate which
-cereal channels the SIC-UEM MQTT sender (sicuem/sicmqtthilo2.py) publishes.
+cereal channels the SIC-UEM MQTT sender (sicuem/orbit/mqtt_envio_general.py)
+publishes.
 
-Faithful port: the same 9 bool toggles in the original order. The original was a
+Faithful port: the original bool toggles in the original order. The original was a
 pure ParamControlSP binding with no extra logic (updateToggles() was empty), so
 this is a layout-only port. All params already exist in common/params_keys.h as
 {PERSISTENT, BOOL}.
 
-Note: the migrated backend also reads controlsState_toggle / liveCalibration_toggle
-(sicmqtthilo2.py), but the original TelUem panel never exposed them, so they are
+Note: the migrated backend also reads controlsState_toggle / liveCalibration_toggle,
+but the original TelUem panel never exposed them, so they are
 intentionally left out here to stay faithful to the original UI. intervalos_toggle
 is also written programmatically by the backend; it is kept as a toggle to match
 the original, but the backend may override it.
@@ -38,7 +39,6 @@ TELEMETRY_TOGGLES = [
   ("carState_toggle", "CarState UEM", "Publica el canal carState por MQTT."),
   ("carControl_toggle", "carControl UEM", "Publica el canal carControl por MQTT."),
   ("gpsLocationExternal_toggle", "GPSLocation UEM", "Publica la localizacion GPS externa por MQTT."),
-  ("navInstruction_toggle", "navInstruction UEM", "Publica las instrucciones de navegacion por MQTT."),
   ("radarState_toggle", "radarState UEM", "Publica el canal radarState por MQTT."),
   ("drivingModelData_toggle", "drivingModelData UEM", "Publica los datos del modelo de conduccion por MQTT."),
   ("mapbox_toggle", "RESPUESTA MAPBOX", "Publica la respuesta de Mapbox por MQTT."),

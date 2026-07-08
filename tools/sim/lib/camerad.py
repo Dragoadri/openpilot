@@ -12,7 +12,7 @@ from openpilot.tools.sim.lib.common import W, H
 THUMBNAIL_W = W // 4
 THUMBNAIL_H = H // 4
 THUMBNAIL_EVERY_N_FRAMES = 5
-JETSON_CONFIG_FILE = os.path.join(BASEDIR, "sicuem/adripilot/config_jetson.json")
+JETSON_CONFIG_FILE = os.path.join(BASEDIR, "sicuem/orbit/config_jetson.json")
 
 
 def rgb_to_nv12(rgb):
@@ -76,7 +76,7 @@ class Camerad:
         print("Camerad: Jetson ZMQ deshabilitado en config")
         return
 
-      from openpilot.sicuem.adripilot.zmq_client import ZMQClient
+      from openpilot.sicuem.orbit.zmq_client import ZMQClient
       self.zmq_client = ZMQClient(
         jetson_ip=config.get("jetson_ip", "127.0.0.1"),
         img_port=int(config.get("jetson_img_port", 5555)),
@@ -91,7 +91,7 @@ class Camerad:
 
   def cam_send_yuv_road(self, yuv, rgb=None):
     self._send_yuv(yuv, self.frame_road_id, 'roadCameraState', VisionStreamType.VISION_STREAM_ROAD)
-    # En el coche real, sicuem/adripilot/camera_sender.py se suscribe al canal cereal
+    # En el coche real, sicuem/orbit/camera_sender.py se suscribe al canal cereal
     # 'jetsonThumbnail' (~5 Hz) y reenvia ese mismo JPEG por ZMQ a la Jetson. Para que
     # el sim se comporte igual, generamos el thumbnail solo cada N frames y reusamos
     # esos bytes tanto para el mensaje cereal como para el envio ZMQ a la Jetson.
@@ -112,7 +112,7 @@ class Camerad:
   def _publish_thumbnail(self, rgb, frame_id):
     """Genera un JPEG thumbnail del frame RGB, lo publica en el canal cereal 'thumbnail'
     y, si la Jetson esta habilitada, envia los MISMOS bytes por ZMQ (igual que hace
-    sicuem/adripilot/camera_sender.py en el coche real con 'jetsonThumbnail')."""
+    sicuem/orbit/camera_sender.py en el coche real con 'jetsonThumbnail')."""
     try:
       from PIL import Image
       img = Image.fromarray(rgb)

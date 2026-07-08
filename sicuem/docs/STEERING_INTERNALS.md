@@ -16,8 +16,8 @@ y como la velocidad afecta a todo el sistema.
 7. [Override del conductor](#7-override-del-conductor)
 8. [Cambio de carril: maquina de estados](#8-cambio-de-carril-maquina-de-estados)
 9. [El sistema Desire](#9-el-sistema-desire)
-10. [ForceLaneChange de ADRIPILOT](#10-forcelanechange-de-adripilot)
-11. [Steering Pulse de ADRIPILOT](#11-steering-pulse-de-adripilot)
+10. [ForceLaneChange de ORBIT](#10-forcelanechange-de-orbit)
+11. [Steering Pulse de ORBIT](#11-steering-pulse-de-orbit)
 12. [BSM (Blind Spot Monitoring)](#12-bsm-blind-spot-monitoring)
 13. [Envio al CAN bus](#13-envio-al-can-bus)
 14. [Tabla resumen de parametros](#14-tabla-resumen)
@@ -405,7 +405,7 @@ El flujo completo:
 
 ---
 
-## 10. ForceLaneChange de ADRIPILOT
+## 10. ForceLaneChange de ORBIT
 
 Nuestro sistema permite forzar cambios de carril desde la app sin tocar el intermitente:
 
@@ -438,7 +438,7 @@ def check_and_force_lane_change_param(self, carstate):
 ### Flujo desde la app:
 
 ```
-App ADRIPILOT → MQTT: telemetry_config/{dongle_id}/left
+App ORBIT → MQTT: telemetry_config/{dongle_id}/left
     → mqtt_comandos.py: put_bool("ForceLaneChangeLeft", True)
     → desire_helper.py: check_and_force_lane_change_param()
         → Verifica BSM
@@ -459,15 +459,15 @@ App ADRIPILOT → MQTT: telemetry_config/{dongle_id}/left
 
 ---
 
-## 11. Steering Pulse de ADRIPILOT
+## 11. Steering Pulse de ORBIT
 
 Para giros temporales rapidos (sin cambio de carril), tenemos el sistema de "pulso":
 
 ```python
-# adripilot_steering_pulse.py
-adripilot_steering_pulse_angle = 3.0          # grados de giro
-adripilot_steering_pulse_initial_duration = 0.5  # 0.5s girando
-adripilot_steering_pulse_return_duration = 0.5   # 0.5s volviendo
+# orbit_steering_pulse.py
+orbit_steering_pulse_angle = 3.0          # grados de giro
+orbit_steering_pulse_initial_duration = 0.5  # 0.5s girando
+orbit_steering_pulse_return_duration = 0.5   # 0.5s volviendo
 # Total: 1 segundo
 ```
 
@@ -543,7 +543,7 @@ if blindspot_detected:
     self.lane_change_wait_timer = min(timer, max(0, auto_timer - 0.3))
 ```
 
-### Comportamiento en ForceLaneChange (ADRIPILOT):
+### Comportamiento en ForceLaneChange (ORBIT):
 
 Si BSM ocupado → entra en modo "waiting" → cuando BSM se libera → ejecuta el cambio
 automaticamente. El estado se reporta a la app via `bsmLaneChangeStatus`.
@@ -635,5 +635,5 @@ def common_fault_avoidance(fault_condition, request, above_limit_frames, ...):
 | `selfdrive/car/hyundai/carcontroller.py` | Controlador de coche Hyundai |
 | `selfdrive/car/hyundai/hyundaican.py` | Mensajes CAN para Hyundai Legacy |
 | `selfdrive/car/hyundai/hyundaicanfd.py` | Mensajes CAN para Hyundai CAN-FD |
-| `sicuem/adripilot/adripilot_steering_pulse.py` | Sistema de pulso de giro ADRIPILOT |
-| `sicuem/adripilot/mqtt_comandos.py` | Comandos MQTT (lane change, control, etc) |
+| `sicuem/orbit/orbit_steering_pulse.py` | Sistema de pulso de giro ORBIT |
+| `sicuem/orbit/mqtt_comandos.py` | Comandos MQTT (lane change, control, etc) |

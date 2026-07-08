@@ -4,7 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-UemLayout - top-level SIC-UEM / AdriPilot settings panel.
+UemLayout - top-level SIC-UEM / Orbit settings panel.
 
 Port of the old Qt UemPanel (selfdrive/ui/sunnypilot/qt/offroad/settings/
 uem_settings.cc). Exposes the SIC-UEM feature toggles and buttons that open the
@@ -65,7 +65,7 @@ class UemLayout(Widget):
     self._c_carril_toggle = toggle_item_sp(
       param="c_carril",
       title=lambda: tr("FUNCION CAMBIO DE CARRIL"),
-      description=lambda: tr("Permite ordenar cambios de carril desde la app AdriPilot."),
+      description=lambda: tr("Permite ordenar cambios de carril desde la app Orbit."),
     )
     self._show_blindspot_toggle = toggle_item_sp(
       param="show_blindspot",

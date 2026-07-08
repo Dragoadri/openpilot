@@ -52,7 +52,7 @@ class DesireHelper:
     self.alc = AutoLaneChangeController(self)
     self.lane_turn_controller = LaneTurnController(self)
     self.lane_turn_direction = TurnDirection.none
-    self.params = Params()  # [AdriPilot] cambio de carril forzado por MQTT
+    self.params = Params()  # [Orbit] cambio de carril forzado por MQTT
 
   @staticmethod
   def get_lane_change_direction(CS):
@@ -70,7 +70,7 @@ class DesireHelper:
                                                left_blinker=carstate.leftBlinker, right_blinker=carstate.rightBlinker, v_ego=v_ego)
     self.lane_turn_direction = self.lane_turn_controller.get_turn_direction()
 
-    # [AdriPilot] cambio de carril forzado por MQTT (ForceLaneChangeLeft/Right).
+    # [Orbit] cambio de carril forzado por MQTT (ForceLaneChangeLeft/Right).
     # Consumimos el flag (one-shot). El esquema completo de auto-adelantamiento
     # (detección de lead + ajuste de velocidad) queda pendiente: requiere cablear
     # radarState en el SubMaster de modeld y validación en coche.
@@ -89,7 +89,7 @@ class DesireHelper:
       self.lane_change_state = LaneChangeState.off
       self.lane_change_direction = LaneChangeDirection.none
     else:
-      # [AdriPilot] inyectar el inicio del cambio de carril forzado (respeta BSM y velocidad mínima)
+      # [Orbit] inyectar el inicio del cambio de carril forzado (respeta BSM y velocidad mínima)
       if forced_dir is not None and not below_lane_change_speed:
         forced_bs = (carstate.leftBlindspot and forced_dir == LaneChangeDirection.left) or \
                     (carstate.rightBlindspot and forced_dir == LaneChangeDirection.right)

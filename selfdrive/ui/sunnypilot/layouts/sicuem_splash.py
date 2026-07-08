@@ -4,7 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-SIC-UEM / AdriPilot boot splash.
+SIC-UEM / Orbit boot splash.
 
 A full-screen credits/branding screen shown once each time the UI starts. It is
 pushed on top of the widget nav stack (so on big_ui only it renders), fades in,

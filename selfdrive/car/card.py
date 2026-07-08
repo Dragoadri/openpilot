@@ -218,18 +218,18 @@ class Car:
       # Use CarState w/ buttons from the step selfdrived enables on
       self.v_cruise_helper.initialize_v_cruise(self.CS_prev, self.experimental_mode, self.dynamic_experimental_control)
 
-    # [AdriPilot] override de velocidad de crucero por comando MQTT (en SOURCE vivía en controlsd,
+    # [Orbit] override de velocidad de crucero por comando MQTT (en SOURCE vivía en controlsd,
     # aquí porque VCruiseHelper se movió a card.py). Puenteamos por params: mqtt_comandos corre en
     # el proceso manager, así que pasamos sus flags al módulo y los limpiamos tras consumir.
     try:
-      if self.params.get_bool("adripilot_speed_increase") or self.params.get_bool("adripilot_speed_decrease"):
-        import openpilot.sicuem.adripilot.adripilot_speed_ultra_simple as _adri_spd
-        _adri_spd.adripilot_speed_increase = self.params.get_bool("adripilot_speed_increase")
-        _adri_spd.adripilot_speed_decrease = self.params.get_bool("adripilot_speed_decrease")
+      if self.params.get_bool("orbit_speed_increase") or self.params.get_bool("orbit_speed_decrease"):
+        import openpilot.sicuem.orbit.orbit_speed_ultra_simple as _adri_spd
+        _adri_spd.orbit_speed_increase = self.params.get_bool("orbit_speed_increase")
+        _adri_spd.orbit_speed_decrease = self.params.get_bool("orbit_speed_decrease")
         _cc = type("_AdriCC", (), {"longActive": bool(self.sm['carControl'].longActive)})()
-        _adri_spd.adripilot_speed_ultra_simple.process_speed_commands(_cc, CS, self.v_cruise_helper)
-        self.params.put_bool("adripilot_speed_increase", False)
-        self.params.put_bool("adripilot_speed_decrease", False)
+        _adri_spd.orbit_speed_ultra_simple.process_speed_commands(_cc, CS, self.v_cruise_helper)
+        self.params.put_bool("orbit_speed_increase", False)
+        self.params.put_bool("orbit_speed_decrease", False)
     except Exception:
       pass
 

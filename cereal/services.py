@@ -59,8 +59,8 @@ _services: dict[str, tuple] = {
   "liveParameters": (True, 20., 5),
   "cameraOdometry": (True, 20., 10),
   "thumbnail": (True, 1 / 60., 1),
-  "driverThumbnail": (True, 0.2, 1),       # AdriPilot: cámara driver
-  "jetsonThumbnail": (False, 5., 1),       # AdriPilot: canal Jetson ~5 Hz, NO logueado (no infla qlog)
+  "driverThumbnail": (True, 0.2, 1),       # Orbit: cámara driver
+  "jetsonThumbnail": (False, 5., 1),       # Orbit: canal Jetson ~5 Hz, NO logueado (no infla qlog)
   "onroadEvents": (True, 1., 1),
   "carParams": (True, 0.02, 1),
   "roadCameraState": (True, 20., 20),

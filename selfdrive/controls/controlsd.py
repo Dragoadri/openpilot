@@ -26,26 +26,26 @@ from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 
 from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
 
-# [AdriPilot] Modo 3 (COMMA+JETSON): estado del esquive de obstáculos
+# [Orbit] Modo 3 (COMMA+JETSON): estado del esquive de obstáculos
 try:
-  from openpilot.sicuem.adripilot.adripilot_obstacle_pulse import ObstaclePulseState, DEFAULT_MAX_ANGLE, DEFAULT_MAX_CURV
-  _ADRIPILOT_OBSTACLE = True
+  from openpilot.sicuem.orbit.orbit_obstacle_pulse import ObstaclePulseState, DEFAULT_MAX_ANGLE, DEFAULT_MAX_CURV
+  _ORBIT_OBSTACLE = True
 except Exception:
   ObstaclePulseState = None
   DEFAULT_MAX_ANGLE, DEFAULT_MAX_CURV = 25.0, 0.030
-  _ADRIPILOT_OBSTACLE = False
+  _ORBIT_OBSTACLE = False
 
 # Anti-flicker: cuando JetsonObstacleStatus pasa de activo a "" lo mantenemos
 # publicado este tiempo para que la UI (~20 Hz) no pierda dodges muy breves.
 OBSTACLE_STATUS_HOLD_S = 0.30
 
-# [AdriPilot] Watchdog de frescura del torque Jetson (modo 1). Si el ultimo JetsonTorque
+# [Orbit] Watchdog de frescura del torque Jetson (modo 1). Si el ultimo JetsonTorque
 # tiene mas de este tiempo, la Jetson se ha caido/desconectado -> forzar torque=0 (volante
 # sin fuerza) en vez de aplicar indefinidamente un valor viejo (volante atascado). La Jetson
 # real publica a ~5 Hz (200 ms), asi que 1 s es holgado y no falsea cortes en operacion normal.
 JETSON_TORQUE_TIMEOUT_S = 1.0
 
-# [AdriPilot] Telemetria de torque (CommaSteerTorque / AppliedSteerTorque) y estado de esquive.
+# [Orbit] Telemetria de torque (CommaSteerTorque / AppliedSteerTorque) y estado de esquive.
 # controlsd corre a 100 Hz en SCHED_FIFO core 4; Params.put() hace 2x fsync + FileLock GLOBAL por
 # escritura y su hilo async hereda la prioridad FIFO del que llama. Escribir estos params desde el
 # loop saturaba el disco a prioridad RT -> selfdrived veia carControl/controlsState/livePose por
@@ -97,15 +97,15 @@ class Controls(ControlsExt):
 
     self.LaC = ControlsExt.initialize_lateral_control(self, self.LaC, self.CI, DT_CTRL)
 
-    # [AdriPilot] limpiar cualquier pulso de dirección (cruceta MQTT) pendiente al iniciar
+    # [Orbit] limpiar cualquier pulso de dirección (cruceta MQTT) pendiente al iniciar
     try:
-      from openpilot.sicuem.adripilot.adripilot_steering_pulse import clear_steering_pulse
+      from openpilot.sicuem.orbit.orbit_steering_pulse import clear_steering_pulse
       clear_steering_pulse()
     except Exception:
       pass
 
-    # [AdriPilot] Modo 3 (COMMA+JETSON): estado del esquive y caché de config
-    self._obstacle_pulse_state = ObstaclePulseState() if _ADRIPILOT_OBSTACLE else None
+    # [Orbit] Modo 3 (COMMA+JETSON): estado del esquive y caché de config
+    self._obstacle_pulse_state = ObstaclePulseState() if _ORBIT_OBSTACLE else None
     self._last_obstacle_status = ""
     self._obstacle_status_hold_until = 0.0   # wall-clock hasta el que mantenemos el último activo
     self._obstacle_status_held_value = ""    # último status activo que estamos manteniendo
@@ -113,7 +113,7 @@ class Controls(ControlsExt):
     self._obstacle_max_angle = DEFAULT_MAX_ANGLE
     self._obstacle_max_curv = DEFAULT_MAX_CURV
     self._obstacle_apply_target = "curvature"  # "curvature" | "torque"
-    # [AdriPilot/FIX commIssue] Escrituras de Params DIFERIDAS a un hilo NO-RT.
+    # [Orbit/FIX commIssue] Escrituras de Params DIFERIDAS a un hilo NO-RT.
     # controlsd corre en SCHED_FIFO prio 53 fijado al core 4 (junto a card y selfdrived).
     # Params.put(block=False) encola en putNonBlocking, que lanza un std::async cuyo hilo
     # HEREDA (PTHREAD_INHERIT_SCHED) esa prioridad FIFO-53 y afinidad de core 4, y ejecuta
@@ -266,7 +266,7 @@ class Controls(ControlsExt):
     pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, self.CP_SP, CS.vEgo, CS.vCruise * CV.KPH_TO_MS)
     actuators.accel = float(self.LoC.update(CC.longActive, CS, long_plan.aTarget, long_plan.shouldStop, pid_accel_limits))
 
-    # [AdriPilot] Brutebreak: frenado de emergencia brusco por comando MQTT.
+    # [Orbit] Brutebreak: frenado de emergencia brusco por comando MQTT.
     # Solo tiene efecto si CC.longActive (Comma controla longitudinal). Auto-clear con vEgo<0.5.
     try:
       if self.params.get_bool("brutebreak_active"):
@@ -302,7 +302,7 @@ class Controls(ControlsExt):
     actuators.steeringAngleDeg = float(steeringAngleDeg)
 
     # ════════════════════════════════════════════════════════════════
-    # [AdriPilot] SELECTOR DE FUENTE DE TORQUE LATERAL (param SteerTorqueMode)
+    # [Orbit] SELECTOR DE FUENTE DE TORQUE LATERAL (param SteerTorqueMode)
     #   0=Comma (sin tocar)  1=Jetson (JetsonTorque)  2=TEST MAX (-1.0)  3=Comma+Jetson (esquive)
     # NOTA: en este sunnypilot el campo es actuators.torque (antes actuators.steer).
     # ════════════════════════════════════════════════════════════════
@@ -344,16 +344,16 @@ class Controls(ControlsExt):
       # AppliedSteerTorque = torque final aplicado TRAS el override de modo (diagnostico UI).
       self._defer_param_put("AppliedSteerTorque", f"{float(actuators.torque):.4f}")
 
-    # [AdriPilot] Pulso temporal de dirección (cruceta MQTT): +/- ángulo y curvatura mientras está activo
+    # [Orbit] Pulso temporal de dirección (cruceta MQTT): +/- ángulo y curvatura mientras está activo
     try:
-      from openpilot.sicuem.adripilot.adripilot_steering_pulse import get_steering_pulse, adripilot_steering_pulse_angle
+      from openpilot.sicuem.orbit.orbit_steering_pulse import get_steering_pulse, orbit_steering_pulse_angle
       pulse_start, original_direction, is_active, phase, effective_direction = get_steering_pulse()
       if is_active and effective_direction in ("right", "left") and CC.latActive:
         if effective_direction == "right":
-          actuators.steeringAngleDeg = float(actuators.steeringAngleDeg) + adripilot_steering_pulse_angle
+          actuators.steeringAngleDeg = float(actuators.steeringAngleDeg) + orbit_steering_pulse_angle
           self.desired_curvature += 0.008
         else:
-          actuators.steeringAngleDeg = float(actuators.steeringAngleDeg) - adripilot_steering_pulse_angle
+          actuators.steeringAngleDeg = float(actuators.steeringAngleDeg) - orbit_steering_pulse_angle
           self.desired_curvature -= 0.008
         actuators.curvature = self.desired_curvature
     except ImportError:
@@ -361,7 +361,7 @@ class Controls(ControlsExt):
     except Exception:
       pass
 
-    # [AdriPilot] MODO 3 (COMMA+JETSON): offsets de esquive por obstáculo (override absoluto)
+    # [Orbit] MODO 3 (COMMA+JETSON): offsets de esquive por obstáculo (override absoluto)
     try:
       if CC.latActive and steer_mode == 3 and self._obstacle_pulse_state is not None:
         now_pulse = time.time()

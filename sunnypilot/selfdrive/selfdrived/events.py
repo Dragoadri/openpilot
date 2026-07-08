@@ -244,7 +244,7 @@ EVENTS_SP: dict[int, dict[str, Alert | AlertCallbackType]] = {
       Priority.MID, VisualAlert.none, AudibleAlert.prompt, 3.),
   },
 
-  # [AdriPilot] cambio de carril bloqueado por ángulo muerto (BSM) — direccional
+  # [Orbit] cambio de carril bloqueado por ángulo muerto (BSM) — direccional
   EventNameSP.laneChangeBlockedLeft: {
     ET.WARNING: Alert(
       "Cambio a IZQ bloqueado",

@@ -280,7 +280,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"TorqueParamsOverrideLatAccelFactor", {PERSISTENT | BACKUP, FLOAT, "2.5"}},
 
     // ============================================================================
-    // SIC-UEM / AdriPilot (TFG) — Jetson torque, esquive, overtake, MQTT, telemetría
+    // SIC-UEM / Orbit (TFG) — Jetson torque, esquive, overtake, MQTT, telemetría
     // ============================================================================
     // Selector de torque lateral y bridge Jetson (ZMQ)
     {"SteerTorqueMode", {PERSISTENT, INT, "0"}},                       // 0=Comma 1=Jetson 2=TestMax 3=Comma+Jetson
@@ -337,14 +337,15 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"Velocidad_C3", {PERSISTENT, STRING}},
     {"Velocidad_C4", {PERSISTENT, STRING}},
     {"vel_adel", {CLEAR_ON_MANAGER_START, STRING}},
-    {"adripilot_speed_increment", {PERSISTENT, FLOAT, "5"}},
+    {"orbit_speed_increment", {PERSISTENT, FLOAT, "5"}},
     // Comandos de bajo nivel (fallback bools escritos por mqtt_comandos)
-    {"adripilot_forward", {CLEAR_ON_MANAGER_START, BOOL}},
-    {"adripilot_break", {CLEAR_ON_MANAGER_START, BOOL}},
-    {"adripilot_tright", {CLEAR_ON_MANAGER_START, BOOL}},
-    {"adripilot_tleft", {CLEAR_ON_MANAGER_START, BOOL}},
-    {"adripilot_speed_increase", {CLEAR_ON_MANAGER_START, BOOL}},
-    {"adripilot_speed_decrease", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"orbit_forward", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"orbit_break", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"orbit_tright", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"orbit_tleft", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"orbit_speed_increase", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"orbit_speed_decrease", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"orbit_steering_pulse", {CLEAR_ON_MANAGER_START, STRING}},   // pulso giro cruceta: "direction:expiry_ms" (cruza barrera de proceso a controlsd)
     // Toggles UI / telemetría
     {"telemetria_uem", {PERSISTENT, BOOL}},
     {"modo_debug", {PERSISTENT | BACKUP, BOOL}},
@@ -371,4 +372,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"sender_uem_down", {PERSISTENT, BOOL}},
     {"sender_uem_left", {PERSISTENT, BOOL}},
     {"sender_uem_right", {PERSISTENT, BOOL}},
+    // Enrolamiento de dispositivo ORBIT (QR)
+    {"OrbitClaimed", {PERSISTENT, BOOL}},                                 // dispositivo reclamado (fuente de verdad, sobrevive reboot)
+    {"OrbitPairingCode", {CLEAR_ON_MANAGER_START, STRING}},              // código efímero actual para renderizar el QR
+    {"OrbitEnrollExpiry", {CLEAR_ON_MANAGER_START, STRING}},             // issued-at/expiry (ms epoch) para countdown opcional
 };

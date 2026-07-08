@@ -4,7 +4,7 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-Onroad "esquive" (obstacle dodge) badge for the SIC-UEM / AdriPilot COMMA+JETSON
+Onroad "esquive" (obstacle dodge) badge for the SIC-UEM / Orbit COMMA+JETSON
 mode. Port of the overlay drawn in the old Qt AnnotatedCameraWidgetSP
 (selfdrive/ui/sunnypilot/qt/onroad/annotated_camera.cc, ESQUIVANDO / BSM BLOQUEA).
 
