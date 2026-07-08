@@ -5,9 +5,12 @@ import time
 from multiprocessing import Queue
 from termios import (BRKINT, CS8, CSIZE, ECHO, ICANON, ICRNL, IEXTEN, INPCK,
                      ISTRIP, IXON, PARENB, VMIN, VTIME)
-from typing import NoReturn
+from typing import NoReturn, TYPE_CHECKING
 
-from openpilot.tools.sim.bridge.common import QueueMessage, control_cmd_gen
+from openpilot.tools.sim.bridge.metadrive import metadrive_command as mod
+
+if TYPE_CHECKING:
+  from openpilot.tools.sim.bridge.common import QueueMessage
 
 # Indexes for termios list.
 IFLAG = 0
@@ -29,7 +32,49 @@ KEYBOARD_HELP = """
   |  i   | Toggle Ignition       |
   |  q   | Exit all              |
   | wasd | Control manually      |
+  |------| --- MOD-MENU -------- |
+  |  l   | Spawn stopped lead car|
+  |  k   | Spawn cut-in NPC (IDM)|
+  |  o/p | Obstacle ahead / side |
+  |  t   | Toggle traffic        |
+  | +/-  | Traffic density up/dn |
+  | m/n  | Next / prev map       |
+  |  c   | Clear spawned objects |
+  |  h   | Toggle HUD            |
 """
+
+
+_KEYMAP = {
+  "1": "cruise_up",
+  "2": "cruise_down",
+  "3": "cruise_cancel",
+  "w": f"throttle_{1.0}",
+  "a": f"steer_{-0.15}",
+  "s": f"brake_{1.0}",
+  "d": f"steer_{0.15}",
+  "z": "blinker_left",
+  "x": "blinker_right",
+  "i": "ignition",
+  "r": "reset",
+  "q": "quit",
+  # --- mod-menu ---
+  "l": mod.LEAD,
+  "k": mod.CUTIN,
+  "o": mod.OBSTACLE,
+  "p": mod.OBSTACLE_SIDE,
+  "t": mod.TRAFFIC_TOGGLE,
+  "+": mod.TRAFFIC_UP,
+  "=": mod.TRAFFIC_UP,
+  "-": mod.TRAFFIC_DOWN,
+  "m": mod.MAP_NEXT,
+  "n": mod.MAP_PREV,
+  "c": mod.CLEAR,
+  "h": mod.HUD,
+}
+
+
+def key_to_command(c):
+  return _KEYMAP.get(c)
 
 
 def getch() -> str:
@@ -56,37 +101,19 @@ def print_keyboard_help():
   print(f"Keyboard Commands:\n{KEYBOARD_HELP}")
 
 def keyboard_poll_thread(q: 'Queue[QueueMessage]'):
+  from openpilot.tools.sim.bridge.common import control_cmd_gen
+
   print_keyboard_help()
 
   while True:
     c = getch()
-    if c == '1':
-      q.put(control_cmd_gen("cruise_up"))
-    elif c == '2':
-      q.put(control_cmd_gen("cruise_down"))
-    elif c == '3':
-      q.put(control_cmd_gen("cruise_cancel"))
-    elif c == 'w':
-      q.put(control_cmd_gen(f"throttle_{1.0}"))
-    elif c == 'a':
-      q.put(control_cmd_gen(f"steer_{-0.15}"))
-    elif c == 's':
-      q.put(control_cmd_gen(f"brake_{1.0}"))
-    elif c == 'd':
-      q.put(control_cmd_gen(f"steer_{0.15}"))
-    elif c == 'z':
-      q.put(control_cmd_gen("blinker_left"))
-    elif c == 'x':
-      q.put(control_cmd_gen("blinker_right"))
-    elif c == 'i':
-      q.put(control_cmd_gen("ignition"))
-    elif c == 'r':
-      q.put(control_cmd_gen("reset"))
-    elif c == 'q':
-      q.put(control_cmd_gen("quit"))
-      break
-    else:
+    cmd = key_to_command(c)
+    if cmd is None:
       print_keyboard_help()
+      continue
+    q.put(control_cmd_gen(cmd))
+    if cmd == "quit":
+      break
 
 def test(q: 'Queue[str]') -> NoReturn:
   while True:
