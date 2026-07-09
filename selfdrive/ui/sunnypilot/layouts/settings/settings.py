@@ -35,7 +35,7 @@ from openpilot.system.ui.widgets.scroller_tici import Scroller
 
 # from openpilot.selfdrive.ui.sunnypilot.layouts.settings.navigation import NavigationLayout
 
-OP.PANEL_COLOR = rl.Color(10, 10, 10, 255)
+OP.PANEL_COLOR = rl.Color(13, 20, 34, 255)   # ORBIT dark ground (was near-black)
 ICON_SIZE = 70
 
 OP.PanelType = IntEnum(
@@ -70,32 +70,43 @@ class NavButton(Widget):
     self.panel_info = p_info
 
   def _render(self, rect):
+    # Mockup "menu tile": full-width target, icon chip on the left, ORBIT panel
+    # background + cyan marker bar when selected, ink/muted label.
     is_selected = self.panel_type == self.parent._current_panel
-    text_color = OP.TEXT_SELECTED if is_selected else OP.TEXT_NORMAL
-    content_x = rect.x + 90
-    text_size = measure_text_cached(self.parent._font_medium, self.panel_info.name, 65)
+    mouse_down = rl.is_mouse_button_down(rl.MouseButton.MOUSE_BUTTON_LEFT)
+    hovered = rl.check_collision_point_rec(rl.get_mouse_position(), rect)
 
-    # Draw background if selected
+    tile = rl.Rectangle(rect.x, rect.y + 6, rect.width, rect.height - 12)
+    self.panel_info.button_rect = rect  # click detection maps to the allocated rect
+
     if is_selected:
-      self.container_rect = rl.Rectangle(
-        content_x - 50, rect.y, OP.SIDEBAR_WIDTH - 50, OP.NAV_BTN_HEIGHT
-      )
-      rl.draw_rectangle_rounded(self.container_rect, 0.2, 5, OP.CLOSE_BTN_COLOR)
+      rl.draw_rectangle_rounded(tile, 0.26, 12, OP.ORBIT_PANEL)
+      bar = rl.Rectangle(tile.x + 6, tile.y + tile.height * 0.22, 7, tile.height * 0.56)
+      rl.draw_rectangle_rounded(bar, 1.0, 8, OP.ORBIT_CYAN)
+    elif hovered and mouse_down:
+      rl.draw_rectangle_rounded(tile, 0.26, 12, OP.ORBIT_NAVY)
+
+    # Icon chip
+    chip = tile.height * 0.72
+    chip_rect = rl.Rectangle(tile.x + 28, tile.y + (tile.height - chip) / 2, chip, chip)
+    accent = OP.ORBIT_CYAN if is_selected else OP.ORBIT_MUTED
+    rl.draw_rectangle_rounded(chip_rect, 0.3, 10, rl.Color(accent.r, accent.g, accent.b, 40))
 
     if self.panel_info.icon:
       icon_texture = gui_app.texture(self.panel_info.icon, ICON_SIZE, ICON_SIZE, keep_aspect_ratio=True)
-      rl.draw_texture_ex(icon_texture, rl.Vector2(content_x, rect.y + (OP.NAV_BTN_HEIGHT - icon_texture.height) / 2), 0.0, 1.0, rl.WHITE)
-      content_x += ICON_SIZE + 20
+      tint = OP.ORBIT_INK if is_selected else OP.ORBIT_MUTED
+      rl.draw_texture_ex(
+        icon_texture,
+        rl.Vector2(chip_rect.x + (chip - icon_texture.width) / 2, chip_rect.y + (chip - icon_texture.height) / 2),
+        0.0, 1.0, tint,
+      )
 
-    # Draw button text (right-aligned)
-    text_pos = rl.Vector2(
-      content_x,
-      rect.y + (OP.NAV_BTN_HEIGHT - text_size.y) / 2
-    )
-    rl.draw_text_ex(self.parent._font_medium, self.panel_info.name, text_pos, 55, 0, text_color)
-
-    # Store button rect for click detection
-    self.panel_info.button_rect = rect
+    # Label
+    label = self.panel_info.name
+    lb_h = measure_text_cached(self.parent._font_bold, label, 46).y
+    text_color = OP.ORBIT_INK if is_selected else OP.ORBIT_MUTED
+    rl.draw_text_ex(self.parent._font_bold, label,
+                    rl.Vector2(chip_rect.x + chip + 24, rect.y + (rect.height - lb_h) / 2), 46, 0, text_color)
 
 
 class SettingsLayoutSP(OP.SettingsLayout):
@@ -111,7 +122,7 @@ class SettingsLayoutSP(OP.SettingsLayout):
     wifi_manager.set_active(False)
 
     self._panels = {
-      OP.PanelType.UEM: PanelInfo(tr_noop("UEM"), UemLayout(), icon="../../sunnypilot/selfdrive/assets/offroad/uem_logo.png"),
+      OP.PanelType.UEM: PanelInfo(tr_noop("UEM"), UemLayout(), icon="icons/link.png"),
       OP.PanelType.DEVICE: PanelInfo(tr_noop("Device"), DeviceLayoutSP(), icon="../../sunnypilot/selfdrive/assets/offroad/icon_home.png"),
       OP.PanelType.NETWORK: PanelInfo(tr_noop("Network"), NetworkUISP(wifi_manager), icon="icons/network.png"),
       OP.PanelType.SUNNYLINK: PanelInfo(tr_noop("sunnylink"), SunnylinkLayout(), icon="icons/wifi_strength_full.png"),
@@ -132,56 +143,46 @@ class SettingsLayoutSP(OP.SettingsLayout):
 
   def _draw_sidebar(self, rect: rl.Rectangle):
     rl.draw_rectangle_rec(rect, OP.SIDEBAR_COLOR)
+    mouse_pos = rl.get_mouse_position()
+    mouse_down = rl.is_mouse_button_down(rl.MouseButton.MOUSE_BUTTON_LEFT)
 
-    # Close button
-    close_btn_rect = rl.Rectangle(
-      rect.x + style.ITEM_PADDING * 3, rect.y + style.ITEM_PADDING * 2, style.CLOSE_BTN_SIZE, style.CLOSE_BTN_SIZE
-    )
+    # --- ORBIT brand header (logo + wordmark) ---
+    logo_x = rect.x + OP.SB_PAD
+    logo_y = rect.y + 40
+    if self._logo is not None:
+      rl.draw_texture_pro(
+        self._logo,
+        rl.Rectangle(0, 0, self._logo.width, self._logo.height),
+        rl.Rectangle(logo_x, logo_y, OP.LOGO_SIZE, OP.LOGO_SIZE),
+        rl.Vector2(0, 0), 0, rl.WHITE,
+      )
+    wm_h = measure_text_cached(self._font_bold, "ORBIT", 60).y
+    rl.draw_text_ex(self._font_bold, "ORBIT",
+                    rl.Vector2(logo_x + OP.LOGO_SIZE + 22, logo_y + (OP.LOGO_SIZE - wm_h) / 2),
+                    60, 2, OP.ORBIT_INK)
+    sep_y = logo_y + OP.LOGO_SIZE + 26
+    rl.draw_line_ex(rl.Vector2(rect.x + OP.SB_PAD, sep_y),
+                    rl.Vector2(rect.x + rect.width - OP.SB_PAD, sep_y), 2, OP.ORBIT_HAIRLINE)
 
-    pressed = (rl.is_mouse_button_down(rl.MouseButton.MOUSE_BUTTON_LEFT) and
-               rl.check_collision_point_rec(rl.get_mouse_position(), close_btn_rect))
-    close_color = OP.CLOSE_BTN_PRESSED if pressed else OP.CLOSE_BTN_COLOR
-    rl.draw_rectangle_rounded(close_btn_rect, 1.0, 20, close_color)
-
-    icon_color = rl.Color(255, 255, 255, 255) if not pressed else rl.Color(220, 220, 220, 255)
-    icon_dest = rl.Rectangle(
-      close_btn_rect.x + (close_btn_rect.width - self._close_icon.width) / 2,
-      close_btn_rect.y + (close_btn_rect.height - self._close_icon.height) / 2,
-      self._close_icon.width,
-      self._close_icon.height,
-    )
-    rl.draw_texture_pro(
-      self._close_icon,
-      rl.Rectangle(0, 0, self._close_icon.width, self._close_icon.height),
-      icon_dest,
-      rl.Vector2(0, 0),
-      0,
-      icon_color,
-    )
-
-    # Store close button rect for click detection
+    # --- Close button (bottom, full-width ORBIT style; reused from the base) ---
+    close_top = rect.y + rect.height - OP.CLOSE_BTN_H - OP.CLOSE_BTN_MARGIN
+    close_btn_rect = rl.Rectangle(rect.x + OP.SB_PAD, close_top, rect.width - 2 * OP.SB_PAD, OP.CLOSE_BTN_H)
     self._close_btn_rect = close_btn_rect
+    self._draw_close_button(close_btn_rect, mouse_pos, mouse_down)
 
-    # Navigation buttons with scroller
+    # --- Navigation tiles (scrollable; the SP build has ~16 panels) ---
     if not self._nav_items:
       for panel_type, panel_info in self._panels.items():
         nav_button = NavButton(self, panel_type, panel_info)
-        nav_button.rect.width = rect.width - 100  # Full width minus padding
+        nav_button.rect.width = rect.width - 2 * OP.SB_PAD
         nav_button.rect.height = OP.NAV_BTN_HEIGHT
         self._nav_items.append(nav_button)
         self._sidebar_scroller.add_widget(nav_button)
 
-    # Draw navigation section with scroller
-    nav_rect = rl.Rectangle(
-      rect.x,
-      self._close_btn_rect.height + style.ITEM_PADDING * 4,  # Starting Y position for nav items
-      rect.width,
-      rect.height - 300  # Remaining height after close button
-    )
-
+    nav_top = sep_y + 22
+    nav_rect = rl.Rectangle(rect.x + OP.SB_PAD, nav_top, rect.width - 2 * OP.SB_PAD, close_top - 22 - nav_top)
     if self._nav_items:
       self._sidebar_scroller.render(nav_rect)
-      return
 
   def _handle_mouse_release(self, mouse_pos: MousePos) -> bool:
     # Check close button

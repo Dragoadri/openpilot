@@ -12,23 +12,50 @@ from openpilot.system.ui.widgets.label import gui_label
 from openpilot.system.ui.widgets.html_render import HtmlRenderer, ElementType
 
 ITEM_BASE_WIDTH = 600
-ITEM_BASE_HEIGHT = 170
+ITEM_BASE_HEIGHT = 188
 ITEM_PADDING = 20
 ITEM_TEXT_FONT_SIZE = 50
-ITEM_TEXT_COLOR = rl.WHITE
-ITEM_TEXT_VALUE_COLOR = rl.Color(170, 170, 170, 255)
-ITEM_DESC_TEXT_COLOR = rl.Color(128, 128, 128, 255)
+# ORBIT palette: primary text INK, secondary value MUTED, description MUTED_DIM
+ITEM_TEXT_COLOR = rl.Color(226, 236, 255, 255)  # INK
+ITEM_TEXT_VALUE_COLOR = rl.Color(147, 180, 230, 255)  # MUTED
+ITEM_DESC_TEXT_COLOR = rl.Color(92, 117, 153, 255)  # MUTED_DIM
+# ORBIT card: each row renders on its own rounded NAVY card instead of a flat list line.
+ITEM_CARD_COLOR = rl.Color(22, 35, 58, 255)  # NAVY
+ITEM_CARD_INSET = 8  # vertical gap so cards read as separate tiles
+ITEM_CARD_ROUNDNESS = 0.14
+ITEM_CARD_SEGMENTS = 12
 ITEM_DESC_FONT_SIZE = 40
 ITEM_DESC_V_OFFSET = 140
 RIGHT_ITEM_PADDING = 20
 ICON_SIZE = 80
-BUTTON_WIDTH = 250
-BUTTON_HEIGHT = 100
-BUTTON_BORDER_RADIUS = 50
-BUTTON_FONT_SIZE = 35
+BUTTON_WIDTH = 300
+BUTTON_HEIGHT = 124
+BUTTON_BORDER_RADIUS = 62  # pill-ish: ~half of BUTTON_HEIGHT
+BUTTON_FONT_SIZE = 44
 BUTTON_FONT_WEIGHT = FontWeight.MEDIUM
 
 TEXT_PADDING = 20
+
+# ORBIT action-coherent button coloring: pick a ButtonStyle from the button label so the
+# button reads by its ACTION (affirmative/neutral/danger) instead of the stock uniform look.
+_DANGER_LABEL_KEYWORDS = ("RESET", "REBOOT", "POWER OFF", "POWEROFF", "DELETE", "REMOVE",
+                          "FORGET", "UNPAIR", "ERASE", "CLEAR", "WIPE")
+# neutral/info actions -> blue (e.g. comma pairing, previews)
+_INFO_LABEL_KEYWORDS = ("PAIR", "PREVIEW", "VIEW", "EDIT", "OPEN")
+_PRIMARY_LABEL_KEYWORDS = ("LINK", "SCAN", "ENABLE", "CONNECT", "SAVE", "INSTALL",
+                           "UPDATE", "DOWNLOAD", "CONFIRM", "START")
+
+
+def _style_for_label(text: str) -> ButtonStyle:
+  up = (text or "").upper()
+  # danger takes precedence (e.g. UNPAIR must not match PAIR)
+  if any(k in up for k in _DANGER_LABEL_KEYWORDS):
+    return ButtonStyle.DANGER
+  if any(k in up for k in _INFO_LABEL_KEYWORDS):
+    return ButtonStyle.ACTION
+  if any(k in up for k in _PRIMARY_LABEL_KEYWORDS):
+    return ButtonStyle.PRIMARY
+  return ButtonStyle.LIST_ACTION
 
 
 def _resolve_value(value, default=""):
@@ -79,26 +106,33 @@ class ToggleAction(ItemAction):
 
 
 class ButtonAction(ItemAction):
-  def __init__(self, text: str | Callable[[], str], width: int = BUTTON_WIDTH, enabled: bool | Callable[[], bool] = True):
+  def __init__(self, text: str | Callable[[], str], width: int = BUTTON_WIDTH, enabled: bool | Callable[[], bool] = True,
+               button_style: ButtonStyle | None = None):
     super().__init__(width, enabled)
     self._text_source = text
     self._value_source: str | Callable[[], str] | None = None
     self._pressed = False
     self._font = gui_app.font(FontWeight.NORMAL)
+    # An explicit non-default style wins over the label heuristic; None -> derive from label.
+    self._explicit_style = button_style
 
     def pressed():
       self._pressed = True
 
+    initial_style = button_style if button_style is not None else _style_for_label(self.text)
     self._button = Button(
       self.text,
       font_size=BUTTON_FONT_SIZE,
       font_weight=BUTTON_FONT_WEIGHT,
-      button_style=ButtonStyle.LIST_ACTION,
+      button_style=initial_style,
       border_radius=BUTTON_BORDER_RADIUS,
       click_callback=pressed,
       text_padding=0,
     )
     self.set_enabled(enabled)
+
+  def _resolve_button_style(self) -> ButtonStyle:
+    return self._explicit_style if self._explicit_style is not None else _style_for_label(self.text)
 
   def get_width_hint(self) -> float:
     value_text = self.value
@@ -128,6 +162,7 @@ class ButtonAction(ItemAction):
 
   def _render(self, rect: rl.Rectangle) -> bool:
     self._button.set_text(self.text)
+    self._button.set_button_style(self._resolve_button_style())
     self._button.set_enabled(_resolve_value(self.enabled))
     button_rect = rl.Rectangle(rect.x + rect.width - BUTTON_WIDTH, rect.y + (rect.height - BUTTON_HEIGHT) / 2, BUTTON_WIDTH, BUTTON_HEIGHT)
     self._button.render(button_rect)
@@ -235,13 +270,13 @@ class MultipleButtonAction(ItemAction):
       is_pressed = rl.check_collision_point_rec(mouse_pos, button_rect) and self.enabled and self.is_pressed
       is_selected = i == self.selected_button
 
-      # Button colors
+      # Button colors — ORBIT palette: selected CYAN accent, pressed PANEL, neutral NAVY
       if is_selected:
-        bg_color = rl.Color(51, 171, 76, 255)  # Green
+        bg_color = rl.Color(34, 211, 238, 255)  # CYAN
       elif is_pressed:
-        bg_color = rl.Color(74, 74, 74, 255)  # Dark gray
+        bg_color = rl.Color(27, 44, 72, 255)  # PANEL
       else:
-        bg_color = rl.Color(57, 57, 57, 255)  # Gray
+        bg_color = rl.Color(22, 35, 58, 255)  # NAVY
 
       if not self.enabled:
         bg_color = rl.Color(bg_color.r, bg_color.g, bg_color.b, 150)  # Dim
@@ -254,7 +289,7 @@ class MultipleButtonAction(ItemAction):
       text_size = measure_text_cached(self._font, text, 40)
       text_x = button_x + (self.button_width - text_size.x) / 2
       text_y = button_y + (BUTTON_HEIGHT - text_size.y) / 2
-      text_color = rl.Color(228, 228, 228, 255) if self.enabled else rl.Color(150, 150, 150, 255)
+      text_color = rl.Color(226, 236, 255, 255) if self.enabled else rl.Color(92, 117, 153, 255)  # ORBIT: INK / MUTED_DIM
       rl.draw_text_ex(self._font, text, rl.Vector2(text_x, text_y), 40, 0, text_color)
 
   def _handle_mouse_release(self, mouse_pos: MousePos):
@@ -347,6 +382,13 @@ class ListItem(Widget):
     if ((self._rect.y + self.rect.height) <= self._parent_rect.y or
       self._rect.y >= (self._parent_rect.y + self._parent_rect.height)):
       return
+
+    # ORBIT card background: fill the row rect (inset top/bottom) with a rounded NAVY tile
+    # so each row reads as a distinct card. Drawn first; title/description/action go on top.
+    card_rect = rl.Rectangle(self._rect.x, self._rect.y + ITEM_CARD_INSET,
+                             self._rect.width, self._rect.height - ITEM_CARD_INSET * 2)
+    if card_rect.height > 0:
+      rl.draw_rectangle_rounded(card_rect, ITEM_CARD_ROUNDNESS, ITEM_CARD_SEGMENTS, ITEM_CARD_COLOR)
 
     content_x = self._rect.x + ITEM_PADDING
     text_x = content_x

@@ -15,8 +15,9 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.button import Button, ButtonStyle
 from openpilot.system.ui.widgets.label import gui_label
 from openpilot.system.ui.widgets.list_view import ListItem, ToggleAction, ItemAction, MultipleButtonAction, ButtonAction, \
-                                                  _resolve_value, BUTTON_WIDTH, BUTTON_HEIGHT, TEXT_PADDING, DualButtonAction
-from openpilot.system.ui.widgets.scroller_tici import LineSeparator, LINE_COLOR, LINE_PADDING
+                                                  _resolve_value, BUTTON_WIDTH, BUTTON_HEIGHT, TEXT_PADDING, DualButtonAction, \
+                                                  ITEM_CARD_COLOR, ITEM_CARD_INSET, ITEM_CARD_ROUNDNESS, ITEM_CARD_SEGMENTS
+from openpilot.system.ui.widgets.scroller_tici import LineSeparator
 from openpilot.system.ui.sunnypilot.lib.styles import style
 from openpilot.system.ui.sunnypilot.widgets.option_control import OptionControlSP, LABEL_WIDTH
 
@@ -71,8 +72,9 @@ class SimpleButtonActionSP(ItemAction):
 
 
 class ButtonActionSP(ButtonAction):
-  def __init__(self, text: str | Callable[[], str], width: int = style.BUTTON_ACTION_WIDTH, enabled: bool | Callable[[], bool] = True):
-    super().__init__(text=text, width=width, enabled=enabled)
+  def __init__(self, text: str | Callable[[], str], width: int = style.BUTTON_ACTION_WIDTH, enabled: bool | Callable[[], bool] = True,
+               button_style: ButtonStyle | None = None):
+    super().__init__(text=text, width=width, enabled=enabled, button_style=button_style)
     self._value_color: rl.Color = style.ITEM_TEXT_VALUE_COLOR
 
   def set_value(self, value: str | Callable[[], str], color: rl.Color = style.ITEM_TEXT_VALUE_COLOR):
@@ -82,6 +84,7 @@ class ButtonActionSP(ButtonAction):
   def _render(self, rect: rl.Rectangle) -> bool:
     """Duplicate of ButtonAction._render, with additional value rendering"""
     self._button.set_text(self.text)
+    self._button.set_button_style(self._resolve_button_style())
     self._button.set_enabled(_resolve_value(self.enabled))
     button_rect = rl.Rectangle(rect.x + rect.width - BUTTON_WIDTH, rect.y + (rect.height - BUTTON_HEIGHT) / 2, BUTTON_WIDTH, BUTTON_HEIGHT)
     self._button.render(button_rect)
@@ -273,10 +276,8 @@ class ListItemSP(ListItem):
     content_width = item_rect.width - (style.ITEM_PADDING * 2)
     title_width = measure_text_cached(self._font, self.title, style.ITEM_TEXT_FONT_SIZE).x
     right_width = min(content_width - title_width, right_width)
-    if isinstance(self.action_item, ToggleAction) or isinstance(self.action_item, SimpleButtonActionSP):
-      action_x = item_rect.x
-    else:
-      action_x = item_rect.x + item_rect.width - right_width
+    # ORBIT: always right-align the action (toggle/button/value) inside the card.
+    action_x = item_rect.x + item_rect.width - right_width
     action_y = item_rect.y
     return rl.Rectangle(action_x, action_y, right_width, style.ITEM_BASE_HEIGHT)
 
@@ -288,19 +289,29 @@ class ListItemSP(ListItem):
     if (self._rect.y + self.rect.height) <= self._parent_rect.y or self._rect.y >= (self._parent_rect.y + self._parent_rect.height):
       return
 
+    # ORBIT card background: fill the row rect (inset top/bottom) with a rounded NAVY tile
+    # so each row reads as a distinct card. Drawn first; title/description/action go on top.
+    card_rect = rl.Rectangle(self._rect.x, self._rect.y + ITEM_CARD_INSET,
+                             self._rect.width, self._rect.height - ITEM_CARD_INSET * 2)
+    if card_rect.height > 0:
+      rl.draw_rectangle_rounded(card_rect, ITEM_CARD_ROUNDNESS, ITEM_CARD_SEGMENTS, ITEM_CARD_COLOR)
+
     content_x = self._rect.x + style.ITEM_PADDING
     text_x = content_x
     left_action_item = isinstance(self.action_item, ToggleAction) or isinstance(self.action_item, SimpleButtonActionSP)
 
     if left_action_item:
       item_height = style.SIMPLE_BUTTON_HEIGHT if isinstance(self.action_item, SimpleButtonActionSP) else style.TOGGLE_HEIGHT
-      left_rect = rl.Rectangle(
-        content_x,
+      action_width = self.action_item.rect.width
+      # ORBIT: right-align the toggle/button flush to the card's right edge (was left-aligned).
+      action_rect = rl.Rectangle(
+        self._rect.x + self._rect.width - action_width,
         self._rect.y + (style.ITEM_BASE_HEIGHT - item_height) // 2,
-        self.action_item.rect.width,
+        action_width,
         item_height
       )
-      text_x = left_rect.x + left_rect.width + style.ITEM_PADDING * 1.5
+      # title now starts at the card's left edge
+      text_x = content_x
 
       # Draw title
       if self.title:
@@ -310,11 +321,11 @@ class ListItemSP(ListItem):
 
       value_text = self.right_value
       if value_text:
-        # area from after the title to the right edge of the row
+        # area from after the title to just before the right-aligned action
         value_rect = rl.Rectangle(
           text_x,  # start at the beginning of the text area
           self._rect.y,
-          self._rect.width - (text_x - self._rect.x) - style.ITEM_PADDING,
+          action_rect.x - text_x - style.ITEM_PADDING,
           style.ITEM_BASE_HEIGHT,
         )
         if value_rect.width > 0:
@@ -322,7 +333,7 @@ class ListItemSP(ListItem):
                     alignment=rl.GuiTextAlignment.TEXT_ALIGN_RIGHT, alignment_vertical=rl.GuiTextAlignmentVertical.TEXT_ALIGN_MIDDLE)
 
       # Render toggle and handle callback
-      if self.action_item.render(left_rect) and self.action_item.enabled:
+      if self.action_item.render(action_rect) and self.action_item.enabled:
         if self.callback:
           self.callback()
 
@@ -405,7 +416,6 @@ class LineSeparatorSP(LineSeparator):
     self._rect = rl.Rectangle(0, 0, 0, height)
 
   def _render(self, _):
-    line_y = int(self._rect.y + self._rect.height // 2)
-    rl.draw_line(int(self._rect.x) + LINE_PADDING, line_y,
-                 int(self._rect.x + self._rect.width) - LINE_PADDING, line_y,
-                 LINE_COLOR)
+    # ORBIT: rows are now distinct cards with their own spacing, so the between-row hairline
+    # would read as a lined list. Keep the separator's height (spacing) but draw nothing.
+    return

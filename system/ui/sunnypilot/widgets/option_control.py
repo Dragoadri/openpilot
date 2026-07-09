@@ -6,14 +6,14 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.sunnypilot.lib.styles import style
 from openpilot.system.ui.widgets.list_view import ItemAction
 
-# Dimensions and styling constants
-BUTTON_WIDTH = 150
-BUTTON_HEIGHT = 150
-LABEL_WIDTH = 350
-BUTTON_SPACING = 25
-VALUE_FONT_SIZE = 50
-BUTTON_FONT_SIZE = 60
-CONTAINER_PADDING = 20
+# Dimensions and styling constants (ORBIT: modestly larger for touch)
+BUTTON_WIDTH = 175
+BUTTON_HEIGHT = 175
+LABEL_WIDTH = 400
+BUTTON_SPACING = 28
+VALUE_FONT_SIZE = 58
+BUTTON_FONT_SIZE = 70
+CONTAINER_PADDING = 24
 
 
 class OptionControlSP(ItemAction):

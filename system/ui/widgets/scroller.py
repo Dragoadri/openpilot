@@ -10,7 +10,7 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.nav_widget import NavWidget
 
 ITEM_SPACING = 20
-LINE_COLOR = rl.GRAY
+LINE_COLOR = rl.Color(43, 62, 95, 255)  # ORBIT: separator HAIRLINE
 LINE_PADDING = 40
 ANIMATION_SCALE = 0.6
 

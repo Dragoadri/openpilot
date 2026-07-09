@@ -100,3 +100,6 @@ SKILL.md
 !.idea/customTargets.xml
 !.idea/tools/*
 !.run/*
+
+# MetaDrive render dumps (sim artifacts, never commit)
+main_index_*.png

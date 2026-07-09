@@ -49,12 +49,12 @@ class MainLayout(Widget):
     if not self._onboarding_window.completed:
       gui_app.push_widget(self._onboarding_window)
 
-    # [SIC-UEM] Splash de arranque (branding del TFG). Guardado: un fallo del
-    # splash nunca debe impedir que arranque el UI. Se empuja al final para que
-    # aparezca por encima al encender la pantalla y se auto-cierra solo.
+    # [ORBIT] Splash de arranque (branding ORBIT). Guardado: un fallo del splash
+    # nunca debe impedir que arranque el UI. Se empuja al final para que aparezca
+    # por encima al encender la pantalla y se auto-cierra solo.
     try:
-      from openpilot.selfdrive.ui.sunnypilot.layouts.sicuem_splash import SicuemSplash
-      gui_app.push_widget(SicuemSplash())
+      from openpilot.selfdrive.ui.sunnypilot.layouts.orbit_splash import OrbitSplash
+      gui_app.push_widget(OrbitSplash())
     except Exception:
       pass
 
@@ -66,7 +66,9 @@ class MainLayout(Widget):
     self._sidebar.set_callbacks(on_settings=self._on_settings_clicked,
                                 on_flag=self._on_bookmark_clicked,
                                 open_settings=lambda: self.open_settings(PanelType.TOGGLES))
-    self._layouts[MainState.HOME]._setup_widget.set_open_settings_callback(lambda: self.open_settings(PanelType.FIREHOSE))
+    # ORBIT's HomeLayout is a custom home screen with no SetupWidget (upstream's
+    # _setup_widget was dropped in the ORBIT rewrite), so there is no FIREHOSE
+    # shortcut to wire here. Settings are reached via set_settings_callback below.
     self._layouts[MainState.HOME].set_settings_callback(lambda: self.open_settings(PanelType.TOGGLES))
     self._layouts[MainState.SETTINGS].set_callbacks(on_close=self._set_mode_for_state)
 

@@ -85,7 +85,7 @@ class OrbitEnrollDialog(Widget):
       cloudlog.exception("Failed to read OrbitClaimed")
 
   def _render(self, rect: rl.Rectangle) -> int:
-    rl.clear_background(rl.Color(224, 224, 224, 255))
+    rl.clear_background(rl.Color(11, 18, 32, 255))  # ORBIT: VOID background
 
     self._check_qr_refresh()
 
@@ -107,7 +107,7 @@ class OrbitEnrollDialog(Widget):
     left_width = int(content_rect.width * 0.5 - 15)
 
     title_wrapped = wrap_text(title_font, title, 75, left_width)
-    rl.draw_text_ex(title_font, "\n".join(title_wrapped), rl.Vector2(content_rect.x, y), 75, 0.0, rl.BLACK)
+    rl.draw_text_ex(title_font, "\n".join(title_wrapped), rl.Vector2(content_rect.x, y), 75, 0.0, rl.Color(226, 236, 255, 255))  # ORBIT: INK title
     y += len(title_wrapped) * 75 + 60
 
     # Two columns: instructions and QR code
@@ -145,24 +145,29 @@ class OrbitEnrollDialog(Widget):
       text_height = len(wrapped) * 47
       circle_y = y + text_height // 2
 
-      # Circle and number
-      rl.draw_circle(int(circle_x), int(circle_y), circle_radius, rl.Color(70, 70, 70, 255))
+      # Circle and number  # ORBIT: BLUE_DEEP circle with INK number
+      rl.draw_circle(int(circle_x), int(circle_y), circle_radius, rl.Color(37, 99, 235, 255))
       number = str(i + 1)
       number_size = measure_text_cached(font, number, 30)
-      rl.draw_text_ex(font, number, (int(circle_x - number_size.x // 2), int(circle_y - number_size.y // 2)), 30, 0, rl.WHITE)
+      rl.draw_text_ex(font, number, (int(circle_x - number_size.x // 2), int(circle_y - number_size.y // 2)), 30, 0, rl.Color(226, 236, 255, 255))
 
-      # Text
-      rl.draw_text_ex(font, "\n".join(wrapped), rl.Vector2(text_x, y), 47, 0.0, rl.BLACK)
+      # Text  # ORBIT: INK instruction text
+      rl.draw_text_ex(font, "\n".join(wrapped), rl.Vector2(text_x, y), 47, 0.0, rl.Color(226, 236, 255, 255))
       y += text_height + 50
 
   def _render_qr_code(self, rect: rl.Rectangle) -> None:
     if not self.qr_texture:
-      rl.draw_rectangle_rounded(rect, 0.1, 20, rl.Color(240, 240, 240, 255))
+      rl.draw_rectangle_rounded(rect, 0.1, 20, rl.Color(22, 35, 58, 255))  # ORBIT: NAVY error placeholder, keep red error text
       error_font = gui_app.font(FontWeight.BOLD)
       rl.draw_text_ex(
         error_font, tr("QR Code Error"), rl.Vector2(rect.x + 20, rect.y + rect.height // 2 - 15), 30, 0.0, rl.RED
       )
       return
+
+    # ORBIT: white quiet-zone tile behind QR so it stays scannable (QR texture kept untinted)
+    tile_pad = 12
+    tile_rect = rl.Rectangle(rect.x - tile_pad, rect.y - tile_pad, rect.width + tile_pad * 2, rect.height + tile_pad * 2)
+    rl.draw_rectangle_rounded(tile_rect, 0.05, 20, rl.WHITE)
 
     source = rl.Rectangle(0, 0, self.qr_texture.width, self.qr_texture.height)
     rl.draw_texture_pro(self.qr_texture, source, rect, rl.Vector2(0, 0), 0, rl.WHITE)
@@ -175,7 +180,7 @@ class OrbitEnrollDialog(Widget):
     code_measure = measure_text_cached(code_font, code_text, code_size)
     code_x = rect.x + (rect.width - code_measure.x) // 2
     code_y = rect.y + rect.height + 20
-    rl.draw_text_ex(code_font, code_text, rl.Vector2(code_x, code_y), code_size, 0.0, rl.BLACK)
+    rl.draw_text_ex(code_font, code_text, rl.Vector2(code_x, code_y), code_size, 0.0, rl.Color(226, 236, 255, 255))  # ORBIT: INK pairing code
 
   def __del__(self):
     if self.qr_texture and self.qr_texture.id != 0:

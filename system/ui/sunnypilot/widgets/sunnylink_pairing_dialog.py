@@ -48,7 +48,7 @@ class SunnylinkPairingDialog(PairingDialog):
       gui_app.pop_widget()
 
   def _render(self, rect: rl.Rectangle) -> int:
-    rl.clear_background(rl.Color(224, 224, 224, 255))
+    rl.clear_background(rl.Color(11, 18, 32, 255))  # ORBIT VOID screen base (was light grey 224)
 
     self._check_qr_refresh()
 
@@ -70,7 +70,7 @@ class SunnylinkPairingDialog(PairingDialog):
     left_width = int(content_rect.width * 0.5 - 15)
 
     title_wrapped = wrap_text(title_font, title, 75, left_width)
-    rl.draw_text_ex(title_font, "\n".join(title_wrapped), rl.Vector2(content_rect.x, y), 75, 0.0, rl.BLACK)
+    rl.draw_text_ex(title_font, "\n".join(title_wrapped), rl.Vector2(content_rect.x, y), 75, 0.0, rl.Color(226, 236, 255, 255))  # ORBIT INK title (was rl.BLACK)
     y += len(title_wrapped) * 75 + 60
 
     # Two columns: instructions and QR code
@@ -117,13 +117,13 @@ class SunnylinkPairingDialog(PairingDialog):
       circle_y = y + text_height // 2
 
       # Circle and number
-      rl.draw_circle(int(circle_x), int(circle_y), circle_radius, rl.Color(70, 70, 70, 255))
+      rl.draw_circle(int(circle_x), int(circle_y), circle_radius, rl.Color(37, 99, 235, 255))  # ORBIT BLUE_DEEP step badge (was grey 70)
       number = str(i + 1)
       number_size = measure_text_cached(font, number, 30)
-      rl.draw_text_ex(font, number, (int(circle_x - number_size.x // 2), int(circle_y - number_size.y // 2)), 30, 0, rl.WHITE)
+      rl.draw_text_ex(font, number, (int(circle_x - number_size.x // 2), int(circle_y - number_size.y // 2)), 30, 0, rl.Color(226, 236, 255, 255))  # ORBIT INK number
 
       # Text
-      rl.draw_text_ex(font, "\n".join(wrapped), rl.Vector2(text_x, y), 47, 0.0, rl.BLACK)
+      rl.draw_text_ex(font, "\n".join(wrapped), rl.Vector2(text_x, y), 47, 0.0, rl.Color(226, 236, 255, 255))  # ORBIT INK instruction text (was rl.BLACK)
       y += text_height + 50
 
 

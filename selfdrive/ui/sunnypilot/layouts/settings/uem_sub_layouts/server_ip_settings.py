@@ -18,6 +18,7 @@ Paths resolve under BASEDIR/sicuem/... with a /data/openpilot fallback.
 import json
 import os
 import tempfile
+import threading
 from collections.abc import Callable
 
 import pyray as rl
@@ -25,6 +26,9 @@ import pyray as rl
 from openpilot.common.basedir import BASEDIR
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.sunnypilot.widgets.input_dialog import InputDialogSP
+from openpilot.selfdrive.ui.widgets.orbit_server import probe_server
+from openpilot.system.ui.lib.application import gui_app
+from openpilot.system.ui.widgets.confirm_dialog import alert_dialog
 from openpilot.system.ui.sunnypilot.widgets.list_view import button_item_sp, LineSeparatorSP
 from openpilot.system.ui.widgets import Widget, DialogResult
 from openpilot.system.ui.widgets.network import NavButton
@@ -79,6 +83,8 @@ class ServerIpSettingsLayout(Widget):
 
     self._orbit_path = _resolve_path("sicuem/orbit/config_mqtt.json")
     self._sicuem_path = _resolve_path("sicuem/config.json")
+    self._test_status = ""
+    self._pending_test: str | None = None
 
     items = self._initialize_items()
     self._scroller = Scroller(items, line_separator=False, spacing=0)
@@ -96,12 +102,39 @@ class ServerIpSettingsLayout(Widget):
       description=lambda: tr("IP actual:") + f" {self._read_sicuem_ip() or '-'}",
       callback=self._edit_sicuem,
     )
+    self._test_button = button_item_sp(
+      title=lambda: tr("Probar conexion al broker Orbit"),
+      button_text=lambda: tr("PROBAR"),
+      description=lambda: self._test_status or tr("Comprueba si el servidor responde en la IP y puerto actuales."),
+      callback=self._test_connection,
+    )
 
     return [
       self._orbit_button,
       LineSeparatorSP(40),
       self._sicuem_button,
+      LineSeparatorSP(40),
+      self._test_button,
     ]
+
+  def _test_connection(self):
+    ip = self._read_orbit_ip()
+    root = _load_json(self._orbit_path)
+    try:
+      port = int(root.get("broker_port", 1883) or 1883)
+    except (TypeError, ValueError):
+      port = 1883
+    if not ip:
+      gui_app.push_widget(alert_dialog(tr("No hay IP configurada")))
+      return
+    self._test_status = tr("Probando...")
+
+    def _run():
+      ok = probe_server(ip, port, timeout=3.0)
+      # Hand the result to the UI thread (see _render) — never push a dialog from a worker thread.
+      self._pending_test = (tr("Conectado a") if ok else tr("Sin conexion con")) + f" {ip}:{port}"
+
+    threading.Thread(target=_run, name="orbit_probe", daemon=True).start()
 
   # ---------------------------------------------------------------- reads
   def _read_orbit_ip(self) -> str:
@@ -161,6 +194,10 @@ class ServerIpSettingsLayout(Widget):
 
   # ------------------------------------------------------------- lifecycle
   def _render(self, rect):
+    # Show a probe result produced by the worker thread (UI-thread-safe here).
+    if self._pending_test is not None:
+      msg, self._pending_test, self._test_status = self._pending_test, None, ""
+      gui_app.push_widget(alert_dialog(msg))
     self._back_button.set_position(self._rect.x, self._rect.y + 20)
     self._back_button.render()
     content_rect = rl.Rectangle(

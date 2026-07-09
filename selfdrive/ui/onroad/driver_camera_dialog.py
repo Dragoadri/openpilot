@@ -68,7 +68,8 @@ class DriverCameraDialog(CameraView):
     fbox_y = int(-135.0 + (504.0 + abs(face_x) * 112.0) + (1205.0 - abs(face_x) * 724.0) * face_y)
     box_size = 220
 
-    line_color = rl.Color(255, 255, 255, int(alpha * 255))
+    # ORBIT chrome: neutral face-box outline -> INK (alpha semantics preserved)
+    line_color = rl.Color(226, 236, 255, int(alpha * 255))
     rl.draw_rectangle_rounded_lines_ex(
       rl.Rectangle(fbox_x - box_size / 2, fbox_y - box_size / 2, box_size, box_size),
       35.0 / box_size / 2,

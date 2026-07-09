@@ -17,7 +17,7 @@ class Base:
   ITEM_TEXT_FONT_SIZE = 50
   ITEM_DESC_FONT_SIZE = 40
   ITEM_DESC_V_OFFSET = 150
-  ITEM_TEXT_VALUE_COLOR = rl.Color(170, 170, 170, 255)
+  ITEM_TEXT_VALUE_COLOR = rl.Color(147, 180, 230, 255)  # ORBIT: value text -> MUTED
   CLOSE_BTN_SIZE = 160
 
   TEXT_PADDING = 20
@@ -38,17 +38,17 @@ class Base:
 
 @dataclass
 class DefaultStyleSP(Base):
-  # Base Colors
-  BASE_BG_COLOR = rl.Color(57, 57, 57, 255)  # Grey
-  ON_BG_COLOR = rl.Color(28, 101, 186, 255)  # Blue
-  OFF_BG_COLOR = BASE_BG_COLOR
-  ON_HOVER_BG_COLOR = rl.Color(17, 78, 150, 255)  # Dark Blue
-  OFF_HOVER_BG_COLOR = rl.Color(21, 21, 21, 255)  # Dark gray
-  DISABLED_ON_BG_COLOR = rl.Color(37, 70, 107, 255)  # Dull Blue
-  DISABLED_OFF_BG_COLOR = rl.Color(39, 39, 39, 255)  # Grey
-  ITEM_TEXT_COLOR = rl.WHITE
-  ITEM_DISABLED_TEXT_COLOR = rl.Color(88, 88, 88, 255)
-  ITEM_DESC_TEXT_COLOR = rl.Color(128, 128, 128, 255)
+  # Base Colors -- ORBIT: row/track bg NAVY, ON GREEN_DEEP, OFF TOGGLE_OFF, text INK/MUTED
+  BASE_BG_COLOR = rl.Color(22, 35, 58, 255)  # NAVY (raised row bg)
+  ON_BG_COLOR = rl.Color(22, 163, 74, 255)  # GREEN_DEEP (toggle ON track)
+  OFF_BG_COLOR = rl.Color(51, 68, 95, 255)  # TOGGLE_OFF (muted navy off track)
+  ON_HOVER_BG_COLOR = rl.Color(74, 222, 128, 255)  # GREEN (ON hover)
+  OFF_HOVER_BG_COLOR = rl.Color(43, 62, 95, 255)  # HAIRLINE (OFF hover)
+  DISABLED_ON_BG_COLOR = rl.Color(27, 44, 72, 255)  # PANEL (disabled ON)
+  DISABLED_OFF_BG_COLOR = rl.Color(22, 35, 58, 255)  # NAVY (disabled OFF)
+  ITEM_TEXT_COLOR = rl.Color(226, 236, 255, 255)  # INK (primary text)
+  ITEM_DISABLED_TEXT_COLOR = rl.Color(92, 117, 153, 255)  # MUTED_DIM
+  ITEM_DESC_TEXT_COLOR = rl.Color(147, 180, 230, 255)  # MUTED (description text)
 
   # Toggle Control
   TOGGLE_ON_COLOR = ON_BG_COLOR
@@ -56,40 +56,40 @@ class DefaultStyleSP(Base):
   TOGGLE_KNOB_COLOR = rl.WHITE
   TOGGLE_DISABLED_ON_COLOR = DISABLED_ON_BG_COLOR
   TOGGLE_DISABLED_OFF_COLOR = DISABLED_OFF_BG_COLOR
-  TOGGLE_DISABLED_KNOB_COLOR = rl.Color(88, 88, 88, 255)  # Lighter Grey
+  TOGGLE_DISABLED_KNOB_COLOR = rl.Color(92, 117, 153, 255)  # ORBIT: MUTED_DIM knob
 
-  # Multi Button Control
+  # Multi Button Control -- ORBIT: selected -> PANEL, disabled overlay tinted MUTED_DIM
   MBC_TRANSPARENT = rl.Color(255, 255, 255, 0)
-  MBC_BG_CHECKED_ENABLED = rl.Color(0x69, 0x68, 0x68, 0xFF)
-  MBC_DISABLED = rl.Color(0xFF, 0xFF, 0xFF, 0x33)
+  MBC_BG_CHECKED_ENABLED = rl.Color(27, 44, 72, 255)  # PANEL (selected)
+  MBC_DISABLED = rl.Color(92, 117, 153, 0x33)  # MUTED_DIM translucent overlay
 
-  # Option Control
+  # Option Control -- ORBIT: HAIRLINE btn, PANEL pressed, INK text
   OPTION_CONTROL_CONTAINER_BG = OFF_BG_COLOR
-  OPTION_CONTROL_BTN_ENABLED = rl.Color(88, 88, 88, 255)
-  OPTION_CONTROL_BTN_PRESSED = rl.Color(0x69, 0x68, 0x68, 0xFF)
+  OPTION_CONTROL_BTN_ENABLED = rl.Color(43, 62, 95, 255)  # HAIRLINE
+  OPTION_CONTROL_BTN_PRESSED = rl.Color(27, 44, 72, 255)  # PANEL (pressed)
   OPTION_CONTROL_BTN_DISABLED = DISABLED_OFF_BG_COLOR
-  OPTION_CONTROL_TEXT_ENABLED = rl.WHITE
-  OPTION_CONTROL_TEXT_PRESSED = rl.WHITE
+  OPTION_CONTROL_TEXT_ENABLED = rl.Color(226, 236, 255, 255)  # INK
+  OPTION_CONTROL_TEXT_PRESSED = rl.Color(226, 236, 255, 255)  # INK
   OPTION_CONTROL_TEXT_DISABLED = ITEM_DISABLED_TEXT_COLOR
 
-  # Tree Button Colors
-  BUTTON_PRIMARY_COLOR = rl.Color(70, 91, 234, 255)  # Royal Blue
-  BUTTON_NEUTRAL_GRAY = rl.Color(51, 51, 51, 255)
-  BUTTON_DISABLED_BG_COLOR = rl.Color(30, 30, 30, 255)  # Very Dark Grey
+  # Tree Button Colors -- ORBIT: primary GREEN_DEEP, neutral NAVY, disabled VOID, borders HAIRLINE
+  BUTTON_PRIMARY_COLOR = rl.Color(22, 163, 74, 255)  # GREEN_DEEP (primary/confirm)
+  BUTTON_NEUTRAL_GRAY = rl.Color(22, 35, 58, 255)  # NAVY (neutral/ghost)
+  BUTTON_DISABLED_BG_COLOR = rl.Color(11, 18, 32, 255)  # VOID (disabled bg)
   TREE_DIALOG_TRANSPARENT = rl.Color(0, 0, 0, 0)
-  TREE_DIALOG_SEARCH_BUTTON_PRESSED = rl.Color(0x69, 0x68, 0x68, 0xFF)
-  TREE_DIALOG_SEARCH_BUTTON_BORDER = rl.Color(150, 150, 150, 200)
+  TREE_DIALOG_SEARCH_BUTTON_PRESSED = rl.Color(27, 44, 72, 255)  # PANEL (pressed)
+  TREE_DIALOG_SEARCH_BUTTON_BORDER = rl.Color(43, 62, 95, 200)  # HAIRLINE (border)
 
-  # Vehicle Description Colors
-  GREEN = rl.Color(0, 241, 0, 255)
-  BLUE = rl.Color(0, 134, 233, 255)
-  YELLOW = rl.Color(255, 213, 0, 255)
+  # Vehicle Description Colors -- ORBIT: GREEN (ok), BLUE (info); YELLOW kept as caution
+  GREEN = rl.Color(74, 222, 128, 255)  # GREEN (connected/ok)
+  BLUE = rl.Color(125, 180, 255, 255)  # BLUE (info/link)
+  YELLOW = rl.Color(255, 213, 0, 255)  # caution (no palette equivalent)
 
-  # Button Colors
-  BUTTON_ENABLED_OFF = rl.Color(0x39, 0x39, 0x39, 0xFF)
-  BUTTON_OFF_PRESSED = rl.Color(0x4A, 0x4A, 0x4A, 0xFF)
-  BUTTON_DISABLED = rl.Color(0x12, 0x12, 0x12, 0xFF)
-  BUTTON_TEXT_DISABLED = rl.Color(0x5C, 0x5C, 0x5C, 0xFF)
+  # Button Colors -- ORBIT: NAVY enabled, PANEL pressed, VOID disabled, MUTED_DIM text
+  BUTTON_ENABLED_OFF = rl.Color(22, 35, 58, 255)  # NAVY
+  BUTTON_OFF_PRESSED = rl.Color(27, 44, 72, 255)  # PANEL
+  BUTTON_DISABLED = rl.Color(11, 18, 32, 255)  # VOID
+  BUTTON_TEXT_DISABLED = rl.Color(92, 117, 153, 255)  # MUTED_DIM
 
 
 style = DefaultStyleSP

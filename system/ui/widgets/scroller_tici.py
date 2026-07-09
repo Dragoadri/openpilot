@@ -3,7 +3,7 @@ from openpilot.system.ui.lib.scroll_panel import GuiScrollPanel
 from openpilot.system.ui.widgets import Widget
 
 ITEM_SPACING = 40
-LINE_COLOR = rl.GRAY
+LINE_COLOR = rl.Color(43, 62, 95, 255)  # ORBIT: separator HAIRLINE
 LINE_PADDING = 40
 
 

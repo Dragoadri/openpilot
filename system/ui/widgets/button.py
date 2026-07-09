@@ -27,50 +27,53 @@ ICON_PADDING = 15
 DEFAULT_BUTTON_FONT_SIZE = 60
 ACTION_BUTTON_FONT_SIZE = 48
 
+# ORBIT text palette: green->near-black, ghost/secondary->BLUE, others->INK, light-bg actions->near-black
 BUTTON_TEXT_COLOR = {
-  ButtonStyle.NORMAL: rl.Color(228, 228, 228, 255),
-  ButtonStyle.PRIMARY: rl.Color(228, 228, 228, 255),
-  ButtonStyle.DANGER: rl.Color(228, 228, 228, 255),
-  ButtonStyle.TRANSPARENT: rl.BLACK,
-  ButtonStyle.TRANSPARENT_WHITE_TEXT: rl.WHITE,
-  ButtonStyle.TRANSPARENT_WHITE_BORDER: rl.Color(228, 228, 228, 255),
-  ButtonStyle.ACTION: rl.BLACK,
-  ButtonStyle.LIST_ACTION: rl.Color(228, 228, 228, 255),
-  ButtonStyle.NO_EFFECT: rl.Color(228, 228, 228, 255),
-  ButtonStyle.KEYBOARD: rl.Color(221, 221, 221, 255),
-  ButtonStyle.FORGET_WIFI: rl.Color(51, 51, 51, 255),
+  ButtonStyle.NORMAL: rl.Color(125, 180, 255, 255),  # BLUE on NAVY (ghost)
+  ButtonStyle.PRIMARY: rl.Color(5, 20, 10, 255),  # near-black on GREEN_DEEP
+  ButtonStyle.DANGER: rl.Color(226, 236, 255, 255),  # INK
+  ButtonStyle.TRANSPARENT: rl.Color(226, 236, 255, 255),  # INK
+  ButtonStyle.TRANSPARENT_WHITE_TEXT: rl.Color(226, 236, 255, 255),  # INK
+  ButtonStyle.TRANSPARENT_WHITE_BORDER: rl.Color(226, 236, 255, 255),  # INK
+  ButtonStyle.ACTION: rl.Color(5, 20, 10, 255),  # near-black on BLUE
+  ButtonStyle.LIST_ACTION: rl.Color(226, 236, 255, 255),  # INK
+  ButtonStyle.NO_EFFECT: rl.Color(226, 236, 255, 255),  # INK
+  ButtonStyle.KEYBOARD: rl.Color(226, 236, 255, 255),  # INK
+  ButtonStyle.FORGET_WIFI: rl.Color(5, 20, 10, 255),  # near-black on BLUE
 }
 
 BUTTON_DISABLED_TEXT_COLORS = {
-  ButtonStyle.TRANSPARENT_WHITE_TEXT: rl.WHITE,
+  ButtonStyle.TRANSPARENT_WHITE_TEXT: rl.Color(226, 236, 255, 255),  # INK
 }
 
+# ORBIT backgrounds: neutral/ghost->NAVY, primary->GREEN_DEEP, danger->red (no ORBIT red), actions->BLUE
 BUTTON_BACKGROUND_COLORS = {
-  ButtonStyle.NORMAL: rl.Color(51, 51, 51, 255),
-  ButtonStyle.PRIMARY: rl.Color(70, 91, 234, 255),
+  ButtonStyle.NORMAL: rl.Color(22, 35, 58, 255),  # NAVY
+  ButtonStyle.PRIMARY: rl.Color(22, 163, 74, 255),  # GREEN_DEEP
   ButtonStyle.DANGER: rl.Color(226, 44, 44, 255),
-  ButtonStyle.TRANSPARENT: rl.BLACK,
+  ButtonStyle.TRANSPARENT: rl.Color(11, 18, 32, 255),  # VOID
   ButtonStyle.TRANSPARENT_WHITE_TEXT: rl.BLANK,
-  ButtonStyle.TRANSPARENT_WHITE_BORDER: rl.BLACK,
-  ButtonStyle.ACTION: rl.Color(189, 189, 189, 255),
-  ButtonStyle.LIST_ACTION: rl.Color(57, 57, 57, 255),
-  ButtonStyle.NO_EFFECT: rl.Color(51, 51, 51, 255),
-  ButtonStyle.KEYBOARD: rl.Color(68, 68, 68, 255),
-  ButtonStyle.FORGET_WIFI: rl.Color(189, 189, 189, 255),
+  ButtonStyle.TRANSPARENT_WHITE_BORDER: rl.Color(11, 18, 32, 255),  # VOID
+  ButtonStyle.ACTION: rl.Color(125, 180, 255, 255),  # BLUE
+  ButtonStyle.LIST_ACTION: rl.Color(22, 35, 58, 255),  # NAVY
+  ButtonStyle.NO_EFFECT: rl.Color(22, 35, 58, 255),  # NAVY
+  ButtonStyle.KEYBOARD: rl.Color(27, 44, 72, 255),  # PANEL
+  ButtonStyle.FORGET_WIFI: rl.Color(125, 180, 255, 255),  # BLUE
 }
 
+# ORBIT pressed/hover: one step lighter (NAVY->PANEL, GREEN_DEEP->GREEN, BLUE->CYAN)
 BUTTON_PRESSED_BACKGROUND_COLORS = {
-  ButtonStyle.NORMAL: rl.Color(74, 74, 74, 255),
-  ButtonStyle.PRIMARY: rl.Color(48, 73, 244, 255),
+  ButtonStyle.NORMAL: rl.Color(27, 44, 72, 255),  # PANEL
+  ButtonStyle.PRIMARY: rl.Color(74, 222, 128, 255),  # GREEN
   ButtonStyle.DANGER: rl.Color(255, 36, 36, 255),
-  ButtonStyle.TRANSPARENT: rl.BLACK,
+  ButtonStyle.TRANSPARENT: rl.Color(22, 35, 58, 255),  # NAVY
   ButtonStyle.TRANSPARENT_WHITE_TEXT: rl.BLANK,
   ButtonStyle.TRANSPARENT_WHITE_BORDER: rl.BLANK,
-  ButtonStyle.ACTION: rl.Color(130, 130, 130, 255),
-  ButtonStyle.LIST_ACTION: rl.Color(74, 74, 74, 74),
-  ButtonStyle.NO_EFFECT: rl.Color(51, 51, 51, 255),
-  ButtonStyle.KEYBOARD: rl.Color(51, 51, 51, 255),
-  ButtonStyle.FORGET_WIFI: rl.Color(130, 130, 130, 255),
+  ButtonStyle.ACTION: rl.Color(34, 211, 238, 255),  # CYAN
+  ButtonStyle.LIST_ACTION: rl.Color(27, 44, 72, 74),  # PANEL (translucent)
+  ButtonStyle.NO_EFFECT: rl.Color(22, 35, 58, 255),  # NAVY
+  ButtonStyle.KEYBOARD: rl.Color(22, 35, 58, 255),  # NAVY
+  ButtonStyle.FORGET_WIFI: rl.Color(34, 211, 238, 255),  # CYAN
 }
 
 BUTTON_DISABLED_BACKGROUND_COLORS = {
@@ -120,14 +123,16 @@ class Button(Widget):
       else:
         self._background_color = BUTTON_BACKGROUND_COLORS[self._button_style]
     elif self._button_style != ButtonStyle.NO_EFFECT:
-      self._background_color = BUTTON_DISABLED_BACKGROUND_COLORS.get(self._button_style, rl.Color(51, 51, 51, 255))
-      self._label.set_text_color(BUTTON_DISABLED_TEXT_COLORS.get(self._button_style, rl.Color(228, 228, 228, 51)))
+      # ORBIT disabled: bg VOID, faint MUTED_DIM text (alpha kept translucent)
+      self._background_color = BUTTON_DISABLED_BACKGROUND_COLORS.get(self._button_style, rl.Color(11, 18, 32, 255))
+      self._label.set_text_color(BUTTON_DISABLED_TEXT_COLORS.get(self._button_style, rl.Color(92, 117, 153, 51)))
 
   def _render(self, _):
     roundness = self._border_radius / (min(self._rect.width, self._rect.height) / 2)
     if self._button_style == ButtonStyle.TRANSPARENT_WHITE_BORDER:
-      rl.draw_rectangle_rounded(self._rect, roundness, 10, rl.BLACK)
-      rl.draw_rectangle_rounded_lines_ex(self._rect, roundness, 10, 2, rl.WHITE)
+      # ORBIT ghost outline: VOID fill, BLUE hairline border
+      rl.draw_rectangle_rounded(self._rect, roundness, 10, rl.Color(11, 18, 32, 255))
+      rl.draw_rectangle_rounded_lines_ex(self._rect, roundness, 10, 2, rl.Color(125, 180, 255, 255))
     else:
       rl.draw_rectangle_rounded(self._rect, roundness, 10, self._background_color)
     self._label.render(self._rect)

@@ -19,23 +19,24 @@ METRIC_START_Y = 300
 HOME_BTN = rl.Rectangle(60, 860, 180, 180)
 
 
-# Color scheme
+# Color scheme — ORBIT palette (dark in-car ground station)
 class Colors:
-  WHITE = rl.WHITE
-  WHITE_DIM = rl.Color(255, 255, 255, 85)
-  GRAY = rl.Color(84, 84, 84, 255)
+  # Neutrals: white -> INK, white-dim separators -> HAIRLINE, faint grey -> MUTED_DIM
+  WHITE = rl.Color(226, 236, 255, 255)       # INK
+  WHITE_DIM = rl.Color(43, 62, 95, 255)      # HAIRLINE
+  GRAY = rl.Color(92, 117, 153, 255)         # MUTED_DIM
 
-  # Status colors
-  GOOD = rl.WHITE
-  WARNING = rl.Color(218, 202, 37, 255)
+  # Status colors: good -> GREEN, warning -> AMBER, danger -> keep red, progress -> BLUE, disabled -> MUTED_DIM
+  GOOD = rl.Color(74, 222, 128, 255)         # GREEN
+  WARNING = rl.Color(245, 200, 66, 255)      # AMBER
   DANGER = rl.Color(201, 34, 49, 255)
-  PROGRESS = rl.Color(0, 134, 233, 255)
-  DISABLED = rl.Color(128, 128, 128, 255)
+  PROGRESS = rl.Color(125, 180, 255, 255)    # BLUE
+  DISABLED = rl.Color(92, 117, 153, 255)     # MUTED_DIM
 
-  # UI elements
-  METRIC_BORDER = rl.Color(255, 255, 255, 85)
-  BUTTON_NORMAL = rl.WHITE
-  BUTTON_PRESSED = rl.Color(255, 255, 255, 166)
+  # UI elements: borders -> HAIRLINE, button -> INK, pressed -> CYAN (alpha preserved)
+  METRIC_BORDER = rl.Color(43, 62, 95, 255)  # HAIRLINE
+  BUTTON_NORMAL = rl.Color(226, 236, 255, 255)  # INK
+  BUTTON_PRESSED = rl.Color(34, 211, 238, 166)  # CYAN
 
 
 @dataclass(slots=True)

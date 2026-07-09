@@ -18,8 +18,9 @@ class ExpButton(Widget):
     self._held_mode: bool | None = None
     self._hold_end_time: float | None = None
 
-    self._white_color: rl.Color = rl.Color(255, 255, 255, 255)
-    self._black_bg: rl.Color = rl.Color(0, 0, 0, 166)
+    # ORBIT chrome: neutral icon tint -> INK, dark circle bg -> VOID (alpha preserved)
+    self._white_color: rl.Color = rl.Color(226, 236, 255, 255)
+    self._black_bg: rl.Color = rl.Color(11, 18, 32, 166)
     self._txt_wheel: rl.Texture = gui_app.texture('icons/chffr_wheel.png', icon_size, icon_size)
     self._txt_exp: rl.Texture = gui_app.texture('icons/experimental.png', icon_size, icon_size)
     self._rect = rl.Rectangle(0, 0, button_size, button_size)

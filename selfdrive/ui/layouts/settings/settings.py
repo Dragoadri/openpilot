@@ -43,6 +43,16 @@ ORBIT_MUTED = rl.Color(147, 180, 230, 255)    # #93B4E6
 SIDEBAR_COLOR = ORBIT_VOID
 PANEL_COLOR = ORBIT_NAVY
 
+# Compat constants for the sunnypilot settings layer (SettingsLayoutSP), which
+# still references these upstream names via `settings as OP`. The ORBIT rewrite
+# of this module dropped them; re-add them mapped to the ORBIT palette so the SP
+# sidebar renders in ORBIT colors instead of crashing on missing attributes.
+NAV_BTN_HEIGHT = 110
+CLOSE_BTN_COLOR = ORBIT_PANEL
+CLOSE_BTN_PRESSED = ORBIT_HAIRLINE
+TEXT_NORMAL = ORBIT_MUTED
+TEXT_SELECTED = ORBIT_INK
+
 
 class PanelType(IntEnum):
   DEVICE = 0

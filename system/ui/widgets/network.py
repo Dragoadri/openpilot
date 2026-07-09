@@ -65,7 +65,8 @@ class NavButton(Widget):
     self.set_rect(rl.Rectangle(0, 0, 400, 100))
 
   def _render(self, _):
-    color = rl.Color(74, 74, 74, 255) if self.is_pressed else rl.Color(57, 57, 57, 255)
+    # ORBIT palette: neutral nav button NAVY, pressed one step lighter PANEL
+    color = rl.Color(27, 44, 72, 255) if self.is_pressed else rl.Color(22, 35, 58, 255)
     rl.draw_rectangle_rounded(self._rect, 0.6, 10, color)
     gui_label(self.rect, self.text, font_size=60, alignment=rl.GuiTextAlignment.TEXT_ALIGN_CENTER)
 
@@ -355,7 +356,8 @@ class WifiManagerUI(Widget):
       self._draw_network_item(item_rect, network)
       if i < len(self._networks) - 1:
         line_y = int(item_rect.y + item_rect.height - 1)
-        rl.draw_line(int(item_rect.x), int(line_y), int(item_rect.x + item_rect.width), line_y, rl.LIGHTGRAY)
+        # ORBIT palette: row separator HAIRLINE
+        rl.draw_line(int(item_rect.x), int(line_y), int(item_rect.x + item_rect.width), line_y, rl.Color(43, 62, 95, 255))
 
     rl.end_scissor_mode()
 

@@ -56,21 +56,34 @@ class Toggle(Widget):
   def _render(self, rect: rl.Rectangle):
     self.update()
 
+    on = self._progress > 0.5
     if self._enabled:
-      bg_color = self._blend_color(OFF_COLOR, ON_COLOR, self._progress)
-      knob_color = KNOB_COLOR
+      on_color = ON_COLOR
+      off_color = OFF_COLOR
     else:
-      bg_color = self._blend_color(DISABLED_OFF_COLOR, DISABLED_ON_COLOR, self._progress)
-      knob_color = DISABLED_KNOB_COLOR
+      on_color = DISABLED_ON_COLOR
+      off_color = DISABLED_OFF_COLOR
 
-    # Draw background
-    bg_rect = rl.Rectangle(self._rect.x + 5, self._rect.y + 10, WIDTH - 10, BG_HEIGHT)
-    rl.draw_rectangle_rounded(bg_rect, 1.0, 10, bg_color)
+    # Square checkbox, right-aligned inside the widget rect (with a right margin
+    # so it isn't flush against the card edge).
+    s = HEIGHT - 8
+    bx = self._rect.x + WIDTH - s - 24
+    by = self._rect.y + (HEIGHT - s) / 2
+    box = rl.Rectangle(bx, by, s, s)
+    roundness = 0.25
+    check_color = rl.Color(11, 18, 32, 255)  # VOID
 
-    # Draw knob
-    knob_x = self._rect.x + HEIGHT / 2 + (WIDTH - HEIGHT) * self._progress
-    knob_y = self._rect.y + HEIGHT / 2
-    rl.draw_circle(int(knob_x), int(knob_y), HEIGHT / 2, knob_color)
+    if on:
+      # Filled square + check mark
+      rl.draw_rectangle_rounded(box, roundness, 10, on_color)
+      p1 = rl.Vector2(bx + s * 0.24, by + s * 0.52)
+      p2 = rl.Vector2(bx + s * 0.42, by + s * 0.72)
+      p3 = rl.Vector2(bx + s * 0.78, by + s * 0.28)
+      rl.draw_line_ex(p1, p2, 5, check_color)
+      rl.draw_line_ex(p2, p3, 5, check_color)
+    else:
+      # Empty rounded-square outline
+      rl.draw_rectangle_rounded_lines_ex(box, roundness, 10, 3, off_color)
 
     # TODO: use click callback
     clicked = self._clicked
