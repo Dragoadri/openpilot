@@ -1,5 +1,8 @@
 import datetime
+import os
 import socket
+import subprocess
+import threading
 import time
 import pyray as rl
 from enum import IntEnum
@@ -133,6 +136,8 @@ class HomeLayout(Widget):
     self._upd_checked: str | None = None
     self._net_ip = ""
     self._net_type = "--"
+    self._net_ssid = ""
+    self._ssid_inflight = False
     self._broker_addr = ""
 
     # Cached param reads — fast refresh (FAST_REFRESH_INTERVAL)
@@ -380,7 +385,12 @@ class HomeLayout(Widget):
       upd_detail = "sin novedades"
       upd_sub = f"comprobado {self._upd_checked}" if self._upd_checked else "aún sin comprobar"
 
-    net_detail = f"vía {self._net_type}" if self._net_type != "--" else "tipo desconocido"
+    if self._net_ssid:
+      net_detail = f"WiFi: {self._net_ssid}"
+    elif self._net_type != "--":
+      net_detail = f"vía {self._net_type}"
+    else:
+      net_detail = "tipo desconocido"
 
     cards = [
       ("system", "SISTEMA", self._sys_branch or "--", INK, sys_detail, self._version_text, False),
@@ -595,6 +605,8 @@ class HomeLayout(Widget):
     except Exception:
       self._net_type = "--"
     self._net_ip = self._local_ip()
+    # SSID is not in deviceState; read it from NetworkManager in the background.
+    self._refresh_ssid()
 
     # Orbit broker address (read from config_mqtt.json, cheap at this cadence)
     try:
@@ -602,6 +614,32 @@ class HomeLayout(Widget):
       self._broker_addr = f"{ip}:{port}" if ip else ""
     except Exception:
       self._broker_addr = ""
+
+  def _refresh_ssid(self) -> None:
+    # nmcli blocks; run it off the render thread and cache the result. One at a time.
+    if self._ssid_inflight:
+      return
+    self._ssid_inflight = True
+
+    def worker():
+      ssid = ""
+      try:
+        # Force C locale so the ACTIVE column is "yes"/"no" regardless of system language.
+        out = subprocess.run(["nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi"],
+                             capture_output=True, text=True, timeout=3,
+                             env={**os.environ, "LC_ALL": "C", "LANG": "C"}).stdout
+        for line in out.splitlines():
+          active, _, name = line.partition(":")
+          if active == "yes":
+            ssid = name.strip()
+            break
+      except Exception:
+        ssid = ""
+      finally:
+        self._net_ssid = ssid
+        self._ssid_inflight = False
+
+    threading.Thread(target=worker, daemon=True).start()
 
   def _local_ip(self) -> str:
     # UDP connect() does not send packets; it just picks the outbound interface.
