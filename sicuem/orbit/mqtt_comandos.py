@@ -38,9 +38,14 @@ class MQTTComandos:
     with open(self.jsonConfig, "r") as f:
       config = json.load(f)
       self.broker_address = config.get("broker", "localhost")
+      # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
+      self.mqtt_username = (config.get("username") or "").strip() or None
+      self.mqtt_password = config.get("password") or None
 
   def init_mqtt(self):
     self.mqttc = mqtt.Client()
+    if self.mqtt_username:
+      self.mqttc.username_pw_set(self.mqtt_username, self.mqtt_password)
     self.mqttc.max_queued_messages_set(0)  # No encolar mensajes en RAM si no hay conexión
     self.mqttc.on_connect = self.on_connect
     self.mqttc.on_disconnect = self.on_disconnect
@@ -62,12 +67,15 @@ class MQTTComandos:
         time.sleep(5)
 
   def reload_broker(self, new_broker):
-    """Reconecta a un broker nuevo en caliente (lo llama MQTTEnvioGeneral cuando
-    detecta que la IP cambio en config_mqtt.json). Evita tener que reiniciar."""
-    if not new_broker or new_broker == self.broker_address:
+    """Reconecta en caliente cuando cambian el broker o las credenciales en
+    config_mqtt.json (lo llama MQTTEnvioGeneral al detectar el cambio)."""
+    viejo = (self.broker_address, self.mqtt_username, self.mqtt_password)
+    self.load_config()  # re-lee broker y credenciales del JSON
+    if new_broker:
+      self.broker_address = new_broker
+    if (self.broker_address, self.mqtt_username, self.mqtt_password) == viejo:
       return
-    cloudlog.warning(f"[Bemposta] MQTTComandos broker {self.broker_address} -> {new_broker}, reconectando")
-    self.broker_address = new_broker
+    cloudlog.warning(f"[Bemposta] MQTTComandos broker/credenciales -> {self.broker_address}, reconectando")
     try:
       self.mqttc.loop_stop()
     except Exception:
@@ -77,6 +85,8 @@ class MQTTComandos:
     except Exception:
       pass
     self.conectado = False
+    # username=None -> vuelve a anonimo.
+    self.mqttc.username_pw_set(self.mqtt_username, self.mqtt_password)
     threading.Thread(target=self.setup_mqtt, daemon=True).start()
 
   def on_connect(self, client, userdata, flags, rc):

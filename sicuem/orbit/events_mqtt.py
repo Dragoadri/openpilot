@@ -28,9 +28,11 @@ _mqtt_connected = False
 _mqtt_client_lock = threading.Lock()
 _mqtt_broker: Optional[str] = None
 _mqtt_port: Optional[int] = None
+_mqtt_username: Optional[str] = None
+_mqtt_password: Optional[str] = None
 
 
-def _load_broker() -> tuple[str, int]:
+def _load_broker() -> tuple[str, int, Optional[str], Optional[str]]:
   base_path = os.path.dirname(os.path.abspath(__file__))
   cfg_path = os.path.join(base_path, "config_mqtt.json")
   try:
@@ -38,9 +40,12 @@ def _load_broker() -> tuple[str, int]:
       cfg = json.load(f)
     broker = cfg.get("broker", "localhost")
     port = int(cfg.get("broker_port", 1883))
-    return broker, port
+    # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
+    username = (cfg.get("username") or "").strip() or None
+    password = cfg.get("password") or None
+    return broker, port, username, password
   except Exception:
-    return "localhost", 1883
+    return "localhost", 1883, None, None
 
 
 _dongle_id_cache: Optional[str] = None
@@ -68,15 +73,17 @@ def _on_mqtt_disconnect(client, userdata, rc):
 
 def _ensure_mqtt_client():
   """Inicializa (o reutiliza) un cliente MQTT persistente."""
-  global _mqtt_client, _mqtt_broker, _mqtt_port
+  global _mqtt_client, _mqtt_broker, _mqtt_port, _mqtt_username, _mqtt_password
 
-  broker, port = _load_broker()
+  broker, port, username, password = _load_broker()
 
   with _mqtt_client_lock:
     needs_reinit = (
       _mqtt_client is None or
       broker != _mqtt_broker or
-      port != _mqtt_port
+      port != _mqtt_port or
+      username != _mqtt_username or
+      password != _mqtt_password
     )
 
     if needs_reinit:
@@ -92,11 +99,16 @@ def _ensure_mqtt_client():
       client.on_connect = _on_mqtt_connect
       client.on_disconnect = _on_mqtt_disconnect
       client.reconnect_delay_set(min_delay=1, max_delay=30)
+      # Credenciales MQTT opcionales (broker con auth). None = anonimo.
+      if username:
+        client.username_pw_set(username, password)
       try:
         client.connect_async(broker, port, keepalive=60)
         client.loop_start()
         _mqtt_broker = broker
         _mqtt_port = port
+        _mqtt_username = username
+        _mqtt_password = password
         _mqtt_client = client
       except Exception:
         _mqtt_connected = False

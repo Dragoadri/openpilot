@@ -35,13 +35,13 @@ app. It was distilled from a read-only audit of both repos (evidence recorded as
 
 ### 1.4 Enroll ack — backend → firmware (MQTT)
 - **Topic:** `telemetry_config/<dongle_id>/enroll_ack`.
-- **Payload:** `{ "claimed": true, "user_id": <int>, "ts": "<iso8601>" }`.
-- **Not retained, QoS 0** → the firmware must already be subscribed at claim time. It is (subscription lives in `on_connect`).
-- On receipt: set claimed, stop advertising, hide the QR.
+- **Payload:** claim: `{ "claimed": true, "user_id": <int>, "user_name": <str|null>, "user_email": <str|null>, "ts": <epoch s> }` · release/unclaim: `{ "claimed": false, "ts": <epoch s> }`.
+- **Retained, QoS 0** (`retain=true`, backend-side since 2026-07-09) → the ack is **retained link state**, not a one-shot notification: every publish (claim, idempotent re-claim, self-healing re-ack on announce, unlink single/bulk) overwrites the previous retained message, and a device that was offline during claim/unlink receives the latest state on reconnect + subscribe.
+- On `claimed:true`: set claimed, stop advertising, hide the QR. On `claimed:false` (remote unlink): clear claimed, regenerate the pairing code and resume advertising. `handle_enroll_ack` is idempotent against duplicate/retained deliveries (absolute Params writes, no toggles).
 
 ### 1.5 Known backend limitations (do not depend on these)
 - No "device online" precondition is actually enforced on claim (docs overstate).
-- No MQTT "unclaim/unlink" event exists yet → firmware cannot auto-re-enter enrollment on remote unlink today. We expose a local reset path only.
+- ~~No MQTT "unclaim/unlink" event exists yet~~ **Superseded (2026-07-09):** the backend now publishes a retained `{claimed:false}` ack on unlink/unassign and `handle_enroll_ack` consumes it (code regen + immediate re-announce). The local reset path remains as fallback.
 
 ## 2. Firmware design (`sicuem-mig`)
 

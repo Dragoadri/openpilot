@@ -1,9 +1,9 @@
 {
     "_version": "1777297439378",
-    "comma_ip": "10.61.135.172",
-    "jetson_enabled": true,
+    "comma_ip": "",
+    "jetson_enabled": false,
     "jetson_img_port": 5555,
-    "jetson_ip": "10.61.135.98",
+    "jetson_ip": "",
     "jetson_torque_port": 5556,
     "jpeg_quality": 10
 }

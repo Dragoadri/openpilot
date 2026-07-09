@@ -50,6 +50,9 @@ class MQTTEnvioGeneral:
       config = json.load(f)
       self.broker_address = config.get("broker", "localhost")
       self.broker_port = int(config.get("broker_port", 1883))
+      # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
+      self.mqtt_username = (config.get("username") or "").strip() or None
+      self.mqtt_password = config.get("password") or None
     try:
       self._cfg_mtime = os.path.getmtime(self.jsonConfig)
     except OSError:
@@ -72,13 +75,17 @@ class MQTTEnvioGeneral:
         cfg = json.load(f)
       new_broker = cfg.get("broker", self.broker_address)
       new_port = int(cfg.get("broker_port", self.broker_port))
+      new_username = (cfg.get("username") or "").strip() or None
+      new_password = cfg.get("password") or None
     except Exception:
       return
-    if new_broker == self.broker_address and new_port == self.broker_port:
+    if (new_broker == self.broker_address and new_port == self.broker_port
+        and new_username == self.mqtt_username and new_password == self.mqtt_password):
       return
-    cloudlog.warning(f"[Bemposta] broker cambiado {self.broker_address}:{self.broker_port} -> "
+    cloudlog.warning(f"[Bemposta] broker/credenciales cambiados {self.broker_address}:{self.broker_port} -> "
                      f"{new_broker}:{new_port}, reconectando (sin reiniciar openpilot)")
     self.broker_address, self.broker_port = new_broker, new_port
+    self.mqtt_username, self.mqtt_password = new_username, new_password
     try:
       self.mqttc.loop_stop()
     except Exception:
@@ -88,6 +95,8 @@ class MQTTEnvioGeneral:
     except Exception:
       pass
     self.conectado = False
+    # Reaplicar credenciales antes de reconectar (username=None -> anonimo).
+    self.mqttc.username_pw_set(self.mqtt_username, self.mqtt_password)
     threading.Thread(target=self.setup_mqtt, daemon=True).start()
     try:
       if getattr(self, "comandos_mqtt", None):
@@ -154,6 +163,8 @@ class MQTTEnvioGeneral:
 
   def init_mqtt(self):
     self.mqttc = mqtt.Client()
+    if self.mqtt_username:
+      self.mqttc.username_pw_set(self.mqtt_username, self.mqtt_password)
     self.mqttc.max_queued_messages_set(0)  # No encolar mensajes en RAM si no hay conexión
     self.mqttc.on_connect = self.on_connect
     self.mqttc.on_disconnect = self.on_disconnect

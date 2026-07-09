@@ -16,11 +16,12 @@ CONFIG_FILE = os.path.join(BASE_PATH, "config_mqtt.json")
 
 _BROKER = None
 _PORT = None
+_AUTH = None  # dict {'username','password'} para publish.single, o None (anonimo)
 _DONGLE_ID = None
 
 
 def _ensure_loaded():
-  global _BROKER, _PORT, _DONGLE_ID
+  global _BROKER, _PORT, _AUTH, _DONGLE_ID
   if _BROKER is not None:
     return
   try:
@@ -28,9 +29,13 @@ def _ensure_loaded():
       config = json.load(f)
     _BROKER = config.get("broker", "localhost")
     _PORT = config.get("broker_port", 1883)
+    # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
+    username = (config.get("username") or "").strip()
+    _AUTH = {"username": username, "password": config.get("password") or ""} if username else None
   except Exception:
     _BROKER = "localhost"
     _PORT = 1883
+    _AUTH = None
   try:
     from openpilot.common.params import Params
     dongle = Params().get("DongleId")
@@ -49,7 +54,7 @@ def enviar_log(mensaje, nivel="INFO", origen="desconocido"):
     "origen": origen,
   }
   try:
-    publish.single(topic, json.dumps(payload), hostname=_BROKER, port=_PORT)
+    publish.single(topic, json.dumps(payload), hostname=_BROKER, port=_PORT, auth=_AUTH)
   except Exception:
     pass
 
@@ -63,5 +68,5 @@ def enviar_log_test(dongle_id_manual, mensaje, nivel="INFO", origen="desconocido
     "timestamp": datetime.now().isoformat(),
     "origen": origen,
   }
-  publish.single(topic, json.dumps(payload), hostname=_BROKER, port=_PORT)
+  publish.single(topic, json.dumps(payload), hostname=_BROKER, port=_PORT, auth=_AUTH)
   print(f"Log de test enviado a {topic}")
