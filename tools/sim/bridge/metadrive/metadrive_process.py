@@ -63,6 +63,10 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
     wide_road_image = np.frombuffer(wide_camera_array.get_obj(), dtype=np.uint8).reshape((H, W, 3))
 
   env = MetaDriveEnv(config)
+  # comma's metadrive fork reads vehicle_config["render_vehicle"] from the raw dict, but the
+  # default traffic_vehicle_config lacks the key; Config rejects new keys in the constructor,
+  # so it has to be injected post-init or any traffic_density > 0 crashes reset().
+  env.config["traffic_vehicle_config"].update(dict(render_vehicle=False), allow_add_new_key=True)
 
   def get_current_lane_info(vehicle):
     _, lane_info, on_lane = vehicle.navigation._get_current_lane(vehicle)

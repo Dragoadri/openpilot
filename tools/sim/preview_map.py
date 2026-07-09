@@ -16,6 +16,12 @@ def main():
 
   env = MetaDriveEnv(dict(
     use_render=True,
+    # The minimal MetaDrive fork strips 3D meshes/assets: skip the logo texture,
+    # the pedestrian/cone/barrier model preload, and the ego car mesh (drawn as a
+    # box) so the render window doesn't crash on missing gltf/png files.
+    show_logo=False,
+    preload_models=False,
+    vehicle_config=dict(render_vehicle=False),
     map_config=get_map_config(args.map, args.track_size),
     traffic_density=0.0,
   ))

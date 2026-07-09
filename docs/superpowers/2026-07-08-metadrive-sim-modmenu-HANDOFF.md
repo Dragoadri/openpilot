@@ -1,6 +1,6 @@
 # MetaDrive Sim Mod-Menu — Handoff / qué verificar tú
 
-Rama: **orbit-master**. Todo el código está implementado, revisado y commiteado.
+Rama: **orbit-master**. Todo el código está implementado y revisado; el fix del bug P0 `render_vehicle` está en el working tree (pendiente de commit).
 
 ## Qué se construyó
 
@@ -22,36 +22,45 @@ Hotkeys (en la terminal de run_bridge): `l` coche parado · `k` cut-in (IDM) · 
 
 ## Estado de verificación
 
-- ✅ **Tests de lógica pura, ejecutados y en verde**: mapas (5/5), comandos (3/3), hotkeys (4/4), ModMenu dispatch (7/7). Corridos con el venv de SICUEM (metadrive) + `--confcutdir` (el conftest raíz de ORBITPILOT rompe pytest porque el repo no está compilado).
-- ✅ **Todo el código compila** (`py_compile`) y `run_bridge.py --help` muestra las flags nuevas.
-- ✅ **Revisión de rama completa** (subagente independiente contra el código real de MetaDrive): encontró 2 crashes Críticos (C1/C2) en el ciclo spawn→reset, **ya corregidos** (commit `c087ae58d`) y re-revisados. Ver más abajo.
-- ⏸️ **NO verificado aquí (necesita TU entorno compilado + GUI):** los tests que importan `openpilot.common.params`/cereal (crashean por capnp en este checkout sin compilar), y todo lo visual.
+- ✅ **Entorno de esta máquina ya compilado**: el repo tiene su propio venv (`.venv`, con metadrive 0.4.2.3 + capnp); todos los tests corren aquí con `.venv/bin/python -m pytest`.
+- ✅ **Suite completa de tests en verde** (mapas, comandos, hotkeys, dispatch, bridge): 21 passed, 1 skipped.
+- ✅ **Bug P0 `render_vehicle` encontrado, arreglado y verificado headless** (ver sección siguiente): spawns `l`/`k` y cualquier `traffic_density > 0` crasheaban; ahora reset con tráfico, los 4 spawns, clear y 2 cambios de mapa en vivo pasan un smoke sin render.
+- ✅ **Revisión de rama completa** (subagente independiente contra el código real de MetaDrive): encontró 2 crashes Críticos (C1/C2) en el ciclo spawn→reset, **ya corregidos** (commit `c087ae58d`) y re-revisados.
 
-### Cómo correr los tests en tu entorno compilado
+### Bug P0: KeyError('render_vehicle') — arreglado
+
+El fork comma-minimal de metadrive (0.4.2.3) lee `vehicle_config['render_vehicle']` del dict **crudo** (`base_vehicle.py:142`), así que cualquier `vehicle_config` parcial sin esa clave crashea al spawnear:
+
+- `spawn_lead` / `spawn_cutin` (`metadrive_modmenu.py`) crasheaban al pulsar `l`/`k` → fix: `render_vehicle=False` dentro de sus dicts `vehicle_config`.
+- Cualquier `traffic_density > 0` crasheaba `env.reset()` vía `traffic_manager.py:268` (el `traffic_vehicle_config` por defecto tampoco trae la clave) → fix en `metadrive_process.py`, tras crear el env: `env.config["traffic_vehicle_config"].update(dict(render_vehicle=False), allow_add_new_key=True)`. Pasarla en el dict del constructor NO funciona (`Config` rechaza claves nuevas).
+
+Verificado por ejecución con un smoke headless (MetaDriveEnv sin render): reset con `traffic_density=0.1` (28 NPCs), lead + cut-in + obstáculo + obstáculo lateral vía `ModMenu.apply()`, clear, y cambio de mapa en vivo a roundabout y highway (con tráfico re-spawneado en cada uno).
+
+### Cómo correr los tests
 
 ```bash
-# desde un checkout de openpilot COMPILADO (scons) con el extra tools:
-pytest tools/sim/tests/test_metadrive_maps.py tools/sim/tests/test_metadrive_command.py \
-       tools/sim/tests/test_keyboard_ctrl.py tools/sim/tests/test_metadrive_modmenu.py \
-       tools/sim/tests/test_metadrive_bridge.py -v
+# desde la raíz del repo:
+.venv/bin/python -m pytest --confcutdir=tools/sim/tests \
+       tools/sim/tests/test_metadrive_maps.py tools/sim/tests/test_metadrive_command.py \
+       tools/sim/tests/test_metadrive_modmenu.py tools/sim/tests/test_keyboard_ctrl.py \
+       tools/sim/tests/test_metadrive_bridge.py -m 'not slow' -p no:cacheprovider
+# → 21 passed, 1 skipped
 ```
 
-(Los 4 primeros ya pasaron aquí; el de bridge no pudo correr por el entorno.)
+## ⚠️ Checklist restante: SOLO GUI
 
-## ⚠️ Lo que TIENES que verificar tú (GUI)
+Todo lo headless ya está verificado por ejecución. Queda únicamente lo visual (nadie puede pulsar teclas en la ventana 3D por ti):
 
-Un subagente no puede pulsar teclas en la ventana 3D. Lanza y observa:
+1. **Render + HUD:**
+   `./run_bridge.py --render` → debe abrir la ventana de MetaDrive con el HUD arriba-izquierda (map/traffic/spawned + leyenda). Spawnea con `l/k/o/p`, cuenta sube; `c` limpia; `h` oculta/muestra HUD.
 
-1. **Núcleo de spawn (Tarea 7, sin render):**
-   `./run_bridge.py` → pulsa `l`, `k`, `o`, `c`. No debe crashear el proceso metadrive; `c` limpia sin error. **Tras los fixes, pulsar `r`/`t`/`m` después de spawnear ya NO debe crashear** (era el bug C1/C2).
+2. **Cámara openpilot no-negra:**
+   con `--render`, **verifica que la cámara de openpilot NO se ve en negro** (que conviven ventana + cámara offscreen). Si hay frames negros o errores CUDA/GL: en `metadrive_bridge.py build_config`, añade `image_on_cuda=_cuda_enable and not self.should_render` cuando renderices (ya está `multi_thread_render=False`).
 
-2. **Render + HUD (Tarea 9 / spike):**
-   `./run_bridge.py --render` → debe abrir la ventana de MetaDrive con el HUD arriba-izquierda (map/traffic/spawned + leyenda). Spawnea con `l/k/o/p`, cuenta sube; `c` limpia; `h` oculta/muestra HUD. **Verifica que la cámara de openpilot NO se ve en negro** (que conviven ventana + cámara offscreen). Si hay frames negros o errores CUDA/GL: en `metadrive_bridge.py build_config`, añade `image_on_cuda=_cuda_enable and not self.should_render` cuando renderices (ya está `multi_thread_render=False`).
+3. **Conducir la rotonda enganchado:**
+   `./run_bridge.py --render` → pulsa `m` hasta roundabout (el cambio en vivo ya no crashea headless), engancha openpilot y comprueba que conduce la rotonda.
 
-3. **Cambio de mapa en caliente (Tarea 10 / spike, la única incógnita real):**
-   `./run_bridge.py --render` → pulsa `m` varias veces. El HUD debe ciclar mapas y, tras una pausa de regeneración, aparecer la geometría nueva con el ego re-spawneado. Engancha openpilot y comprueba que conduce la rotonda. **Fallback si falla:** elegir mapa al lanzar (`--map roundabout`) ya funciona; si el cambio en vivo crashea, se puede desactivar `m`/`n` (ver Tarea 10 del plan).
-
-4. **Previewer (Tarea 11):**
+4. **Previewer (opcional, también GUI):**
    `./preview_map.py --map roundabout` (y `intersection_x`, `highway`) → ventana con la geometría, sin openpilot.
 
 ## Caveats (fork minimal)

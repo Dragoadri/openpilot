@@ -100,7 +100,7 @@ class ModMenu:
     pos, heading = ahead_pose(lane, ego.position, 40.0)
     v = self.env.engine.spawn_object(
       DefaultVehicle,
-      vehicle_config=dict(spawn_position_heading=(pos, heading), spawn_velocity=None),
+      vehicle_config=dict(spawn_position_heading=(pos, heading), spawn_velocity=None, render_vehicle=False),
     )
     self.spawned_ids.append(v.id)
 
@@ -123,7 +123,8 @@ class ModMenu:
     v = tm.spawn_object(
       DefaultVehicle,
       vehicle_config=dict(spawn_position_heading=(pos, heading),
-                          spawn_velocity=vel, spawn_velocity_car_frame=False),
+                          spawn_velocity=vel, spawn_velocity_car_frame=False,
+                          render_vehicle=False),
     )
     tm.add_policy(v.id, IDMPolicy, v, eng.generate_seed())
     tm._traffic_vehicles.append(v)             # required so before_step drives it
