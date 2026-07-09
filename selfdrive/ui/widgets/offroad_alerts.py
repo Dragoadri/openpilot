@@ -17,13 +17,13 @@ from openpilot.selfdrive.selfdrived.alertmanager import OFFROAD_ALERTS
 
 class AlertColors:
   HIGH_SEVERITY = rl.Color(226, 44, 44, 255)
-  LOW_SEVERITY = rl.Color(41, 41, 41, 255)
-  BACKGROUND = rl.Color(57, 57, 57, 255)
-  BUTTON = rl.WHITE
-  BUTTON_PRESSED = rl.Color(200, 200, 200, 255)
-  BUTTON_TEXT = rl.BLACK
-  SNOOZE_BG = rl.Color(79, 79, 79, 255)
-  SNOOZE_BG_PRESSED = rl.Color(100, 100, 100, 255)
+  LOW_SEVERITY = rl.Color(22, 35, 58, 255)  # ORBIT NAVY
+  BACKGROUND = rl.Color(27, 44, 72, 255)  # ORBIT PANEL
+  BUTTON = rl.Color(125, 180, 255, 255)  # ORBIT BLUE
+  BUTTON_PRESSED = rl.Color(34, 211, 238, 255)  # ORBIT CYAN
+  BUTTON_TEXT = rl.Color(5, 20, 10, 255)  # near-black on BLUE
+  SNOOZE_BG = rl.Color(43, 62, 95, 255)  # ORBIT HAIRLINE
+  SNOOZE_BG_PRESSED = rl.Color(92, 117, 153, 255)  # ORBIT MUTED_DIM
   TEXT = rl.WHITE
 
 
@@ -78,7 +78,7 @@ class ActionButton(Widget):
     rl.draw_rectangle_rounded(self._rect, roundness, 10, bg_color)
 
     # center text
-    color = rl.WHITE if self._style == ButtonStyle.DARK else rl.BLACK
+    color = AlertColors.TEXT if self._style == ButtonStyle.DARK else AlertColors.BUTTON_TEXT
     text_x = int(self._rect.x + (self._rect.width - text_size.x) // 2)
     text_y = int(self._rect.y + (self._rect.height - text_size.y) // 2)
     rl.draw_text_ex(self._font, self.text, rl.Vector2(text_x, text_y), AlertConstants.FONT_SIZE, 0, color)

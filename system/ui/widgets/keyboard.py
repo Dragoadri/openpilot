@@ -228,7 +228,7 @@ class Keyboard(Widget):
       rl.Vector2(input_rect.x, input_rect.y + input_rect.height - 2),
       rl.Vector2(input_rect.x + input_rect.width, input_rect.y + input_rect.height - 2),
       3.0,  # 3 pixel thickness
-      rl.Color(189, 189, 189, 255),
+      rl.Color(125, 180, 255, 255),  # ORBIT BLUE (active field underline)
     )
 
   def handle_key_press(self, key):

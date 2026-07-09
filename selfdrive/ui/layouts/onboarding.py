@@ -101,7 +101,7 @@ class TrainingGuide(Widget):
       h = 20
       w = int((step / (len(STEP_RECTS) - 1)) * self._rect.width)
       rl.draw_rectangle(int(self._rect.x), int(self._rect.y + self._rect.height - h),
-                        w, h, rl.Color(70, 91, 234, 255))
+                        w, h, rl.Color(37, 99, 235, 255))  # ORBIT BLUE_DEEP
 
     if DEBUG:
       rl.draw_rectangle_lines_ex(STEP_RECTS[step], 3, rl.RED)
@@ -115,7 +115,7 @@ class TermsPage(Widget):
     self._on_accept = on_accept
     self._on_decline = on_decline
 
-    self._title = Label(tr("Welcome to sunnypilot"), font_size=90, font_weight=FontWeight.BOLD, text_alignment=rl.GuiTextAlignment.TEXT_ALIGN_LEFT)
+    self._title = Label(tr("Welcome to ORBIT"), font_size=90, font_weight=FontWeight.BOLD, text_alignment=rl.GuiTextAlignment.TEXT_ALIGN_LEFT)
     self._desc = Label(tr("You must accept the Terms of Service to use sunnypilot. Read the latest terms at https://sunnypilot.ai/terms before continuing."),
                        font_size=90, font_weight=FontWeight.MEDIUM, text_alignment=rl.GuiTextAlignment.TEXT_ALIGN_LEFT)
 
@@ -149,10 +149,10 @@ class TermsPage(Widget):
 class DeclinePage(Widget):
   def __init__(self, back_callback=None):
     super().__init__()
-    self._text = Label(tr("You must accept the Terms of Service in order to use sunnypilot."),
+    self._text = Label(tr("You must accept the Terms of Service in order to use ORBIT."),
                        font_size=90, font_weight=FontWeight.MEDIUM, text_alignment=rl.GuiTextAlignment.TEXT_ALIGN_LEFT)
     self._back_btn = Button(tr("Back"), click_callback=back_callback)
-    self._uninstall_btn = Button(tr("Decline, uninstall sunnypilot"), button_style=ButtonStyle.DANGER,
+    self._uninstall_btn = Button(tr("Decline, uninstall ORBIT"), button_style=ButtonStyle.DANGER,
                                  click_callback=self._on_uninstall_clicked)
 
   def _on_uninstall_clicked(self):

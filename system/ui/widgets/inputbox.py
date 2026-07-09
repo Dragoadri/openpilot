@@ -102,7 +102,7 @@ class InputBox(Widget):
       return True
     return False
 
-  def _render(self, rect, color=rl.BLACK, border_color=rl.DARKGRAY, text_color=rl.WHITE, font_size=80):
+  def _render(self, rect, color=rl.Color(22, 35, 58, 255), border_color=rl.Color(43, 62, 95, 255), text_color=rl.WHITE, font_size=80):
     # Store dimensions for text offset calculations
     self._visible_width = rect.width
     self._font_size = font_size
@@ -147,7 +147,7 @@ class InputBox(Widget):
 
       cursor_height = font_size * FONT_SCALE + 4
       cursor_y = rect.y + rect.height / 2 - cursor_height / 2
-      rl.draw_line(int(cursor_x), int(cursor_y), int(cursor_x), int(cursor_y + cursor_height), rl.WHITE)
+      rl.draw_line(int(cursor_x), int(cursor_y), int(cursor_x), int(cursor_y + cursor_height), rl.Color(34, 211, 238, 255))  # ORBIT CYAN
 
     rl.end_scissor_mode()
 

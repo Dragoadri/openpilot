@@ -20,9 +20,9 @@ BUTTON_WIDTH = 400
 PROGRESS_BAR_HEIGHT = 72
 TITLE_FONT_SIZE = 80
 BODY_FONT_SIZE = 65
-BACKGROUND_COLOR = rl.BLACK
-PROGRESS_BG_COLOR = rl.Color(41, 41, 41, 255)
-PROGRESS_COLOR = rl.Color(54, 77, 239, 255)
+BACKGROUND_COLOR = rl.Color(11, 18, 32, 255)  # ORBIT VOID
+PROGRESS_BG_COLOR = rl.Color(22, 35, 58, 255)  # ORBIT NAVY
+PROGRESS_COLOR = rl.Color(37, 99, 235, 255)  # ORBIT BLUE_DEEP
 
 
 class Screen(IntEnum):
@@ -121,7 +121,7 @@ class Updater(Widget):
     # Draw the Wi-Fi manager UI
     wifi_rect = rl.Rectangle(rect.x + MARGIN, rect.y + MARGIN, rect.width - MARGIN * 2,
                              rect.height - BUTTON_HEIGHT - MARGIN * 3)
-    rl.draw_rectangle_rounded(wifi_rect, 0.035, 10, rl.Color(51, 51, 51, 255))
+    rl.draw_rectangle_rounded(wifi_rect, 0.035, 10, rl.Color(27, 44, 72, 255))  # ORBIT PANEL
     wifi_content_rect = rl.Rectangle(wifi_rect.x + 50, wifi_rect.y, wifi_rect.width - 100, wifi_rect.height)
     self.wifi_manager_ui.render(wifi_content_rect)
 

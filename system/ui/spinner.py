@@ -25,7 +25,7 @@ DEGREES_PER_SECOND = 360.0  # one full rotation per second
 MARGIN_H = 100
 FONT_SIZE = 96
 LINE_HEIGHT = 104
-DARKGRAY = (55, 55, 55, 255)
+TRACK_COLOR = (43, 62, 95, 255)  # ORBIT HAIRLINE
 
 
 def clamp(value, min_value, max_value):
@@ -35,7 +35,7 @@ def clamp(value, min_value, max_value):
 class Spinner(Widget):
   def __init__(self):
     super().__init__()
-    self._comma_texture = gui_app.texture("../../sunnypilot/selfdrive/assets/images/spinner_sunnypilot.png", TEXTURE_SIZE, TEXTURE_SIZE)
+    self._comma_texture = gui_app.texture("img_orbit_logo.png", TEXTURE_SIZE, TEXTURE_SIZE)
     self._spinner_texture = gui_app.texture("images/spinner_track.png", TEXTURE_SIZE, TEXTURE_SIZE, alpha_premultiply=True)
     self._rotation = 0.0
     self._progress: int | None = None
@@ -68,7 +68,7 @@ class Spinner(Widget):
     delta_time = rl.get_frame_time()
     self._rotation = (self._rotation + DEGREES_PER_SECOND * delta_time) % 360.0
 
-    # Draw rotating spinner and static comma logo
+    # Draw rotating spinner and static logo
     rl.draw_texture_pro(self._spinner_texture, rl.Rectangle(0, 0, TEXTURE_SIZE, TEXTURE_SIZE),
                         rl.Rectangle(center.x, center.y, TEXTURE_SIZE, TEXTURE_SIZE),
                         spinner_origin, self._rotation, rl.WHITE)
@@ -77,10 +77,10 @@ class Spinner(Widget):
     # Display the progress bar or text based on user input
     if self._progress is not None:
       bar = rl.Rectangle(center.x - PROGRESS_BAR_WIDTH / 2.0, y_pos, PROGRESS_BAR_WIDTH, PROGRESS_BAR_HEIGHT)
-      rl.draw_rectangle_rounded(bar, 1, 10, DARKGRAY)
+      rl.draw_rectangle_rounded(bar, 1, 10, TRACK_COLOR)
 
       bar.width *= self._progress / 100.0
-      rl.draw_rectangle_rounded(bar, 1, 10, rl.WHITE)
+      rl.draw_rectangle_rounded(bar, 1, 10, rl.Color(125, 180, 255, 255))  # ORBIT BLUE
     elif self._wrapped_lines:
       for i, line in enumerate(self._wrapped_lines):
         text_size = measure_text_cached(gui_app.font(), line, FONT_SIZE)

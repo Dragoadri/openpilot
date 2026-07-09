@@ -28,7 +28,7 @@ class SunnylinkHeader(Widget):
     super().__init__()
 
     self._title = UnifiedLabel(
-      text="🚀 sunnylink 🚀",
+      text="sunnylink",
       font_size=90,
       font_weight=FontWeight.AUDIOWIDE,
       text_color=rl.Color(226, 236, 255, 255),  # ORBIT INK
@@ -325,7 +325,7 @@ class SunnylinkLayout(Widget):
         "Welcome back!! We're excited to see you've enabled sunnylink again!")
       color = rl.Color(74, 222, 128, 255)  # ORBIT GREEN (ok)
     else:
-      description = ("😢 " + tr("Not going to lie, it's sad to see you disabled sunnylink") +
+      description = (tr("Not going to lie, it's sad to see you disabled sunnylink") +
                      tr(", but we'll be here when you're ready to come back."))
       color = rl.Color(147, 180, 230, 255)  # ORBIT MUTED (subdued)
     self._sunnylink_description.set_text(description)
@@ -342,7 +342,7 @@ class SunnylinkLayout(Widget):
     self._sunnylink_uploader_toggle.action_item.set_enabled(self._sunnylink_enabled)
     self.handle_backup_restore_progress()
 
-    sponsor_btn_text = tr("THANKS ♥") if ui_state.sunnylink_state.is_sponsor() else tr("SPONSOR")
+    sponsor_btn_text = tr("THANKS ✓") if ui_state.sunnylink_state.is_sponsor() else tr("SPONSOR")
     tier_name = ui_state.sunnylink_state.get_sponsor_tier().name.capitalize() or tr("Not Sponsor")
     self._sponsor_btn.action_item.set_text(sponsor_btn_text)
     self._sponsor_btn.action_item.set_value(tier_name, ui_state.sunnylink_state.get_sponsor_tier_color())
