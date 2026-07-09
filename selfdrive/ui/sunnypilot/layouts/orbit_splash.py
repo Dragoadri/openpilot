@@ -47,9 +47,17 @@ class OrbitSplash(Widget):
     self._done = False
 
   def _dismiss(self):
-    if not self._done:
+    # Pop by identity: never pop another widget if something got pushed on top.
+    if self._done:
+      return
+    if gui_app.get_active_widget() is self:
       self._done = True
       gui_app.pop_widget()
+      return
+    stack = getattr(gui_app, "_nav_stack", None)
+    if stack and self in stack:
+      self._done = True
+      gui_app.pop_widget(stack.index(self))
 
   def _handle_mouse_release(self, mouse_pos):
     self._dismiss()

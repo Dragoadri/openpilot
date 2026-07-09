@@ -10,13 +10,14 @@ from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.wrap_text import wrap_text
 from openpilot.system.ui.lib.text_measure import measure_text_cached
-from openpilot.system.ui.widgets.button import IconButton
+from openpilot.system.ui.widgets.button import Button, ButtonStyle, IconButton
 
 
 class OrbitEnrollDialog(Widget):
   """Dialog for linking this device to ORBIT with a QR code."""
 
   QR_REFRESH_INTERVAL = 300  # 5 minutes in seconds
+  SUCCESS_HOLD = 2.5  # seconds the "linked" confirmation stays up before closing
 
   def __init__(self):
     super().__init__()
@@ -24,8 +25,11 @@ class OrbitEnrollDialog(Widget):
     self.qr_texture: rl.Texture | None = None
     self.last_qr_generation = float('-inf')
     self._last_code: str | None = None
+    self._claimed_at: float | None = None
     self._close_btn = IconButton(gui_app.texture("icons/close.png", 80, 80))
     self._close_btn.set_click_callback(gui_app.pop_widget)
+    self._regen_btn = Button(tr("REGENERAR CODIGO"), self._request_regen, font_size=44,
+                             button_style=ButtonStyle.NORMAL, border_radius=16)
 
   def _get_pairing_code(self) -> str:
     try:
@@ -77,15 +81,50 @@ class OrbitEnrollDialog(Widget):
       self._last_code = code
       self.last_qr_generation = current_time
 
-  def _update_state(self):
+  def _get_owner(self) -> str:
     try:
-      if self.params.get_bool("OrbitClaimed"):
-        gui_app.pop_widget()
+      return self.params.get("OrbitOwner") or ""
+    except Exception:
+      return ""
+
+  def _request_regen(self) -> None:
+    try:
+      self.params.put_bool("OrbitEnrollRegen", True)
+    except Exception:
+      cloudlog.exception("Failed to set OrbitEnrollRegen")
+
+  def _get_countdown_text(self) -> str:
+    try:
+      expiry_ms = int(self.params.get("OrbitEnrollExpiry") or 0)
+    except Exception:
+      expiry_ms = 0
+    if expiry_ms <= 0:
+      return ""
+    remaining = max(0, int(expiry_ms / 1000 - time.time()))  # noqa: TID251 (OrbitEnrollExpiry is epoch ms)
+    minutes, seconds = divmod(remaining, 60)
+    return f"caduca en {minutes}:{seconds:02d}"
+
+  def _update_state(self):
+    # On claim, hold a success confirmation for a moment before closing.
+    try:
+      claimed = bool(self.params.get_bool("OrbitClaimed"))
     except Exception:
       cloudlog.exception("Failed to read OrbitClaimed")
+      return
+
+    if not claimed:
+      self._claimed_at = None
+    elif self._claimed_at is None:
+      self._claimed_at = time.monotonic()
+    elif time.monotonic() - self._claimed_at >= self.SUCCESS_HOLD:
+      gui_app.pop_widget()
 
   def _render(self, rect: rl.Rectangle) -> int:
     rl.clear_background(rl.Color(11, 18, 32, 255))  # ORBIT: VOID background
+
+    if self._claimed_at is not None:
+      self._render_success(rect)
+      return -1
 
     self._check_qr_refresh()
 
@@ -102,7 +141,7 @@ class OrbitEnrollDialog(Widget):
     y += close_size + 40
 
     # Title
-    title = tr("Link this device to ORBIT")
+    title = tr("Vincula este dispositivo a ORBIT")
     title_font = gui_app.font(FontWeight.NORMAL)
     left_width = int(content_rect.width * 0.5 - 15)
 
@@ -117,8 +156,18 @@ class OrbitEnrollDialog(Widget):
     # Instructions
     self._render_instructions(rl.Rectangle(content_rect.x, y, left_width, remaining_height))
 
-    # QR code
-    qr_size = min(right_width, content_rect.height) - 40
+    # Expiry countdown + manual regeneration, bottom of the left column
+    btn_rect = rl.Rectangle(content_rect.x, content_rect.y + content_rect.height - 96, 520, 96)
+    countdown = self._get_countdown_text()
+    if countdown:
+      cd_font = gui_app.font(FontWeight.MEDIUM)
+      cd_size = measure_text_cached(cd_font, countdown, 40)
+      rl.draw_text_ex(cd_font, countdown, rl.Vector2(int(content_rect.x), int(btn_rect.y - 24 - cd_size.y)),
+                      40, 0.0, rl.Color(147, 180, 230, 255))  # ORBIT: MUTED countdown
+    self._regen_btn.render(btn_rect)
+
+    # QR code (leave room below it for the pairing code + device ID)
+    qr_size = min(right_width, content_rect.height - 110) - 40
     qr_x = content_rect.x + left_width + 40 + (right_width - qr_size) // 2
     qr_y = content_rect.y
     self._render_qr_code(rl.Rectangle(qr_x, qr_y, qr_size, qr_size))
@@ -127,9 +176,9 @@ class OrbitEnrollDialog(Widget):
 
   def _render_instructions(self, rect: rl.Rectangle) -> None:
     instructions = [
-      tr("Open the ORBIT app"),
-      tr("Go to Settings/Home -> Link device"),
-      tr("Scan the QR (or type the code below)"),
+      tr("Abre la app ORBIT"),
+      tr("Ve a Inicio - Vincular dispositivo"),
+      tr("Escanea el QR (o escribe el código de abajo)"),
     ]
 
     font = gui_app.font(FontWeight.BOLD)
@@ -160,7 +209,7 @@ class OrbitEnrollDialog(Widget):
       rl.draw_rectangle_rounded(rect, 0.1, 20, rl.Color(22, 35, 58, 255))  # ORBIT: NAVY error placeholder, keep red error text
       error_font = gui_app.font(FontWeight.BOLD)
       rl.draw_text_ex(
-        error_font, tr("QR Code Error"), rl.Vector2(rect.x + 20, rect.y + rect.height // 2 - 15), 30, 0.0, rl.RED
+        error_font, tr("Error generando el QR"), rl.Vector2(rect.x + 20, rect.y + rect.height // 2 - 15), 30, 0.0, rl.RED
       )
       return
 
@@ -175,12 +224,42 @@ class OrbitEnrollDialog(Widget):
     # Human-readable raw pairing code (manual-entry fallback) beneath the QR
     code = self._get_pairing_code()
     code_font = gui_app.font(FontWeight.BOLD)
-    code_text = code if code else tr("waiting for code...")
+    code_text = code if code else tr("esperando código...")
     code_size = 40
     code_measure = measure_text_cached(code_font, code_text, code_size)
     code_x = rect.x + (rect.width - code_measure.x) // 2
     code_y = rect.y + rect.height + 20
     rl.draw_text_ex(code_font, code_text, rl.Vector2(code_x, code_y), code_size, 0.0, rl.Color(226, 236, 255, 255))  # ORBIT: INK pairing code
+
+    # Full DongleId beneath the code (the app's manual-entry mode asks for it)
+    try:
+      dongle_id = self.params.get("DongleId") or ""
+    except Exception:
+      cloudlog.exception("Failed to read DongleId")
+      dongle_id = ""
+    if dongle_id:
+      id_font = gui_app.font(FontWeight.NORMAL)
+      id_text = f"ID: {dongle_id}"
+      id_measure = measure_text_cached(id_font, id_text, 28)
+      id_x = rect.x + (rect.width - id_measure.x) // 2
+      rl.draw_text_ex(id_font, id_text, rl.Vector2(id_x, code_y + code_size + 14), 28, 0.0, rl.Color(147, 180, 230, 255))  # ORBIT: MUTED device id
+
+  def _render_success(self, rect: rl.Rectangle) -> None:
+    # Big green check + owner, held briefly by _update_state before the pop.
+    owner = self._get_owner()
+    text = f"Vinculado - {owner}" if owner else "Vinculado a ORBIT"
+    font = gui_app.font(FontWeight.BOLD)
+
+    check_size = 220
+    check_measure = measure_text_cached(font, "✓", check_size)
+    text_measure = measure_text_cached(font, text, 64)
+    gap = 40
+    block_h = check_measure.y + gap + text_measure.y
+    cx = rect.x + rect.width / 2
+    y = rect.y + (rect.height - block_h) / 2
+
+    rl.draw_text_ex(font, "✓", rl.Vector2(int(cx - check_measure.x / 2), int(y)), check_size, 0.0, rl.Color(74, 222, 128, 255))  # ORBIT: GREEN check
+    rl.draw_text_ex(font, text, rl.Vector2(int(cx - text_measure.x / 2), int(y + check_measure.y + gap)), 64, 0.0, rl.Color(226, 236, 255, 255))  # ORBIT: INK
 
   def __del__(self):
     if self.qr_texture and self.qr_texture.id != 0:

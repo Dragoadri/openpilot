@@ -1,6 +1,5 @@
 import time
 import pyray as rl
-from collections.abc import Callable
 from enum import IntEnum
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui.widgets.offroad_alerts import UpdateAlert, OffroadAlert
@@ -23,7 +22,6 @@ VOID = rl.Color(11, 18, 32, 255)        # #0B1220 background
 NAVY = rl.Color(22, 35, 58, 255)        # #16233A
 PANEL = rl.Color(27, 44, 72, 255)       # #1B2C48
 HAIRLINE = rl.Color(43, 62, 95, 255)    # #2B3E5F
-TELEMETRY = rl.Color(125, 180, 255, 255)  # #7DB4FF uplink blue
 COMMANDS = rl.Color(74, 222, 128, 255)   # #4ADE80 downlink green
 PULSE = rl.Color(34, 211, 238, 255)      # #22D3EE live cyan accent
 INK = rl.Color(226, 236, 255, 255)       # #E2ECFF near-white
@@ -37,9 +35,6 @@ WORDMARK_SPACING = 26
 TAGLINE_SIZE = 34
 PILL_HEIGHT = 66
 PILL_FONT_SIZE = 34
-READOUT_FONT_SIZE = 32
-SETTINGS_BTN_W = 300
-SETTINGS_BTN_H = 88
 
 # "powered by drago" credit badge (bottom-right corner)
 DRAGO_LOGO_H = 72
@@ -50,6 +45,14 @@ POWERED_SIZE = 28
 CARD_H = 170
 CARD_GAP = 26
 CARD_BOTTOM_RESERVE = 116   # space below the cards for the drago badge
+
+# Telemetry pulse (ECG-style polyline on the SERVIDOR card), one beat per period
+# as (fraction of period, offset in amplitudes; negative = up).
+WAVE_BEAT = ((0.00, 0.0), (0.30, 0.0), (0.36, -0.30), (0.42, 0.0), (0.48, 0.20),
+             (0.54, -1.00), (0.60, 0.35), (0.66, 0.0), (1.00, 0.0))
+WAVE_PERIOD = 125.0   # px
+WAVE_AMP = 20.0       # px
+WAVE_SPEED = 70.0     # px/s
 
 
 class HomeLayoutState(IntEnum):
@@ -91,7 +94,6 @@ class HomeLayout(Widget):
 
     self.current_state = HomeLayoutState.HOME
     self.last_refresh = 0
-    self.settings_callback: Callable[[], None] | None = None
 
     self.update_available = False
     self.alert_count = 0
@@ -101,7 +103,6 @@ class HomeLayout(Widget):
 
     self.header_rect = rl.Rectangle(0, 0, 0, 0)
     self.content_rect = rl.Rectangle(0, 0, 0, 0)
-    self.settings_btn_rect = rl.Rectangle(0, 0, SETTINGS_BTN_W, SETTINGS_BTN_H)
 
     self.update_notif_rect = rl.Rectangle(0, 0, 200, HEADER_HEIGHT - 10)
     self.alert_notif_rect = rl.Rectangle(0, 0, 220, HEADER_HEIGHT - 10)
@@ -117,9 +118,10 @@ class HomeLayout(Widget):
     except Exception:
       self._drago = None
 
-    # Live reachability of the Orbit server (background TCP probe) + tappable-card hitboxes.
+    # Live reachability of the Orbit server (background TCP+HTTP probe) + tappable hitboxes.
     self._server = ServerMonitor()
     self._card_rects: dict[str, rl.Rectangle] = {}
+    self._pill_rect = rl.Rectangle(0, 0, 0, 0)
 
     self._setup_callbacks()
 
@@ -131,13 +133,6 @@ class HomeLayout(Widget):
   def _setup_callbacks(self):
     self.update_alert.set_dismiss_callback(lambda: self._set_state(HomeLayoutState.HOME))
     self.offroad_alert.set_dismiss_callback(lambda: self._set_state(HomeLayoutState.HOME))
-
-  def set_settings_callback(self, callback: Callable):
-    self.settings_callback = callback
-
-  def _open_settings(self):
-    if self.settings_callback:
-      self.settings_callback()
 
   def _set_state(self, state: HomeLayoutState):
     # propagate show/hide events
@@ -179,9 +174,6 @@ class HomeLayout(Widget):
       self._rect.x + CONTENT_MARGIN, content_y, self._rect.width - 2 * CONTENT_MARGIN, content_height
     )
 
-    # The settings button is positioned in-flow at the bottom of the hero stack
-    # by _render_home_content (see there), so it can never overlap the readout.
-
     self.update_notif_rect.x = self.header_rect.x
     self.update_notif_rect.y = self.header_rect.y + (self.header_rect.height - 60) // 2
 
@@ -199,12 +191,13 @@ class HomeLayout(Widget):
       self._set_state(HomeLayoutState.ALERTS)
       return
 
-    # Tappable status cards (home view only)
+    # Tappable status cards + link pill (home view only)
     if self.current_state == HomeLayoutState.HOME:
       empty = rl.Rectangle(0, 0, 0, 0)
       if rl.check_collision_point_rec(mouse_pos, self._card_rects.get("server", empty)):
         self._open_server_settings()
-      elif not self._get_claimed() and rl.check_collision_point_rec(mouse_pos, self._card_rects.get("link", empty)):
+      elif not self._get_claimed() and (rl.check_collision_point_rec(mouse_pos, self._card_rects.get("link", empty)) or
+                                        rl.check_collision_point_rec(mouse_pos, self._pill_rect)):
         self._open_enroll()
 
   def _render_header(self):
@@ -268,13 +261,13 @@ class HomeLayout(Widget):
     cards_bottom = self.content_rect.y + self.content_rect.height - CARD_BOTTOM_RESERVE
     cards_rect = rl.Rectangle(self.content_rect.x, cards_bottom - CARD_H, self.content_rect.width, CARD_H)
 
-    # Hero (logo + wordmark + tagline), vertically centered above the cards.
+    # Hero (logo + wordmark + tagline + link pill), vertically centered above the cards.
     wordmark_size = measure_text_cached(bold, "ORBIT", WORDMARK_SIZE, WORDMARK_SPACING)
     tagline_size = measure_text_cached(normal, tagline, TAGLINE_SIZE)
-    gap_logo, gap_wordmark = 24, 26
+    gap_logo, gap_wordmark, gap_pill = 24, 26, 30
 
     def _hero_h(ls):
-      return ls + gap_logo + wordmark_size.y + gap_wordmark + tagline_size.y
+      return ls + gap_logo + wordmark_size.y + gap_wordmark + tagline_size.y + gap_pill + PILL_HEIGHT
 
     logo_size = LOGO_SIZE
     hero_area_h = (cards_rect.y - SPACING) - self.content_rect.y
@@ -298,6 +291,10 @@ class HomeLayout(Widget):
 
     # Tagline
     rl.draw_text_ex(normal, tagline, rl.Vector2(int(cx - tagline_size.x / 2), int(y)), TAGLINE_SIZE, 0, MUTED)
+    y += tagline_size.y + gap_pill
+
+    # Link status pill (tap to enroll while unclaimed)
+    self._render_link_pill(cx, y)
 
     # Functional status cards + credit badge
     self._render_status_cards(cards_rect)
@@ -307,23 +304,31 @@ class HomeLayout(Widget):
     # Real, actionable status. SERVIDOR -> tap opens server-IP settings (with a
     # test button); ENLACE -> tap shows the QR to claim the device; DEVICE -> info.
     claimed = self._get_claimed()
-    connected = self._server.connected
-    ip = self._server.ip
+    broker_ok = self._server.broker_ok
+    backend_ok = self._server.backend_ok
     try:
       dongle = self.params.get("DongleId") or ""
     except Exception:
       dongle = ""
     dev_val = self._short_id(dongle) if dongle and dongle != "UnregisteredDevice" else "sin registrar"
 
+    if broker_ok and backend_ok:
+      server_val, server_color = "BROKER ✓ - API ✓", COMMANDS
+    elif broker_ok:
+      server_val, server_color = "BROKER ✓ - sin API", AMBER
+    elif backend_ok:
+      server_val, server_color = "sin BROKER - API ✓", AMBER
+    else:
+      server_val, server_color = "Sin conexión", AMBER
+    server_sub = self._last_publish_text() if (broker_ok or backend_ok) else "toca para configurar la IP"
+
     cards = [
-      ("server", "SERVIDOR",
-       "Conectado" if connected else "Sin conexion", COMMANDS if connected else AMBER,
-       (ip or "sin IP") if connected else "toca para configurar la IP", True),
+      ("server", "SERVIDOR", server_val, server_color, server_sub, True),
       ("link", "ENLACE ORBIT",
        "Enlazado" if claimed else "Sin enlazar", COMMANDS if claimed else PULSE,
        "dispositivo activo" if claimed else "toca para ver el QR", not claimed),
       ("device", "DISPOSITIVO", dev_val, INK,
-       "comma 3X" if dev_val != "sin registrar" else "aun sin dongle", False),
+       "comma 3X" if dev_val != "sin registrar" else "aún sin dongle", False),
     ]
 
     hdr_font = gui_app.font(FontWeight.MEDIUM)
@@ -347,6 +352,55 @@ class HomeLayout(Widget):
       rl.draw_text_ex(val_font, value, rl.Vector2(int(card.x + pad), int(card.y + 74)), 40, 0, color)
       rl.draw_text_ex(sub_font, sub, rl.Vector2(int(card.x + pad), int(card.y + card.height - 46)),
                       24, 0, MUTED_DIM)
+      if key == "server":
+        self._render_telemetry_wave(card)
+
+  def _render_telemetry_wave(self, card: rl.Rectangle):
+    # Live-uplink pulse along the top-right of the SERVIDOR card: an animated
+    # ECG-style polyline while OrbitConnected, a flat muted line otherwise.
+    pad = 30
+    x1 = card.x + card.width - pad
+    x0 = x1 - 250
+    base_y = card.y + 44
+    if x1 - x0 < 80:
+      return
+
+    try:
+      live = bool(self.params.get_bool("OrbitConnected"))
+    except Exception:
+      live = False
+    if not live:
+      rl.draw_line_ex(rl.Vector2(x0, base_y), rl.Vector2(x1, base_y), 3, MUTED_DIM)
+      return
+
+    phase = (time.monotonic() * WAVE_SPEED) % WAVE_PERIOD
+    step = 5.0
+    prev = None
+    x = x0
+    while x <= x1:
+      u = ((x - x0 + phase) % WAVE_PERIOD) / WAVE_PERIOD
+      pt = rl.Vector2(x, base_y + WAVE_AMP * self._wave_offset(u))
+      if prev is not None:
+        rl.draw_line_ex(prev, pt, 3, PULSE)
+      prev = pt
+      x += step
+
+  def _wave_offset(self, u: float) -> float:
+    for (u0, v0), (u1, v1) in zip(WAVE_BEAT, WAVE_BEAT[1:], strict=False):
+      if u <= u1:
+        t = (u - u0) / (u1 - u0) if u1 > u0 else 0.0
+        return v0 + (v1 - v0) * t
+    return WAVE_BEAT[-1][1]
+
+  def _last_publish_text(self) -> str:
+    try:
+      last = float(self.params.get("OrbitLastPublish") or 0)
+    except Exception:
+      last = 0.0
+    if last <= 0:
+      return "sin datos"
+    age = max(0, int(time.time() - last))  # noqa: TID251 (OrbitLastPublish is epoch seconds)
+    return f"último dato hace {age}s"
 
   def _draw_chevron(self, x: float, y: float, size: float, color: rl.Color):
     # A ">" affordance meaning "tap to open".
@@ -367,16 +421,23 @@ class HomeLayout(Widget):
     except Exception:
       return False
 
+  def _get_owner(self) -> str:
+    try:
+      return self.params.get("OrbitOwner") or ""
+    except Exception:
+      return ""
+
   def _render_link_pill(self, cx: float, y: float):
     font = gui_app.font(FontWeight.MEDIUM)
     claimed = self._get_claimed()
 
     if claimed:
-      text = "Linked to ORBIT"
+      owner = self._get_owner()
+      text = f"VINCULADO - {owner}" if owner else "VINCULADO A ORBIT"
       accent = COMMANDS
     else:
-      text = "Not linked - open Settings to scan the QR"
-      accent = PULSE
+      text = "SIN VINCULAR"
+      accent = MUTED
 
     text_size = measure_text_cached(font, text, PILL_FONT_SIZE)
     dot_r = 8
@@ -384,9 +445,10 @@ class HomeLayout(Widget):
     dot_gap = 18
     pill_w = inner_pad * 2 + dot_r * 2 + dot_gap + text_size.x
     pill_rect = rl.Rectangle(cx - pill_w / 2, y, pill_w, PILL_HEIGHT)
+    self._pill_rect = pill_rect
 
     rl.draw_rectangle_rounded(pill_rect, 1.0, 20, PANEL)
-    rl.draw_rectangle_rounded_lines_ex(pill_rect, 1.0, 20, 2, accent)
+    rl.draw_rectangle_rounded_lines_ex(pill_rect, 1.0, 20, 2, accent if claimed else HAIRLINE)
 
     # status dot
     dot_x = pill_rect.x + inner_pad + dot_r
@@ -395,65 +457,12 @@ class HomeLayout(Widget):
 
     text_x = dot_x + dot_r + dot_gap
     text_y = pill_rect.y + (PILL_HEIGHT - text_size.y) / 2
-    rl.draw_text_ex(font, text, rl.Vector2(int(text_x), int(text_y)), PILL_FONT_SIZE, 0, INK)
+    rl.draw_text_ex(font, text, rl.Vector2(int(text_x), int(text_y)), PILL_FONT_SIZE, 0, accent)
 
   def _short_id(self, value: str, keep: int = 12) -> str:
     if len(value) > keep:
       return value[:keep] + "..."
     return value
-
-  def _render_readout(self, cx: float, y: float):
-    label_font = gui_app.font(FontWeight.NORMAL)
-    value_font = gui_app.font(FontWeight.MEDIUM)
-
-    # Device (real DongleId)
-    try:
-      dongle = self.params.get("DongleId") or ""
-    except Exception:
-      dongle = ""
-    device_val = self._short_id(dongle) if dongle and dongle != "UnregisteredDevice" else "not registered"
-
-    # Optional connection indicator (param may be unregistered -> neutral)
-    try:
-      connected = bool(self.params.get_bool("OrbitConnected"))
-      link_val = "Online" if connected else "Offline"
-      link_color = COMMANDS if connected else MUTED
-    except Exception:
-      link_val = "-"
-      link_color = MUTED
-
-    items = [
-      ("DEVICE", device_val, TELEMETRY),
-      ("LINK", link_val, link_color),
-    ]
-
-    # Layout: evenly spaced cells centered on cx.
-    cell_w = 360
-    total_w = cell_w * len(items)
-    start_x = cx - total_w / 2
-
-    for i, (label, value, value_color) in enumerate(items):
-      cell_cx = start_x + cell_w * i + cell_w / 2
-
-      label_size = measure_text_cached(label_font, label, 26)
-      rl.draw_text_ex(label_font, label, rl.Vector2(int(cell_cx - label_size.x / 2), int(y)), 26, 2, MUTED)
-
-      value_size = measure_text_cached(value_font, value, READOUT_FONT_SIZE)
-      rl.draw_text_ex(value_font, value, rl.Vector2(int(cell_cx - value_size.x / 2), int(y + 34)),
-                      READOUT_FONT_SIZE, 0, value_color)
-
-  def _render_settings_button(self):
-    font = gui_app.font(FontWeight.MEDIUM)
-    rect = self.settings_btn_rect
-
-    rl.draw_rectangle_rounded(rect, 0.3, 20, PANEL)
-    rl.draw_rectangle_rounded_lines_ex(rect, 0.3, 20, 2, HAIRLINE)
-
-    text = "Settings"
-    text_size = measure_text_cached(font, text, 40)
-    text_x = rect.x + (rect.width - text_size.x) / 2
-    text_y = rect.y + (rect.height - text_size.y) / 2
-    rl.draw_text_ex(font, text, rl.Vector2(int(text_x), int(text_y)), 40, 0, INK)
 
   def _render_powered_by(self):
     # Bottom-right corner credit: "powered by drago" + the green dragon mark.
@@ -502,6 +511,8 @@ class HomeLayout(Widget):
     self._prev_alerts_present = alerts_present
 
   def _get_version_text(self) -> str:
-    # ORBIT home: no "sunnypilot" version label in the top-right; the ORBIT
-    # wordmark carries the brand. (Version lives in Settings > Software.)
-    return ""
+    try:
+      version = (self.params.get("Version") or "").split("-")[0]
+    except Exception:
+      version = ""
+    return f"ORBIT {version}".strip()

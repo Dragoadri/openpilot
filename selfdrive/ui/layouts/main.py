@@ -68,8 +68,7 @@ class MainLayout(Widget):
                                 open_settings=lambda: self.open_settings(PanelType.TOGGLES))
     # ORBIT's HomeLayout is a custom home screen with no SetupWidget (upstream's
     # _setup_widget was dropped in the ORBIT rewrite), so there is no FIREHOSE
-    # shortcut to wire here. Settings are reached via set_settings_callback below.
-    self._layouts[MainState.HOME].set_settings_callback(lambda: self.open_settings(PanelType.TOGGLES))
+    # shortcut to wire here. Settings are reached from the sidebar.
     self._layouts[MainState.SETTINGS].set_callbacks(on_close=self._set_mode_for_state)
 
     for layout in (self._layouts[MainState.ONROAD], self._home_body_layout):
