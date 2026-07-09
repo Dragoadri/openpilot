@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import time
 import numpy as np
 
 from msgq.visionipc import VisionIpcServer, VisionStreamType
@@ -52,6 +53,7 @@ class Camerad:
 
     self.frame_road_id = 0
     self.frame_wide_id = 0
+    self._tick_eof = None
     self.vipc_server = VisionIpcServer("camerad")
 
     self.vipc_server.create_buffers(VisionStreamType.VISION_STREAM_ROAD, 5, W, H)
@@ -90,17 +92,27 @@ class Camerad:
       self.zmq_client = None
 
   def cam_send_yuv_road(self, yuv, rgb=None):
-    self._send_yuv(yuv, self.frame_road_id, 'roadCameraState', VisionStreamType.VISION_STREAM_ROAD)
+    # Timestamp del frame en el MISMO reloj que logMonoTime / los sensores simulados
+    # (time.monotonic). Antes se usaba frame_id*0.05e9 (reloj falso que arranca en 0):
+    # locationd compara cameraOdometry.timestampEof (heredado de este eof) contra el
+    # tiempo del filtro (avanzado por accelerometer/gyroscope, que usan logMonoTime) y
+    # descartaba TODAS las observaciones por "older than the max rewind threshold" ->
+    # livePose.inputsOK=False -> locationdTemporaryError (noEntry) -> OP nunca engancha.
+    self._tick_eof = int(time.monotonic() * 1e9)
+    self._send_yuv(yuv, self.frame_road_id, 'roadCameraState', VisionStreamType.VISION_STREAM_ROAD, self._tick_eof)
     # En el coche real, sicuem/orbit/camera_sender.py se suscribe al canal cereal
     # 'jetsonThumbnail' (~5 Hz) y reenvia ese mismo JPEG por ZMQ a la Jetson. Para que
     # el sim se comporte igual, generamos el thumbnail solo cada N frames y reusamos
     # esos bytes tanto para el mensaje cereal como para el envio ZMQ a la Jetson.
     if rgb is not None and self.frame_road_id % THUMBNAIL_EVERY_N_FRAMES == 0:
-      self._publish_thumbnail(rgb, self.frame_road_id)
+      self._publish_thumbnail(rgb, self.frame_road_id, self._tick_eof)
     self.frame_road_id += 1
 
   def cam_send_yuv_wide_road(self, yuv):
-    self._send_yuv(yuv, self.frame_wide_id, 'wideRoadCameraState', VisionStreamType.VISION_STREAM_WIDE_ROAD)
+    # Reusa el eof del frame road del mismo tick (send_camera_images envia road y luego
+    # wide): modeld empareja main/extra por timestamp_sof y exige |delta| < 10 ms.
+    eof = self._tick_eof if self._tick_eof is not None else int(time.monotonic() * 1e9)
+    self._send_yuv(yuv, self.frame_wide_id, 'wideRoadCameraState', VisionStreamType.VISION_STREAM_WIDE_ROAD, eof)
     self.frame_wide_id += 1
 
   def rgb_to_yuv(self, rgb):
@@ -109,7 +121,7 @@ class Camerad:
     assert rgb.dtype == np.uint8
     return rgb_to_nv12(rgb)
 
-  def _publish_thumbnail(self, rgb, frame_id):
+  def _publish_thumbnail(self, rgb, frame_id, eof):
     """Genera un JPEG thumbnail del frame RGB, lo publica en el canal cereal 'thumbnail'
     y, si la Jetson esta habilitada, envia los MISMOS bytes por ZMQ (igual que hace
     sicuem/orbit/camera_sender.py en el coche real con 'jetsonThumbnail')."""
@@ -124,7 +136,6 @@ class Camerad:
       print(f"Camerad: error generando thumbnail: {e}")
       return
 
-    eof = int(frame_id * 0.05 * 1e9)
     dat = messaging.new_message('thumbnail', valid=True)
     dat.thumbnail.frameId = frame_id
     dat.thumbnail.timestampEof = eof
@@ -137,8 +148,7 @@ class Camerad:
       except Exception as e:
         print(f"Camerad: error enviando frame a Jetson: {e}")
 
-  def _send_yuv(self, yuv, frame_id, pub_type, yuv_type):
-    eof = int(frame_id * 0.05 * 1e9)
+  def _send_yuv(self, yuv, frame_id, pub_type, yuv_type, eof):
     self.vipc_server.send(yuv_type, yuv, frame_id, eof, eof)
 
     dat = messaging.new_message(pub_type, valid=True)
