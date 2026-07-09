@@ -47,7 +47,7 @@ PANEL_COLOR = ORBIT_NAVY
 # still references these upstream names via `settings as OP`. The ORBIT rewrite
 # of this module dropped them; re-add them mapped to the ORBIT palette so the SP
 # sidebar renders in ORBIT colors instead of crashing on missing attributes.
-NAV_BTN_HEIGHT = 110
+NAV_BTN_HEIGHT = 124
 CLOSE_BTN_COLOR = ORBIT_PANEL
 CLOSE_BTN_PRESSED = ORBIT_HAIRLINE
 TEXT_NORMAL = ORBIT_MUTED

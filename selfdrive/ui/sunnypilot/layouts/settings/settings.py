@@ -36,7 +36,8 @@ from openpilot.system.ui.widgets.scroller_tici import Scroller
 # from openpilot.selfdrive.ui.sunnypilot.layouts.settings.navigation import NavigationLayout
 
 OP.PANEL_COLOR = rl.Color(13, 20, 34, 255)   # ORBIT dark ground (was near-black)
-ICON_SIZE = 70
+ICON_SIZE = 64
+NAV_TILE_INSET = 11          # vertical inset per allocated row → visible gap between tiles
 
 OP.PanelType = IntEnum(
   "PanelType",
@@ -70,31 +71,40 @@ class NavButton(Widget):
     self.panel_info = p_info
 
   def _render(self, rect):
-    # Mockup "menu tile": full-width target, icon chip on the left, ORBIT panel
-    # background + cyan marker bar when selected, ink/muted label.
+    # Mockup "menu tile" (artifact 5212ff09, screen 02): full-width target, icon
+    # chip on the left, ORBIT panel background + hairline border + cyan marker bar
+    # and cyan icon/label when selected; muted chip + muted label when not.
     is_selected = self.panel_type == self.parent._current_panel
     mouse_down = rl.is_mouse_button_down(rl.MouseButton.MOUSE_BUTTON_LEFT)
     hovered = rl.check_collision_point_rec(rl.get_mouse_position(), rect)
 
-    tile = rl.Rectangle(rect.x, rect.y + 6, rect.width, rect.height - 12)
+    # Inset the visible tile so consecutive tiles read as clearly separated cards.
+    tile = rl.Rectangle(rect.x, rect.y + NAV_TILE_INSET, rect.width, rect.height - 2 * NAV_TILE_INSET)
     self.panel_info.button_rect = rect  # click detection maps to the allocated rect
 
     if is_selected:
-      rl.draw_rectangle_rounded(tile, 0.26, 12, OP.ORBIT_PANEL)
-      bar = rl.Rectangle(tile.x + 6, tile.y + tile.height * 0.22, 7, tile.height * 0.56)
+      rl.draw_rectangle_rounded(tile, 0.24, 12, OP.ORBIT_PANEL)
+      rl.draw_rectangle_rounded_lines_ex(tile, 0.24, 12, 2, OP.ORBIT_HAIRLINE)
+      # cyan marker bar, flush to the left edge, with a faint halo (glow proxy)
+      bar = rl.Rectangle(tile.x + 3, tile.y + tile.height * 0.18, 11, tile.height * 0.64)
+      halo = rl.Rectangle(bar.x - 3, bar.y - 3, bar.width + 6, bar.height + 6)
+      rl.draw_rectangle_rounded(halo, 1.0, 8, rl.Color(OP.ORBIT_CYAN.r, OP.ORBIT_CYAN.g, OP.ORBIT_CYAN.b, 55))
       rl.draw_rectangle_rounded(bar, 1.0, 8, OP.ORBIT_CYAN)
     elif hovered and mouse_down:
-      rl.draw_rectangle_rounded(tile, 0.26, 12, OP.ORBIT_NAVY)
+      rl.draw_rectangle_rounded(tile, 0.24, 12, OP.ORBIT_NAVY)
 
-    # Icon chip
-    chip = tile.height * 0.72
-    chip_rect = rl.Rectangle(tile.x + 28, tile.y + (tile.height - chip) / 2, chip, chip)
-    accent = OP.ORBIT_CYAN if is_selected else OP.ORBIT_MUTED
-    rl.draw_rectangle_rounded(chip_rect, 0.3, 10, rl.Color(accent.r, accent.g, accent.b, 40))
+    # Icon chip: cyan-tinted when selected (rgba .16), muted-tinted otherwise (.10)
+    chip = tile.height * 0.62
+    chip_rect = rl.Rectangle(tile.x + 26, tile.y + (tile.height - chip) / 2, chip, chip)
+    if is_selected:
+      chip_bg = rl.Color(OP.ORBIT_CYAN.r, OP.ORBIT_CYAN.g, OP.ORBIT_CYAN.b, 41)
+    else:
+      chip_bg = rl.Color(OP.ORBIT_MUTED.r, OP.ORBIT_MUTED.g, OP.ORBIT_MUTED.b, 26)
+    rl.draw_rectangle_rounded(chip_rect, 0.28, 10, chip_bg)
 
     if self.panel_info.icon:
       icon_texture = gui_app.texture(self.panel_info.icon, ICON_SIZE, ICON_SIZE, keep_aspect_ratio=True)
-      tint = OP.ORBIT_INK if is_selected else OP.ORBIT_MUTED
+      tint = OP.ORBIT_CYAN if is_selected else OP.ORBIT_MUTED
       rl.draw_texture_ex(
         icon_texture,
         rl.Vector2(chip_rect.x + (chip - icon_texture.width) / 2, chip_rect.y + (chip - icon_texture.height) / 2),
@@ -103,10 +113,10 @@ class NavButton(Widget):
 
     # Label
     label = self.panel_info.name
-    lb_h = measure_text_cached(self.parent._font_bold, label, 46).y
+    lb_h = measure_text_cached(self.parent._font_bold, label, 48).y
     text_color = OP.ORBIT_INK if is_selected else OP.ORBIT_MUTED
     rl.draw_text_ex(self.parent._font_bold, label,
-                    rl.Vector2(chip_rect.x + chip + 24, rect.y + (rect.height - lb_h) / 2), 46, 0, text_color)
+                    rl.Vector2(chip_rect.x + chip + 28, rect.y + (rect.height - lb_h) / 2), 48, 0, text_color)
 
 
 class SettingsLayoutSP(OP.SettingsLayout):
@@ -156,13 +166,12 @@ class SettingsLayoutSP(OP.SettingsLayout):
         rl.Rectangle(logo_x, logo_y, OP.LOGO_SIZE, OP.LOGO_SIZE),
         rl.Vector2(0, 0), 0, rl.WHITE,
       )
-    wm_h = measure_text_cached(self._font_bold, "ORBIT", 60).y
+    wm_h = measure_text_cached(self._font_bold, "ORBIT", 64).y
     rl.draw_text_ex(self._font_bold, "ORBIT",
                     rl.Vector2(logo_x + OP.LOGO_SIZE + 22, logo_y + (OP.LOGO_SIZE - wm_h) / 2),
-                    60, 2, OP.ORBIT_INK)
-    sep_y = logo_y + OP.LOGO_SIZE + 26
-    rl.draw_line_ex(rl.Vector2(rect.x + OP.SB_PAD, sep_y),
-                    rl.Vector2(rect.x + rect.width - OP.SB_PAD, sep_y), 2, OP.ORBIT_HAIRLINE)
+                    64, 4, OP.ORBIT_INK)
+    # No hairline under the brand: the mockup separates brand from nav by spacing only.
+    sep_y = logo_y + OP.LOGO_SIZE + 20
 
     # --- Close button (bottom, full-width ORBIT style; reused from the base) ---
     close_top = rect.y + rect.height - OP.CLOSE_BTN_H - OP.CLOSE_BTN_MARGIN
