@@ -9,6 +9,7 @@ from openpilot.selfdrive.ui.onroad.driver_state import DriverStateRenderer
 from openpilot.selfdrive.ui.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.onroad.model_renderer import ModelRenderer
 from openpilot.selfdrive.ui.onroad.cameraview import CameraView
+from openpilot.selfdrive.ui.sunnypilot.onroad.orbit_command_overlay import OrbitCommandOverlay
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
 from openpilot.common.transformations.orientation import rot_from_euler
@@ -27,7 +28,7 @@ WIDE_CAM = VisionStreamType.VISION_STREAM_WIDE_ROAD
 DEFAULT_DEVICE_CAMERA = DEVICE_CAMERAS["tici", "ar0231"]
 
 BORDER_COLORS = {
-  UIStatus.DISENGAGED: rl.Color(0x12, 0x28, 0x39, 0xFF),  # Blue for disengaged state
+  UIStatus.DISENGAGED: rl.Color(0x16, 0x23, 0x3A, 0xFF),  # ORBIT navy for disengaged state
   UIStatus.OVERRIDE: rl.Color(0x89, 0x92, 0x8D, 0xFF),  # Gray for override state
   UIStatus.ENGAGED: rl.Color(0x16, 0x7F, 0x40, 0xFF),  # Green for engaged state
   **BORDER_COLORS_SP,
@@ -56,6 +57,7 @@ class AugmentedRoadView(CameraView, AugmentedRoadViewSP):
     self._hud_renderer = HudRenderer()
     self.alert_renderer = AlertRenderer()
     self.driver_state_renderer = DriverStateRenderer()
+    self.orbit_command_overlay = OrbitCommandOverlay()
 
   def _render(self, rect):
     # Only render when system is started to avoid invalid data access
@@ -96,6 +98,7 @@ class AugmentedRoadView(CameraView, AugmentedRoadViewSP):
 
     # Custom UI extension point - add custom overlays here
     # Use self._content_rect for positioning within camera bounds
+    self.orbit_command_overlay.render(self._content_rect)
 
     # End clipping region
     rl.end_scissor_mode()
@@ -112,7 +115,7 @@ class AugmentedRoadView(CameraView, AugmentedRoadViewSP):
     pass
 
   def _draw_border(self, rect: rl.Rectangle):
-    rl.draw_rectangle_lines_ex(rect, UI_BORDER_SIZE, rl.BLACK)
+    rl.draw_rectangle_lines_ex(rect, UI_BORDER_SIZE, rl.Color(0x0B, 0x12, 0x20, 0xFF))  # ORBIT void
     border_roundness = 0.12
     border_color = BORDER_COLORS.get(ui_state.status, BORDER_COLORS[UIStatus.DISENGAGED])
     border_rect = rl.Rectangle(rect.x + UI_BORDER_SIZE, rect.y + UI_BORDER_SIZE,
