@@ -37,7 +37,8 @@ from openpilot.system.ui.widgets.scroller_tici import Scroller
 
 OP.PANEL_COLOR = rl.Color(13, 20, 34, 255)   # ORBIT dark ground (was near-black)
 ICON_SIZE = 64
-NAV_TILE_INSET = 11          # vertical inset per allocated row → visible gap between tiles
+NAV_TILE_INSET = 15          # vertical inset per allocated row → top/bottom margin between tiles
+NAV_TILE_H_INSET = 12        # horizontal inset → side margin so tiles float inside the rail
 
 OP.PanelType = IntEnum(
   "PanelType",
@@ -78,8 +79,11 @@ class NavButton(Widget):
     mouse_down = rl.is_mouse_button_down(rl.MouseButton.MOUSE_BUTTON_LEFT)
     hovered = rl.check_collision_point_rec(rl.get_mouse_position(), rect)
 
-    # Inset the visible tile so consecutive tiles read as clearly separated cards.
-    tile = rl.Rectangle(rect.x, rect.y + NAV_TILE_INSET, rect.width, rect.height - 2 * NAV_TILE_INSET)
+    # Inset the visible tile on all four sides so consecutive tiles read as
+    # clearly separated cards that float inside the rail (margin top/bottom/sides).
+    # The click target stays the full allocated row for an easy tap.
+    tile = rl.Rectangle(rect.x + NAV_TILE_H_INSET, rect.y + NAV_TILE_INSET,
+                        rect.width - 2 * NAV_TILE_H_INSET, rect.height - 2 * NAV_TILE_INSET)
     self.panel_info.button_rect = rect  # click detection maps to the allocated rect
 
     if is_selected:
