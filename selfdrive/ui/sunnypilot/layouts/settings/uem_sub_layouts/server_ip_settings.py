@@ -31,6 +31,7 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets.confirm_dialog import alert_dialog
 from openpilot.system.ui.sunnypilot.widgets.list_view import button_item_sp, LineSeparatorSP
 from openpilot.system.ui.widgets import Widget, DialogResult
+from openpilot.system.ui.widgets.button import ButtonStyle
 from openpilot.system.ui.widgets.network import NavButton
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 
@@ -107,6 +108,7 @@ class ServerIpSettingsLayout(Widget):
       button_text=lambda: tr("PROBAR"),
       description=lambda: self._test_status or tr("Comprueba si el servidor responde en la IP y puerto actuales."),
       callback=self._test_connection,
+      button_style=ButtonStyle.ACTION,
     )
 
     return [

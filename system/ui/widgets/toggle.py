@@ -3,14 +3,18 @@ from collections.abc import Callable
 from openpilot.system.ui.lib.application import MousePos
 from openpilot.system.ui.widgets import Widget
 
-ON_COLOR = rl.Color(51, 171, 76, 255)
-OFF_COLOR = rl.Color(0x39, 0x39, 0x39, 255)
+# ORBIT pill toggle: GREEN_DEEP/GREEN track when on, NAVY/HAIRLINE track when off.
+ON_COLOR = rl.Color(22, 163, 74, 255)  # GREEN_DEEP
+ON_BORDER_COLOR = rl.Color(74, 222, 128, 255)  # GREEN
+OFF_COLOR = rl.Color(22, 35, 58, 255)  # NAVY
+OFF_BORDER_COLOR = rl.Color(43, 62, 95, 255)  # HAIRLINE
 KNOB_COLOR = rl.WHITE
-DISABLED_ON_COLOR = rl.Color(0x22, 0x77, 0x22, 255)  # Dark green when disabled + on
-DISABLED_OFF_COLOR = rl.Color(0x39, 0x39, 0x39, 255)
-DISABLED_KNOB_COLOR = rl.Color(0x88, 0x88, 0x88, 255)
+DISABLED_ON_COLOR = rl.Color(27, 44, 72, 255)  # PANEL
+DISABLED_OFF_COLOR = rl.Color(22, 35, 58, 255)  # NAVY
+DISABLED_KNOB_COLOR = rl.Color(92, 117, 153, 255)  # MUTED_DIM
 WIDTH, HEIGHT = 160, 80
 BG_HEIGHT = 60
+KNOB_PADDING = 5
 ANIMATION_SPEED = 8.0
 
 
@@ -56,34 +60,27 @@ class Toggle(Widget):
   def _render(self, rect: rl.Rectangle):
     self.update()
 
-    on = self._progress > 0.5
     if self._enabled:
-      on_color = ON_COLOR
-      off_color = OFF_COLOR
+      bg_color = self._blend_color(OFF_COLOR, ON_COLOR, self._progress)
+      border_color = self._blend_color(OFF_BORDER_COLOR, ON_BORDER_COLOR, self._progress)
+      knob_color = KNOB_COLOR
     else:
-      on_color = DISABLED_ON_COLOR
-      off_color = DISABLED_OFF_COLOR
+      bg_color = self._blend_color(DISABLED_OFF_COLOR, DISABLED_ON_COLOR, self._progress)
+      border_color = OFF_BORDER_COLOR
+      knob_color = DISABLED_KNOB_COLOR
 
-    # Square checkbox, right-aligned inside the widget rect (with a right margin
-    # so it isn't flush against the card edge).
-    s = HEIGHT - 8
-    bx = self._rect.x + WIDTH - s - 24
-    by = self._rect.y + (HEIGHT - s) / 2
-    box = rl.Rectangle(bx, by, s, s)
-    roundness = 0.25
-    check_color = rl.Color(11, 18, 32, 255)  # VOID
+    # Rounded pill track (with a right margin so it isn't flush against the card edge)
+    bg_rect = rl.Rectangle(self._rect.x, self._rect.y + (HEIGHT - BG_HEIGHT) / 2, WIDTH - 24, BG_HEIGHT)
+    rl.draw_rectangle_rounded(bg_rect, 1.0, 10, bg_color)
+    rl.draw_rectangle_rounded_lines_ex(bg_rect, 1.0, 10, 3, border_color)
 
-    if on:
-      # Filled square + check mark
-      rl.draw_rectangle_rounded(box, roundness, 10, on_color)
-      p1 = rl.Vector2(bx + s * 0.24, by + s * 0.52)
-      p2 = rl.Vector2(bx + s * 0.42, by + s * 0.72)
-      p3 = rl.Vector2(bx + s * 0.78, by + s * 0.28)
-      rl.draw_line_ex(p1, p2, 5, check_color)
-      rl.draw_line_ex(p2, p3, 5, check_color)
-    else:
-      # Empty rounded-square outline
-      rl.draw_rectangle_rounded_lines_ex(box, roundness, 10, 3, off_color)
+    # Knob slides between the track ends
+    knob_radius = BG_HEIGHT / 2 - KNOB_PADDING
+    min_knob_x = bg_rect.x + KNOB_PADDING + knob_radius
+    max_knob_x = bg_rect.x + bg_rect.width - KNOB_PADDING - knob_radius
+    knob_x = min_knob_x + (max_knob_x - min_knob_x) * self._progress
+    knob_y = bg_rect.y + BG_HEIGHT / 2
+    rl.draw_circle(int(knob_x), int(knob_y), knob_radius, knob_color)
 
     # TODO: use click callback
     clicked = self._clicked

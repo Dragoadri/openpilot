@@ -14,6 +14,9 @@ from openpilot.system.ui.sunnypilot.lib.styles import style
 
 KNOB_PADDING = 5
 KNOB_RADIUS = style.TOGGLE_BG_HEIGHT / 2 - KNOB_PADDING
+# ORBIT pill borders: GREEN on the ON track, HAIRLINE on the OFF/disabled track.
+TRACK_BORDER_ON = rl.Color(74, 222, 128, 255)  # GREEN
+TRACK_BORDER_OFF = rl.Color(43, 62, 95, 255)  # HAIRLINE
 
 
 class ToggleSP(Toggle):
@@ -36,34 +39,28 @@ class ToggleSP(Toggle):
     self.update()
     self._rect.y -= style.ITEM_PADDING / 2
 
-    on = self._progress > 0.5
     if self._enabled:
-      on_color = style.TOGGLE_ON_COLOR
-      off_color = style.TOGGLE_OFF_COLOR
+      bg_color = self._blend_color(style.TOGGLE_OFF_COLOR, style.TOGGLE_ON_COLOR, self._progress)
+      border_color = self._blend_color(TRACK_BORDER_OFF, TRACK_BORDER_ON, self._progress)
+      knob_color = style.TOGGLE_KNOB_COLOR
     else:
-      on_color = style.TOGGLE_DISABLED_ON_COLOR
-      off_color = style.TOGGLE_DISABLED_OFF_COLOR
+      bg_color = self._blend_color(style.TOGGLE_DISABLED_OFF_COLOR, style.TOGGLE_DISABLED_ON_COLOR, self._progress)
+      border_color = TRACK_BORDER_OFF
+      knob_color = style.TOGGLE_DISABLED_KNOB_COLOR
 
-    # Square checkbox, right-aligned inside the widget rect (with a right margin
-    # so it isn't flush against the card edge).
-    s = style.TOGGLE_BG_HEIGHT
-    bx = self._rect.x + style.TOGGLE_WIDTH - s - 24
-    by = self._rect.y + (style.TOGGLE_HEIGHT - s) / 2
-    box = rl.Rectangle(bx, by, s, s)
-    roundness = 0.25
-    check_color = rl.Color(11, 18, 32, 255)  # VOID
+    # Rounded pill track (with a right margin so it isn't flush against the card edge)
+    bg_rect = rl.Rectangle(self._rect.x, self._rect.y + (style.TOGGLE_HEIGHT - style.TOGGLE_BG_HEIGHT) / 2,
+                           style.TOGGLE_WIDTH - 24, style.TOGGLE_BG_HEIGHT)
+    rl.draw_rectangle_rounded(bg_rect, 1.0, 10, bg_color)
+    rl.draw_rectangle_rounded_lines_ex(bg_rect, 1.0, 10, 3, border_color)
 
-    if on:
-      # Filled square + check mark
-      rl.draw_rectangle_rounded(box, roundness, 10, on_color)
-      p1 = rl.Vector2(bx + s * 0.24, by + s * 0.52)
-      p2 = rl.Vector2(bx + s * 0.42, by + s * 0.72)
-      p3 = rl.Vector2(bx + s * 0.78, by + s * 0.28)
-      rl.draw_line_ex(p1, p2, 5, check_color)
-      rl.draw_line_ex(p2, p3, 5, check_color)
-    else:
-      # Empty rounded-square outline
-      rl.draw_rectangle_rounded_lines_ex(box, roundness, 10, 3, off_color)
+    # Knob slides between the track ends
+    left_edge = bg_rect.x + KNOB_PADDING
+    right_edge = bg_rect.x + bg_rect.width - KNOB_PADDING
+    knob_travel_distance = right_edge - left_edge - 2 * KNOB_RADIUS
+    knob_x = left_edge + KNOB_RADIUS + knob_travel_distance * self._progress
+    knob_y = bg_rect.y + style.TOGGLE_BG_HEIGHT / 2
+    rl.draw_circle(int(knob_x), int(knob_y), KNOB_RADIUS, knob_color)
 
     clicked = self._clicked
     self._clicked = False

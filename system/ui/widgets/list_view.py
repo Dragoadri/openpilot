@@ -486,8 +486,9 @@ def toggle_item(title: str | Callable[[], str], description: str | Callable[[], 
 
 
 def button_item(title: str | Callable[[], str], button_text: str | Callable[[], str], description: str | Callable[[], str] | None = None,
-                callback: Callable | None = None, enabled: bool | Callable[[], bool] = True) -> ListItem:
-  action = ButtonAction(text=button_text, enabled=enabled)
+                callback: Callable | None = None, enabled: bool | Callable[[], bool] = True,
+                button_style: ButtonStyle | None = None) -> ListItem:
+  action = ButtonAction(text=button_text, enabled=enabled, button_style=button_style)
   return ListItem(title=title, description=description, action_item=action, callback=callback)
 
 

@@ -30,6 +30,7 @@ from collections.abc import Callable
 import pyray as rl
 
 from openpilot.common.basedir import BASEDIR
+from openpilot.common.params import UnknownKeyName
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
@@ -43,6 +44,7 @@ from openpilot.system.ui.sunnypilot.widgets.list_view import (
 )
 from openpilot.system.ui.widgets import Widget, DialogResult
 from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
+from openpilot.system.ui.widgets.list_view import text_item
 from openpilot.system.ui.widgets.network import NavButton
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 
@@ -52,6 +54,9 @@ from openpilot.system.ui.widgets.scroller_tici import Scroller
 MODE_BUTTONS = ["MODELO COMMA", "COMMA+JETSON", "JETSON", "TEST MAX"]
 INDEX_TO_MODE = {0: 0, 1: 3, 2: 1, 3: 2}
 MODE_TO_INDEX = {v: k for k, v in INDEX_TO_MODE.items()}
+MODE_NAMES = {0: "MODELO COMMA", 1: "JETSON", 2: "TEST MAX", 3: "COMMA+JETSON"}
+
+TORQUE_STALE_SECONDS = 3.0
 
 PARAM_READ_INTERVAL_FRAMES = 30  # ~0.5s at 60fps
 
@@ -93,6 +98,9 @@ class JetsonSettingsLayout(Widget):
     # Throttle / live state
     self._frame = 0
     self._obstacle_status = ""
+    self._live_torque = ""
+    self._live_torque_ts = ""
+    self._live_obstacle = ""
 
     items = self._initialize_items()
     self._scroller = Scroller(items, line_separator=False, spacing=0)
@@ -157,6 +165,12 @@ class JetsonSettingsLayout(Widget):
                                                clamp=(10, 100), step=10),
     )
 
+    # ESTADO: read-only live rows (param reads throttled in _update_state)
+    self._status_mode = text_item(lambda: tr("Modo actual"), lambda: MODE_NAMES.get(self._read_mode(), "-"))
+    self._status_ip = text_item(lambda: tr("IP Jetson"), lambda: str(self._config.get("jetson_ip") or "-"))
+    self._status_torque = text_item(lambda: tr("Torque actual"), self._torque_text)
+    self._status_obstacle = text_item(lambda: tr("Obstaculo detectado"), self._obstacle_yesno_text)
+
     items = [
       self._jetson_enabled_toggle,
       self._enabled_status,
@@ -164,6 +178,11 @@ class JetsonSettingsLayout(Widget):
       self._mode_selector,
       self._mode_status,
       self._obstacle_label,
+      LineSeparatorSP(40),
+      self._status_mode,
+      self._status_ip,
+      self._status_torque,
+      self._status_obstacle,
       LineSeparatorSP(40),
       self._ip_button,
       self._comma_ip_button,
@@ -209,6 +228,40 @@ class JetsonSettingsLayout(Widget):
       "CANCELED_STALE": tr("Jetson sin respuesta"),
     }
     return mapping.get(obs, "")
+
+  def _read_live_param(self, key: str) -> str:
+    # New params written by sicuem/orbit/zmq_client.py; tolerate older manifests.
+    try:
+      raw = ui_state.params.get(key)
+    except UnknownKeyName:
+      return ""
+    return raw if raw else ""
+
+  def _refresh_live_status(self):
+    self._live_torque = self._read_live_param("JetsonTorque")
+    self._live_torque_ts = self._read_live_param("JetsonTorqueTimestamp")
+    self._live_obstacle = self._read_live_param("JetsonObstaclePulse")
+
+  def _torque_text(self) -> str:
+    if not self._live_torque:
+      return "-"
+    try:
+      if not self._live_torque_ts or time.time() - float(self._live_torque_ts) > TORQUE_STALE_SECONDS:
+        return "-"
+      return f"{float(self._live_torque):+.2f}"
+    except (TypeError, ValueError):
+      return "-"
+
+  def _obstacle_yesno_text(self) -> str:
+    # JetsonObstaclePulse holds the last {"obstacle": bool, "intensity": float} JSON
+    if self._live_obstacle:
+      try:
+        payload = json.loads(self._live_obstacle)
+        if isinstance(payload, dict) and payload.get("obstacle"):
+          return tr("SI")
+      except ValueError:
+        pass
+    return tr("NO")
 
   def _on_mode_button(self, index: int):
     """User pressed a mode button. Confirm before committing, then write param + MQTT payload."""
@@ -449,6 +502,7 @@ class JetsonSettingsLayout(Widget):
     if self._frame % PARAM_READ_INTERVAL_FRAMES == 0:
       obs = ui_state.params.get("JetsonObstacleStatus")
       self._obstacle_status = obs if obs else ""
+      self._refresh_live_status()
       self._sync_selector()
       # Live-reload config_jetson.json if an external writer (e.g. MQTT bridge)
       # changed it while the panel is open. Saving merges keys, so this is safe
@@ -479,4 +533,5 @@ class JetsonSettingsLayout(Widget):
     self._sync_selector()
     obs = ui_state.params.get("JetsonObstacleStatus")
     self._obstacle_status = obs if obs else ""
+    self._refresh_live_status()
     self._scroller.show_event()

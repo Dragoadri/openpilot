@@ -9,7 +9,7 @@ from openpilot.selfdrive.ui.mici.layouts.settings.firehose import FirehoseLayout
 
 TITLE = tr_noop("Firehose Mode")
 DESCRIPTION = tr_noop(
-  "sunnypilot learns to drive by watching humans, like you, drive.\n\n"
+  "ORBIT learns to drive by watching humans, like you, drive.\n\n"
   + "Firehose Mode allows you to maximize your training data uploads to improve "
   + "openpilot's driving models. More data means bigger models, which means better Experimental Mode."
 )
@@ -22,6 +22,16 @@ INSTRUCTIONS = tr_noop(
   + "What's a good USB-C adapter? Any fast phone or laptop charger should be fine.\n\n"
   + "Does it matter which software I run? Yes, only upstream openpilot (and particular forks) are able to be used for training."
 )
+
+# ORBIT palette: PANEL cards on the void background, INK title, MUTED body text.
+PANEL = rl.Color(27, 44, 72, 255)
+HAIRLINE = rl.Color(43, 62, 95, 255)
+INK = rl.Color(226, 236, 255, 255)
+MUTED = rl.Color(147, 180, 230, 255)
+MUTED_DIM = rl.Color(92, 117, 153, 255)
+CARD_PAD = 30
+CARD_GAP = 24
+CARD_ROUNDNESS = 0.12
 
 
 class FirehoseLayout(FirehoseLayoutBase):
@@ -49,43 +59,49 @@ class FirehoseLayout(FirehoseLayoutBase):
     title_font = gui_app.font(FontWeight.MEDIUM)
     text_width = measure_text_cached(title_font, title_text, 100).x
     title_x = rect.x + (rect.width - text_width) / 2
-    rl.draw_text_ex(title_font, title_text, rl.Vector2(title_x, y), 100, 0, rl.WHITE)
-    y += 200
+    rl.draw_text_ex(title_font, title_text, rl.Vector2(title_x, y), 100, 0, INK)
+    y += 160
 
-    # Description
-    y = self._draw_wrapped_text(x, y, w, tr(DESCRIPTION), gui_app.font(FontWeight.NORMAL), 45, rl.WHITE)
-    y += 40 + 20
+    # Description card
+    y = self._draw_card(x, y, w, [(tr(DESCRIPTION), gui_app.font(FontWeight.NORMAL), 45, MUTED)])
+    y += CARD_GAP
 
-    # Separator
-    rl.draw_rectangle(x, y, w, 2, self.GRAY)
-    y += 30 + 20
-
-    # Status
+    # Status card
     status_text, status_color = self._get_status()
-    y = self._draw_wrapped_text(x, y, w, status_text, gui_app.font(FontWeight.BOLD), 60, status_color)
-    y += 20 + 20
+    y = self._draw_card(x, y, w, [(status_text, gui_app.font(FontWeight.BOLD), 60, status_color)])
+    y += CARD_GAP
 
     # TODO: add back once reliable
     # Contribution count (if available)
     #if self._segment_count > 0:
     #  contrib_text = trn("{} segment of your driving is in the training dataset so far.",
     #                     "{} segments of your driving is in the training dataset so far.", self._segment_count).format(self._segment_count)
-    #  y = self._draw_wrapped_text(x, y, w, contrib_text, gui_app.font(FontWeight.BOLD), 52, rl.WHITE)
-    #  y += 20 + 20
+    #  y = self._draw_card(x, y, w, [(contrib_text, gui_app.font(FontWeight.BOLD), 52, INK)])
+    #  y += CARD_GAP
 
-    # Separator
-    rl.draw_rectangle(x, y, w, 2, self.GRAY)
-    y += 30 + 20
-
-    # Instructions
-    y = self._draw_wrapped_text(x, y, w, tr(INSTRUCTIONS), gui_app.font(FontWeight.NORMAL), 40, self.LIGHT_GRAY)
+    # Instructions card
+    y = self._draw_card(x, y, w, [(tr(INSTRUCTIONS), gui_app.font(FontWeight.NORMAL), 40, MUTED_DIM)])
 
     # bottom margin + remove effect of scroll offset
     return int(round(y - self._scroll_panel.offset + 40))
 
-  def _draw_wrapped_text(self, x, y, width, text, font, font_size, color):
-    wrapped = wrap_text(font, text, font_size, width)
-    for line in wrapped:
-      rl.draw_text_ex(font, line, rl.Vector2(x, y), font_size, 0, color)
-      y += font_size * FONT_SCALE
-    return round(y)
+  def _draw_card(self, x: int, y: int, w: int, blocks: list[tuple]) -> int:
+    """Rounded PANEL card with a HAIRLINE border around wrapped text blocks."""
+    inner_w = w - CARD_PAD * 2
+    wrapped = []
+    text_h = 0
+    for text, font, font_size, color in blocks:
+      lines = wrap_text(font, text, font_size, inner_w)
+      wrapped.append((lines, font, font_size, color))
+      text_h += int(len(lines) * font_size * FONT_SCALE)
+
+    card = rl.Rectangle(x, y, w, text_h + CARD_PAD * 2)
+    rl.draw_rectangle_rounded(card, CARD_ROUNDNESS, 12, PANEL)
+    rl.draw_rectangle_rounded_lines_ex(card, CARD_ROUNDNESS, 12, 2, HAIRLINE)
+
+    ty = y + CARD_PAD
+    for lines, font, font_size, color in wrapped:
+      for line in lines:
+        rl.draw_text_ex(font, line, rl.Vector2(x + CARD_PAD, ty), font_size, 0, color)
+        ty += font_size * FONT_SCALE
+    return int(round(card.y + card.height))

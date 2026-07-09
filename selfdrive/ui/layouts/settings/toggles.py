@@ -4,7 +4,7 @@ from cereal import log
 from openpilot.common.params import Params, UnknownKeyName
 from openpilot.system.ui.widgets import Widget, DialogResult
 from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
-from openpilot.system.ui.lib.application import gui_app, FontWeight
+from openpilot.system.ui.lib.application import gui_app, FontWeight, FONT_SCALE
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.wrap_text import wrap_text
 from openpilot.system.ui.lib.multilang import tr, tr_noop
@@ -31,22 +31,36 @@ def _a(c: rl.Color, alpha: int) -> rl.Color:
 # Description constants
 DESCRIPTIONS = {
   "OpenpilotEnabledToggle": tr_noop(
-    "Use the sunnypilot system for adaptive cruise control and lane keep driver assistance. " +
+    "Use the ORBIT system for adaptive cruise control and lane keep driver assistance. " +
     "Your attention is required at all times to use this feature."
   ),
-  "DisengageOnAccelerator": tr_noop("When enabled, pressing the accelerator pedal will disengage sunnypilot."),
+  "DisengageOnAccelerator": tr_noop("When enabled, pressing the accelerator pedal will disengage ORBIT."),
   "LongitudinalPersonality": tr_noop(
-    "Standard is recommended. In aggressive mode, sunnypilot will follow lead cars closer and be more aggressive with the gas and brake."
+    "Standard is recommended. In aggressive mode, ORBIT will follow lead cars closer and be more aggressive with the gas and brake."
   ),
   "IsLdwEnabled": tr_noop(
     "Receive alerts to steer back into the lane when your vehicle drifts over a detected lane line " +
     "without a turn signal activated while driving over 31 mph (50 km/h)."
   ),
-  "AlwaysOnDM": tr_noop("Enable driver monitoring even when sunnypilot is not engaged."),
+  "AlwaysOnDM": tr_noop("Enable driver monitoring even when ORBIT is not engaged."),
   'RecordFront': tr_noop("Upload data from the driver facing camera and help improve the driver monitoring algorithm."),
   "IsMetric": tr_noop("Display speed in km/h instead of mph."),
   "RecordAudio": tr_noop("Record and store microphone audio while driving. The audio will be included in the dashcam video in comma connect."),
 }
+
+RESTART_NOTICE = tr_noop("Changing this setting will restart ORBIT if the car is powered on.")
+
+EXPERIMENTAL_MODE_DESCRIPTION = tr_noop(
+  "ORBIT defaults to driving in chill mode. Experimental mode enables alpha-level features that aren't ready for chill mode. " +
+  "Experimental features are listed below:<br>" +
+  "<h4>End-to-End Longitudinal Control</h4><br>" +
+  "Let the driving model control the gas and brakes. ORBIT will drive as it thinks a human would, including stopping for red lights and stop signs. " +
+  "Since the driving model decides the speed to drive, the set speed will only act as an upper bound. This is an alpha quality feature; " +
+  "mistakes should be expected.<br>" +
+  "<h4>New Driving Visualization</h4><br>" +
+  "The driving visualization will transition to the road-facing wide-angle camera at low speeds to better show some turns. " +
+  "The Experimental mode logo will also be shown in the top right corner."
+)
 
 
 class TogglesLayout(Widget):
@@ -59,7 +73,7 @@ class TogglesLayout(Widget):
 
     # param -> (title, description, icon, needs_restart)
     self._toggle_defs = {
-      "OpenpilotEnabledToggle": (lambda: tr("Enable sunnypilot"), DESCRIPTIONS["OpenpilotEnabledToggle"], "chffr_wheel.png", True),
+      "OpenpilotEnabledToggle": (lambda: tr("Enable ORBIT"), DESCRIPTIONS["OpenpilotEnabledToggle"], "chffr_wheel.png", True),
       "ExperimentalMode": (lambda: tr("Experimental Mode"), "", "experimental_white.png", False),
       "DisengageOnAccelerator": (lambda: tr("Disengage on Accelerator Pedal"), DESCRIPTIONS["DisengageOnAccelerator"], "disengage_on_accelerator.png", False),
       "IsLdwEnabled": (lambda: tr("Enable Lane Departure Warnings"), DESCRIPTIONS["IsLdwEnabled"], "warning.png", False),
@@ -105,13 +119,17 @@ class TogglesLayout(Widget):
       enabled = self._tile_enabled(param)
       on = self._params.get_bool(param)
       self._tile_rects[param] = (tile, enabled)
-      self._draw_toggle_tile(tile, self._toggle_defs[param][0](), on, enabled)
+      title_fn, desc_key, _icon, needs_restart = self._toggle_defs[param]
+      desc = tr(desc_key) if desc_key else ""
+      if needs_restart:
+        desc = (desc + " " if desc else "") + tr(RESTART_NOTICE)
+      self._draw_toggle_tile(tile, title_fn(), desc, on, enabled)
 
     py = rect.y + rows * (tile_h + gap)
     self._draw_personality(rl.Rectangle(rect.x, py, rect.width, perso_h),
                            int(self._params.get("LongitudinalPersonality", return_default=True)))
 
-  def _draw_toggle_tile(self, rect: rl.Rectangle, title: str, on: bool, enabled: bool):
+  def _draw_toggle_tile(self, rect: rl.Rectangle, title: str, desc: str, on: bool, enabled: bool):
     if not enabled:
       fill, border, bw, box_fill, box_line, txt = NAVY, HAIRLINE, 2, None, MUTED_DIM, MUTED_DIM
     elif on:
@@ -134,14 +152,26 @@ class TogglesLayout(Widget):
     else:
       rl.draw_rectangle_rounded_lines_ex(box, 0.28, 8, 3, box_line)
 
-    # Title (wrapped) to the right of the box
+    # Title (wrapped) with a MUTED_DIM description subline, to the right of the box
     font = gui_app.font(FontWeight.MEDIUM)
+    desc_font = gui_app.font(FontWeight.NORMAL)
     tx = bx + bs + 24
-    tsize = 34
-    lines = wrap_text(font, title, tsize, int(rect.x + rect.width - tx - 20))
-    total_h = len(lines) * tsize
+    tsize, dsize, line_gap = 34, 26, 8
+    # draw_text_ex renders at font_size * FONT_SCALE; use the rendered line heights for layout
+    th, dh = tsize * FONT_SCALE, dsize * FONT_SCALE
+    avail_w = int(rect.x + rect.width - tx - 20)
+    title_lines = wrap_text(font, title, tsize, avail_w)
+    desc_lines = wrap_text(desc_font, desc, dsize, avail_w) if desc else []
+    if desc_lines:
+      # keep only the subline rows that fit inside the tile
+      max_desc = int((rect.height - 24 - len(title_lines) * th - line_gap) // dh)
+      desc_lines = desc_lines[:max(max_desc, 0)]
+    total_h = len(title_lines) * th + (line_gap + len(desc_lines) * dh if desc_lines else 0)
     ty = rect.y + (rect.height - total_h) / 2
-    rl.draw_text_ex(font, "\n".join(lines), rl.Vector2(int(tx), int(ty)), tsize, 0, txt)
+    rl.draw_text_ex(font, "\n".join(title_lines), rl.Vector2(int(tx), int(ty)), tsize, 0, txt)
+    if desc_lines:
+      dy = ty + len(title_lines) * th + line_gap
+      rl.draw_text_ex(desc_font, "\n".join(desc_lines), rl.Vector2(int(tx), int(dy)), dsize, 0, MUTED_DIM)
 
   def _draw_personality(self, rect: rl.Rectangle, selected: int):
     font = gui_app.font(FontWeight.MEDIUM)
@@ -195,7 +225,7 @@ class TogglesLayout(Widget):
           self._params.put_bool("ExperimentalModeConfirmed", True, block=True)
 
       content = ("<h1>" + tr("Experimental Mode") + "</h1><br><p>" +
-                 tr("Let the driving model control the gas and brakes. This is an alpha-quality feature; mistakes should be expected.") +
+                 tr(EXPERIMENTAL_MODE_DESCRIPTION) +
                  "</p>")
       gui_app.push_widget(ConfirmDialog(content, tr("Enable"), rich=True, callback=confirm_callback))
     else:

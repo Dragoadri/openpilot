@@ -3,7 +3,7 @@ import math
 
 from cereal import messaging, log
 from openpilot.common.basedir import BASEDIR
-from openpilot.common.params import Params
+from openpilot.common.params import Params, UnknownKeyName
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.onroad.driver_camera_dialog import DriverCameraDialog
 from openpilot.selfdrive.ui.ui_state import ui_state
@@ -13,6 +13,7 @@ from openpilot.selfdrive.ui.widgets.orbit_enroll_dialog import OrbitEnrollDialog
 from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.lib.multilang import multilang, tr, tr_noop
 from openpilot.system.ui.widgets import Widget, DialogResult
+from openpilot.system.ui.widgets.button import ButtonStyle
 from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog, alert_dialog
 from openpilot.system.ui.widgets.html_render import HtmlModal
 from openpilot.system.ui.widgets.list_view import text_item, button_item, dual_button_item
@@ -26,8 +27,8 @@ if gui_app.sunnypilot_ui():
 DESCRIPTIONS = {
   'pair_device': tr_noop("Pair your device with comma connect (connect.comma.ai) and claim your comma prime offer."),
   'driver_camera': tr_noop("Preview the driver facing camera to ensure that driver monitoring has good visibility. (vehicle must be off)"),
-  'reset_calibration': tr_noop("sunnypilot requires the device to be mounted within 4° left or right and within 5° up or 9° down."),
-  'review_guide': tr_noop("Review the rules, features, and limitations of sunnypilot"),
+  'reset_calibration': tr_noop("ORBIT requires the device to be mounted within 4° left or right and within 5° up or 9° down."),
+  'review_guide': tr_noop("Review the rules, features, and limitations of ORBIT"),
 }
 
 
@@ -50,13 +51,23 @@ class DeviceLayout(Widget):
                                         callback=lambda: gui_app.push_widget(PairingDialog()))
     self._pair_device_btn.set_visible(lambda: not ui_state.prime_state.is_paired())
 
-    self._orbit_enroll_btn = button_item(lambda: tr("Link to ORBIT"), lambda: tr("LINK"),
-                                         lambda: tr("Scan this QR from the ORBIT app to claim this device."),
-                                         callback=lambda: gui_app.push_widget(OrbitEnrollDialog()))
-    self._orbit_enroll_btn.set_visible(lambda: not Params().get_bool("OrbitClaimed"))
+    self._orbit_enroll_btn = button_item(lambda: tr("Vincular con ORBIT"), lambda: tr("VINCULAR"),
+                                         lambda: tr("Escanea el QR desde la app ORBIT para reclamar este dispositivo."),
+                                         callback=lambda: gui_app.push_widget(OrbitEnrollDialog()),
+                                         button_style=ButtonStyle.PRIMARY)
+    self._orbit_enroll_btn.set_visible(lambda: not self._orbit_claimed())
+
+    self._orbit_account_row = text_item(lambda: tr("Cuenta ORBIT"), lambda: self._orbit_owner() or tr("N/A"))
+    self._orbit_account_row.set_visible(self._orbit_claimed)
+
+    self._orbit_unlink_btn = button_item(lambda: tr("Desvincular ORBIT"), lambda: tr("QUITAR"),
+                                         lambda: tr("Reinicia el enlace ORBIT en este dispositivo. Si la cuenta sigue vinculada en el servidor, "
+                                                    "se volverá a vincular sola; para desvincularla del todo usa la app ORBIT."),
+                                         callback=self._orbit_unlink_prompt, button_style=ButtonStyle.DANGER)
+    self._orbit_unlink_btn.set_visible(self._orbit_claimed)
 
     self._reset_calib_btn = button_item(lambda: tr("Reset Calibration"), lambda: tr("RESET"), lambda: tr(DESCRIPTIONS['reset_calibration']),
-                                        callback=self._reset_calibration_prompt)
+                                        callback=self._reset_calibration_prompt, button_style=ButtonStyle.DANGER)
     self._reset_calib_btn.set_description_opened_callback(self._update_calib_description)
 
     self._power_off_btn = dual_button_item(lambda: tr("Reboot"), lambda: tr("Power Off"),
@@ -67,6 +78,8 @@ class DeviceLayout(Widget):
       text_item(lambda: tr("Serial"), self._params.get("HardwareSerial") or (lambda: tr("N/A"))),
       self._pair_device_btn,
       self._orbit_enroll_btn,
+      self._orbit_account_row,
+      self._orbit_unlink_btn,
       button_item(lambda: tr("Driver Camera"), lambda: tr("PREVIEW"), lambda: tr(DESCRIPTIONS['driver_camera']),
                   callback=lambda: gui_app.push_widget(DriverCameraDialog()), enabled=ui_state.is_offroad),
       self._reset_calib_btn,
@@ -80,6 +93,33 @@ class DeviceLayout(Widget):
 
   def _offroad_transition(self):
     self._power_off_btn.action_item.right_button.set_visible(ui_state.is_offroad())
+
+  # ORBIT enrollment params are registered by the orbit daemon; tolerate older manifests.
+  def _orbit_claimed(self) -> bool:
+    try:
+      return self._params.get_bool("OrbitClaimed")
+    except UnknownKeyName:
+      return False
+
+  def _orbit_owner(self) -> str:
+    try:
+      return self._params.get("OrbitOwner") or ""
+    except UnknownKeyName:
+      return ""
+
+  def _orbit_unlink_prompt(self):
+    def perform_unlink(result: DialogResult):
+      if result != DialogResult.CONFIRM:
+        return
+      try:
+        self._params.put_bool("OrbitClaimed", False)
+        self._params.remove("OrbitOwner")
+      except UnknownKeyName:
+        cloudlog.exception("OrbitClaimed/OrbitOwner not registered")
+
+    dialog = ConfirmDialog(tr("¿Seguro que quieres reiniciar el enlace ORBIT de este dispositivo?"),
+                           tr("Desvincular"), callback=perform_unlink)
+    gui_app.push_widget(dialog)
 
   def show_event(self):
     super().show_event()
@@ -164,8 +204,8 @@ class DeviceLayout(Widget):
         cloudlog.exception("invalid LiveTorqueParameters")
 
     desc += "<br><br>"
-    desc += tr("sunnypilot is continuously calibrating, resetting is rarely required. " +
-               "Resetting calibration will restart sunnypilot if the car is powered on.")
+    desc += tr("ORBIT is continuously calibrating, resetting is rarely required. " +
+               "Resetting calibration will restart ORBIT if the car is powered on.")
 
     self._reset_calib_btn.set_description(desc)
 

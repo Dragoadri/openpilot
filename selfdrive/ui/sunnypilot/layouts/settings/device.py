@@ -114,8 +114,11 @@ class DeviceLayoutSP(DeviceLayout):
       text_item(lambda: tr("Serial"), self._params.get("HardwareSerial") or (lambda: tr("N/A"))),
       LineSeparator(),
       # ORBIT enrollment: "Link to ORBIT" opens the QR dialog (auto-hidden once
-      # claimed). Created by the base DeviceLayout but not surfaced in the SP list.
+      # claimed); account + unlink rows only show while claimed. Created by the
+      # base DeviceLayout but not surfaced in the SP list.
       self._orbit_enroll_btn,
+      self._orbit_account_row,
+      self._orbit_unlink_btn,
       LineSeparator(),
       self._pair_device_btn,
       LineSeparator(),
@@ -164,7 +167,7 @@ class DeviceLayoutSP(DeviceLayout):
         ))
 
     gui_app.push_widget(ConfirmDialog(
-      text=tr("Are you sure you want to reset all sunnypilot settings to default? Once the settings are reset, there is no going back."),
+      text=tr("Are you sure you want to reset all ORBIT settings to default? Once the settings are reset, there is no going back."),
       confirm_text=tr("Reset"), callback=_second_confirm
     ))
 

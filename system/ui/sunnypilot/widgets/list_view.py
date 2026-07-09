@@ -398,8 +398,9 @@ def option_item_sp(title: str | Callable[[], str], param: str,
 
 
 def button_item_sp(title: str | Callable[[], str], button_text: str | Callable[[], str], description: str | Callable[[], str] | None = None,
-                   callback: Callable | None = None, enabled: bool | Callable[[], bool] = True) -> ListItemSP:
-  action = ButtonActionSP(text=button_text, enabled=enabled)
+                   callback: Callable | None = None, enabled: bool | Callable[[], bool] = True,
+                   button_style: ButtonStyle | None = None) -> ListItemSP:
+  action = ButtonActionSP(text=button_text, enabled=enabled, button_style=button_style)
   return ListItemSP(title=title, description=description, action_item=action, callback=callback)
 
 
