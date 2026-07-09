@@ -376,4 +376,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"OrbitClaimed", {PERSISTENT, BOOL}},                                 // dispositivo reclamado (fuente de verdad, sobrevive reboot)
     {"OrbitPairingCode", {CLEAR_ON_MANAGER_START, STRING}},              // código efímero actual para renderizar el QR
     {"OrbitEnrollExpiry", {CLEAR_ON_MANAGER_START, STRING}},             // issued-at/expiry (ms epoch) para countdown opcional
+    {"OrbitConnected", {CLEAR_ON_MANAGER_START, BOOL}},                  // conexión MQTT viva (lo escribe mqtt_envio_general)
+    {"OrbitLastPublish", {CLEAR_ON_MANAGER_START, STRING}},              // epoch (s) del último publish de telemetría
+    {"OrbitOwner", {PERSISTENT, STRING}},                                // nombre/email del usuario que reclamó el dispositivo
+    {"OrbitEnrollRegen", {CLEAR_ON_MANAGER_START, BOOL}},                // trigger: la UI pide rotar el código/QR ya
 };

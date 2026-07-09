@@ -1,4 +1,5 @@
 {
     "broker": "79.146.243.188",
-    "broker_port": 1883
+    "broker_port": 1883,
+    "backend_port": 8010
 }

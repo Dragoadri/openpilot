@@ -26,8 +26,11 @@ class MQTTEnvioGeneral:
     self.params = Params()
     self.DongleID = self.params.get("DongleId") if self.params.get("DongleId") else "DongleID"  # Params.get() ya devuelve str
     self.conectado = False
+    self.params.put_bool("OrbitConnected", False)
     self._last_heartbeat = 0.0
     self.HEARTBEAT_SECS = 3.0
+    self._last_toggles_check = time.time()
+    self.TOGGLES_RELOAD_SECS = 5.0
     # Estado del anuncio de enrolamiento ORBIT (QR). Ver _maybe_announce_enroll.
     self._last_enroll = 0.0
     self._enroll_issued_at = 0.0
@@ -127,6 +130,25 @@ class MQTTEnvioGeneral:
       for item in self.enabled_items
     }
 
+  def _maybe_reload_canales(self):
+    """Re-evalua en caliente los toggles de canal del panel TelUem
+    (param f"{canal}_toggle"). cargar_canales() solo corria en __init__, asi que
+    activar/desactivar un canal desde la UI no surtia efecto hasta reiniciar
+    openpilot. Lecturas de Params baratas cada TOGGLES_RELOAD_SECS; si cambia la
+    lista de canales se reconstruye el SubMaster (mismo hilo que lo consume)."""
+    now = time.time()
+    if (now - self._last_toggles_check) < self.TOGGLES_RELOAD_SECS:
+      return
+    self._last_toggles_check = now
+    try:
+      antes = self.lista_suscripciones
+      self.cargar_canales()
+      if self.lista_suscripciones != antes:
+        cloudlog.warning(f"[Bemposta] toggles de canal cambiados {antes} -> {self.lista_suscripciones}, recreando SubMaster")
+        self.init_submaster()
+    except Exception:
+      cloudlog.exception("[Bemposta] _maybe_reload_canales fallo")
+
   def init_submaster(self):
     self.sm = messaging.SubMaster(self.lista_suscripciones)
 
@@ -190,6 +212,7 @@ class MQTTEnvioGeneral:
   def on_connect(self, client, userdata, flags, rc):
     if rc == 0:
       self.conectado = True
+      self.params.put_bool("OrbitConnected", True)
       cloudlog.warning(f"[Bemposta] MQTTEnvioGeneral CONECTADO al broker {self.broker_address}:{self.broker_port} (rc={rc})")
       # "Cold start" sync: publicar nuestro estado actual como mensaje
       # RETAINED para que cualquier app que se conecte despues lo reciba
@@ -204,6 +227,7 @@ class MQTTEnvioGeneral:
       threading.Timer(1.5, self._publish_state_snapshot_retained).start()
     else:
       self.conectado = False
+      self.params.put_bool("OrbitConnected", False)
       cloudlog.warning(f"[Bemposta] MQTTEnvioGeneral rechazado por broker (rc={rc})")
 
   def _publish_state_snapshot_retained(self):
@@ -269,6 +293,7 @@ class MQTTEnvioGeneral:
 
   def on_disconnect(self, client, userdata, rc):
     self.conectado = False
+    self.params.put_bool("OrbitConnected", False)
     cloudlog.warning(f"[Bemposta] MQTTEnvioGeneral DESCONECTADO del broker {self.broker_address} (rc={rc})")
 
   def start(self):
@@ -291,6 +316,9 @@ class MQTTEnvioGeneral:
 
       # Recoger en caliente un cambio de IP del broker hecho desde la UI.
       self._maybe_reload_broker()
+
+      # Recoger en caliente los toggles de canal cambiados desde la UI (TelUem).
+      self._maybe_reload_canales()
 
       # Enrolamiento ORBIT (QR): generar/rotar el codigo SIEMPRE (aunque no haya
       # broker) para que la UI pueda pintar el QR sin conexion; el publish va
@@ -471,6 +499,11 @@ class MQTTEnvioGeneral:
           except Exception as e:
             cloudlog.warning(f"[Bemposta] heartbeat fallo: {e}")
 
+          # Marca de vida para la UI: epoch (s) del ultimo ciclo de publicacion.
+          # Ligada a la cadencia del heartbeat (3 s) para no anadir mas
+          # frecuencia de escritura en Params.
+          self.params.put("OrbitLastPublish", str(int(now)))
+
           # sicuem_torque a cadencia baja (unida al heartbeat). El backend/app
           # consumen sicuem_torque/<dongle> de forma CONTINUA, pero antes solo se
           # publicaba dentro del bloque JetsonObstacleStatusMqttPayload (transitorio,
@@ -528,6 +561,11 @@ class MQTTEnvioGeneral:
         d = self.params.get("DongleId")
         if not d or d == "DongleID":
           return
+      # Regeneracion manual (trigger OrbitEnrollRegen, lo pone la UI o el
+      # unclaim): consumirlo y forzar rotacion + anuncio inmediatos.
+      if self.params.get_bool("OrbitEnrollRegen"):
+        self.params.remove("OrbitEnrollRegen")
+        self._pairing_code = None
       # Rotacion del codigo: primera vez o TTL expirado. Se genera SIEMPRE (aunque
       # no haya broker) para que la UI pueda pintar el QR/codigo sin conexion.
       if self._pairing_code is None or (now - self._enroll_issued_at) >= self.ENROLL_TTL_S:
@@ -538,6 +576,10 @@ class MQTTEnvioGeneral:
         code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(8))
         self._enroll_issued_at = now
         self._pairing_code = code
+        # Anunciar el codigo nuevo YA: si se respetara la ventana de 30 s, el
+        # backend seguiria validando contra el codigo viejo (bad_code) hasta
+        # el proximo anuncio.
+        self._last_enroll = 0.0
         self.params.put("OrbitPairingCode", code)
         self.params.put("OrbitEnrollExpiry", str(int((self._enroll_issued_at + self.ENROLL_TTL_S) * 1000)))
       # Anuncio periodico por MQTT: SOLO con conexion. Sin broker el codigo ya

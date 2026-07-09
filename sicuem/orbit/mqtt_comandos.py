@@ -904,29 +904,44 @@ class MQTTComandos:
     Topic:
       - telemetry_config/{dongle_id}/enroll_ack
 
-    Payload esperado:
-    {
-      "claimed": true,
-      "user_id": <int>,
-      "ts": "<iso8601>"
-    }
+    Payloads esperados (contrato compartido con el backend):
+      reclamo:  {"claimed": true, "user_id": <int>, "user_name": <str|null>,
+                 "user_email": <str|null>, "ts": <epoch>}
+      liberado: {"claimed": false, "ts": <epoch>}
 
-    Al recibir claimed=True marcamos el dispositivo como reclamado
-    (OrbitClaimed persiste tras reboot) y borramos el código de emparejamiento
-    para dejar de anunciarlo y ocultar el QR. No hace falta anti-eco: el
+    Al recibir claimed=true marcamos el dispositivo como reclamado
+    (OrbitClaimed persiste tras reboot), guardamos el dueño en OrbitOwner y
+    borramos el código de emparejamiento para dejar de anunciarlo y ocultar
+    el QR. Con claimed=false (unclaim desde la app/backend) se revierte todo
+    y se dispara OrbitEnrollRegen para que el announce loop rote el código y
+    vuelva a anunciar de inmediato. Backends viejos pueden no mandar
+    user_name/user_email: se cae a user_id. No hace falta anti-eco: el
     firmware nunca publica enroll_ack.
     """
     try:
       import json as json_mod
       data = json_mod.loads(payload)
 
-      if data.get("claimed") is True:
+      claimed = data.get("claimed")
+      if claimed is True:
         self.params.put_bool("OrbitClaimed", True)
         self.params.remove("OrbitPairingCode")
-        cloudlog.warning(f"[ORBIT ENROLL] Dispositivo reclamado (user_id={data.get('user_id')}, ts={data.get('ts')})")
+        owner = data.get("user_name") or data.get("user_email")
+        if not owner and data.get("user_id") is not None:
+          owner = f"usuario {data.get('user_id')}"
+        if owner:
+          self.params.put("OrbitOwner", owner)
+        cloudlog.warning(f"[ORBIT ENROLL] Dispositivo reclamado (user_id={data.get('user_id')}, owner={owner!r}, ts={data.get('ts')})")
         print(f"[ORBIT ENROLL] Dispositivo reclamado, OrbitClaimed=True")
+      elif claimed is False:
+        self.params.put_bool("OrbitClaimed", False)
+        self.params.remove("OrbitOwner")
+        self.params.remove("OrbitPairingCode")
+        self.params.put_bool("OrbitEnrollRegen", True)
+        cloudlog.warning(f"[ORBIT ENROLL] Dispositivo liberado (unclaim, ts={data.get('ts')})")
+        print(f"[ORBIT ENROLL] Dispositivo liberado, OrbitClaimed=False")
       else:
-        print(f"[ORBIT ENROLL] enroll_ack sin claimed=True, ignorado: {data}")
+        print(f"[ORBIT ENROLL] enroll_ack sin claimed valido, ignorado: {data}")
 
     except Exception as e:
       print(f"[ORBIT ENROLL] ERROR handle_enroll_ack: {e}")
