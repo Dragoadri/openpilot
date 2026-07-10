@@ -290,15 +290,15 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"JetsonDeadZone", {PERSISTENT, FLOAT, "0.02"}},                   // dead-zone normalizada
     {"CommaSteerTorque", {CLEAR_ON_MANAGER_START, STRING}},            // torque del modelo Comma (diagnóstico UI)
     {"AppliedSteerTorque", {CLEAR_ON_MANAGER_START, STRING}},          // torque final aplicado (diagnóstico UI)
-    {"SteerTorqueModeMqttPayload", {CLEAR_ON_MANAGER_START, JSON}},    // sync modo torque vía MQTT
+    {"SteerTorqueModeMqttPayload", {CLEAR_ON_MANAGER_START, STRING}},  // sync modo torque vía MQTT (JSON serializado: se escribe con json.dumps)
     {"JetsonConfigChanged", {CLEAR_ON_MANAGER_START, BOOL}},           // flag recarga config_jetson.json
-    {"JetsonConfigMqttPayload", {CLEAR_ON_MANAGER_START, JSON}},       // sync config jetson vía MQTT
+    {"JetsonConfigMqttPayload", {CLEAR_ON_MANAGER_START, STRING}},     // sync config jetson vía MQTT (JSON serializado)
     // Modo 3 (COMMA+JETSON, esquive de obstáculos)
-    {"JetsonObstaclePulse", {CLEAR_ON_MANAGER_START, JSON}},           // JSON crudo del último pulso de la Jetson
+    {"JetsonObstaclePulse", {CLEAR_ON_MANAGER_START, STRING}},         // JSON crudo (serializado) del último pulso de la Jetson
     {"JetsonObstacleTimestamp", {CLEAR_ON_MANAGER_START, STRING}},     // wall-clock del último pulso
     {"JetsonObstacleStatus", {CLEAR_ON_MANAGER_START, STRING}},        // DODGING_LEFT/RIGHT/HOLD/CANCELED_DRIVER/BSM_BLOCKED_*
-    {"JetsonObstacleStatusMqttPayload", {CLEAR_ON_MANAGER_START, JSON}},
-    {"JetsonObstacleApplyTargetMqttPayload", {CLEAR_ON_MANAGER_START, JSON}},
+    {"JetsonObstacleStatusMqttPayload", {CLEAR_ON_MANAGER_START, STRING}},
+    {"JetsonObstacleApplyTargetMqttPayload", {CLEAR_ON_MANAGER_START, STRING}},
     {"JetsonObstacleMaxAngle", {PERSISTENT, FLOAT, "25.0"}},           // grados de offset para |intensity|=1
     {"JetsonObstacleMaxCurv", {PERSISTENT, FLOAT, "0.030"}},           // curvatura 1/m de offset para |intensity|=1
     {"JetsonObstacleApplyTarget", {PERSISTENT, STRING, "curvature"}},  // "curvature" | "torque"
