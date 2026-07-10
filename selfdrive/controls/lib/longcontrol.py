@@ -1,8 +1,5 @@
-import threading
-import time
 import numpy as np
 from cereal import car
-from openpilot.common.params import Params
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N
 from openpilot.common.pid import PIDController
@@ -60,25 +57,6 @@ class LongControl:
                              rate=1 / DT_CTRL)
     self.last_output_accel = 0.0
 
-    # [Orbit] corte periódico del control longitudinal por intervalos (demo MQTT)
-    self.params = Params()
-    threading.Thread(target=self._toggle_long_control, daemon=True).start()
-
-  def _toggle_long_control(self):
-    while True:
-      try:
-        if self.params.get_bool("intervalos_toggle"):
-          self.params.put_bool("DisableLongControl", True)
-          time.sleep(10)
-          self.params.put_bool("DisableLongControl", False)
-          time.sleep(10)
-        else:
-          if self.params.get_bool("DisableLongControl"):
-            self.params.put_bool("DisableLongControl", False)
-          time.sleep(1)
-      except Exception:
-        time.sleep(1)
-
   def reset(self):
     self.pid.reset()
 
@@ -86,10 +64,6 @@ class LongControl:
     """Update longitudinal control. This updates the state machine and runs a PID loop"""
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
-
-    # [Orbit] corte longitudinal (intervalos_toggle): frena/coasting hasta reactivar
-    if self.params.get_bool("DisableLongControl"):
-      return float(np.clip(-1.0, accel_limits[0], accel_limits[1]))
 
     self.long_control_state = long_control_state_trans(self.CP, self.CP_SP, active, self.long_control_state, CS.vEgo,
                                                        should_stop, CS.brakePressed,

@@ -101,7 +101,6 @@ class MQTTComandos:
         f"telemetry_config/{self.DongleID}/speed_up",       # Comando aumentar velocidad (formato servidor)
         f"telemetry_config/{self.DongleID}/speed_down",     # Comando disminuir velocidad (formato servidor)
         f"telemetry_config/{self.DongleID}/speed_increment", # Configuración del incremento de velocidad (futuro)
-        f"telemetry_config/{self.DongleID}/intervalos",      # Configuración intervalos
         f"telemetry_config/{self.DongleID}/overtake",        # Adelantamiento automático (detecta BSM automáticamente)
         f"telemetry_config/{self.DongleID}/brutebreak",      # Frenado de emergencia brusco
         f"telemetry_config/{self.DongleID}/camera_config",   # Configuración de cámara desde app ORBIT
@@ -238,10 +237,6 @@ class MQTTComandos:
       # Comando de configuración del incremento de velocidad (para el futuro)
       elif topic.endswith("/speed_increment"):
         self.handle_speed_increment_config(payload)
-
-      # Comando de intervalos
-      elif topic.endswith("/intervalos"):
-        self.handle_intervalos(payload)
 
       # Comando de adelantamiento automático (unificado, detecta BSM automáticamente)
       elif topic.endswith("/overtake"):
@@ -542,31 +537,6 @@ class MQTTComandos:
       if 1.0 <= increment <= 50.0:
         self.params.put("orbit_speed_increment", str(increment))
     except (ValueError, Exception):
-      pass  # Error silenciado para reducir uso de memoria
-
-  def handle_intervalos(self, payload):
-    """Maneja el comando de intervalos."""
-    try:
-      import json
-      data = json.loads(payload)
-
-      if data.get("intervalos_toggle") == "true":
-        self.params.put_bool("intervalos_toggle", True)
-      elif data.get("intervalos_toggle") == "false":
-        self.params.put_bool("intervalos_toggle", False)
-      else:
-        # Compatibilidad con formato anterior
-        if payload.lower() == "true":
-          self.params.put_bool("intervalos_toggle", True)
-        elif payload.lower() == "false":
-          self.params.put_bool("intervalos_toggle", False)
-    except json.JSONDecodeError:
-      # Fallback para formato simple
-      if payload.lower() == "true":
-        self.params.put_bool("intervalos_toggle", True)
-      elif payload.lower() == "false":
-        self.params.put_bool("intervalos_toggle", False)
-    except Exception:
       pass  # Error silenciado para reducir uso de memoria
 
   def _apply_overtake(self, enable):
