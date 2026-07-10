@@ -352,7 +352,10 @@ class JetsonSettingsLayout(Widget):
     gui_app.push_widget(ConfirmDialog(msg, tr("CURVATURA (recomendado)"), tr("Otra opcion (TORQUE)"), callback=on_curvature))
 
   def _commit_mode(self, mode: int):
-    ui_state.params.put("SteerTorqueMode", str(mode))
+    # SteerTorqueMode es un param tipado INT: put(str) lanza TypeError (sin
+    # capturar en los callbacks del dialogo) y ademas dejaba sin escribir el
+    # payload MQTT de la linea siguiente -> ni el modo cambiaba ni la app se enteraba.
+    ui_state.params.put("SteerTorqueMode", mode)
     self._write_mode_payload(mode)
     self._sync_selector()
 

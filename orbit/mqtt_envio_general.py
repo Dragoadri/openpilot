@@ -161,7 +161,12 @@ class MQTTEnvioGeneral:
       cloudlog.exception("[Bemposta] _maybe_reload_canales fallo")
 
   def init_submaster(self):
-    self.sm = messaging.SubMaster(self.lista_suscripciones)
+    # SubMaster([]) lanza ValueError y tumbaria TODO el subsistema ORBIT del
+    # manager (telemetria + comandos + camara; los eventos sobreviven porque
+    # viven en selfdrived). Si el usuario desactiva todos los canales desde el
+    # panel, mantenemos un SubMaster minimo con carState: no se publica como
+    # canal (enabled_items sigue vacio) pero alimenta el heartbeat de presencia.
+    self.sm = messaging.SubMaster(self.lista_suscripciones or ["carState"])
 
   def init_mqtt(self):
     self.mqttc = mqtt.Client()
@@ -315,7 +320,9 @@ class MQTTEnvioGeneral:
   def stop(self):
     """Detiene el sistema MQTT completo."""
     self.stop_event.set()
-    if hasattr(self, 'comandos_mqtt'):
+    # comandos_mqtt puede ser None si init_comandos fallo: el atributo existe
+    # (hasattr no basta) y None.stop() abortaria el resto del apagado.
+    if getattr(self, 'comandos_mqtt', None) is not None:
       self.comandos_mqtt.stop()
     if hasattr(self, 'camera_sender') and self.camera_sender is not None:
       self.camera_sender.stop()
@@ -419,8 +426,19 @@ class MQTTEnvioGeneral:
     return report
 
   def loop(self):
+    # Guard de nivel superior: el loop corre en un hilo daemon sin reinicio, asi
+    # que cualquier excepcion no capturada dentro de una iteracion mataba la
+    # telemetria EN SILENCIO para el resto de la sesion (los comandos seguian
+    # vivos en su propio hilo -> sintoma confuso). Logueamos y reintentamos.
     while not self.stop_event.is_set():
       self.pause_event.wait()
+      try:
+        self._loop_once()
+      except Exception:
+        cloudlog.exception("[Bemposta] iteracion del loop de telemetria fallo; reintento")
+        time.sleep(self.velocidadActualizacion)
+
+  def _loop_once(self):
       self.sm.update()
 
       # Recoger en caliente un cambio de IP del broker hecho desde la UI.
@@ -452,7 +470,7 @@ class MQTTEnvioGeneral:
         # Log eliminado para reducir uso de memoria
 
         time.sleep(self.velocidadActualizacion)
-        continue
+        return
 
       # Resetear contador si hay conexión
       if hasattr(self, '_no_connection_log_counter'):
@@ -521,6 +539,16 @@ class MQTTEnvioGeneral:
         obstacle_payload = self.params.get("JetsonObstacleStatusMqttPayload")
         if obstacle_payload and len(obstacle_payload) > 2:
           payload_str = obstacle_payload
+          # controlsd no conoce el dongle: inyectarlo aqui para que la copia del
+          # topic GLOBAL sea atribuible (el backend registraba "GLOBAL" como
+          # dispositivo y la app derivaba deviceId="global"). Best-effort.
+          try:
+            _obs = json.loads(payload_str)
+            if isinstance(_obs, dict) and "dongle_id" not in _obs:
+              _obs["dongle_id"] = self.DongleID
+              payload_str = json.dumps(_obs)
+          except Exception:
+            pass
           print(f"[OBSTACLE STATUS SYNC] Detectado payload: {payload_str[:200]}")
           try:
             # retain=False aquí: el status del esquive es transitorio, no

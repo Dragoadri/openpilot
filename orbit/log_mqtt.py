@@ -1,4 +1,5 @@
-# log_mqtt.py
+# log_mqtt.py — MODULO DORMIDO: ningun fichero del arbol lo importa hoy
+# (auditoria 2026-07-10). Se conserva como utilidad de log puntual por MQTT.
 import json
 import os
 from datetime import datetime
@@ -6,10 +7,10 @@ from datetime import datetime
 import paho.mqtt.publish as publish
 
 # IMPORTANTE: nada de I/O ni Params() a nivel de modulo.
-# Este archivo se importa transitivamente desde selfdrive/car/interfaces.py
-# (a traves de desire_helper.py), que es base de casi todo el codigo.
-# Si abrimos archivos o creamos Params() aqui, scons falla al compilar
-# long_mpc en un subproceso con $HOME limpio (errno=13 en /.comma/params).
+# (Historico: se importaba transitivamente desde selfdrive/car/interfaces.py via
+# desire_helper.py — ya no. La regla se mantiene por si se reimporta en el futuro:
+# si abrimos archivos o creamos Params() aqui, scons falla al compilar long_mpc
+# en un subproceso con $HOME limpio, errno=13 en /.comma/params.)
 
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_PATH, "config_mqtt.json")

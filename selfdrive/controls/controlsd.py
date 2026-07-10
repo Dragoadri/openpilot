@@ -177,7 +177,9 @@ class Controls(ControlsExt):
       try:
         raw = self.params.get(key)
         if raw is None or raw == b"":
-          self._defer_param_put(key, str(default))
+          # Params tipados FLOAT: sembrar el default como float, no str — el
+          # worker diferido hacia put(str) -> TypeError tragado y reintentado cada ~1s.
+          self._defer_param_put(key, default)
           setattr(self, attr, default)
         else:
           setattr(self, attr, float(raw))

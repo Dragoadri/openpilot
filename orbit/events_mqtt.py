@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 import json
 import time
-from datetime import datetime
+from datetime import datetime, UTC
 import os
 import threading
 from typing import Optional, Dict
@@ -73,7 +73,10 @@ def _on_mqtt_disconnect(client, userdata, rc):
 
 def _ensure_mqtt_client():
   """Inicializa (o reutiliza) un cliente MQTT persistente."""
-  global _mqtt_client, _mqtt_broker, _mqtt_port, _mqtt_username, _mqtt_password
+  # _mqtt_connected debe estar en la declaracion global: sin ella, el
+  # `_mqtt_connected = False` del except creaba una variable LOCAL muerta
+  # y el flag global quedaba sin resetear.
+  global _mqtt_client, _mqtt_connected, _mqtt_broker, _mqtt_port, _mqtt_username, _mqtt_password
 
   broker, port, username, password = _load_broker()
 
@@ -245,6 +248,16 @@ def send_event_full(title: str,
     # Evento filtrado, no enviar (reduce saturación MQTT)
     return
 
+  client = _ensure_mqtt_client()
+
+  # Si no hay cliente o la conexión aún no está establecida, no enviar para
+  # evitar colas. IMPORTANTE: este check va ANTES de consumir el cooldown —
+  # antes, un evento ocurrido sin conexión (siempre el primero tras arrancar,
+  # porque connect_async es asíncrono) se perdía Y además suprimía los
+  # reenvíos del mismo alert_type durante 12/30 s.
+  if client is None or not _mqtt_connected:
+    return
+
   # Verificar cooldown antes de enviar (con cooldown extendido para "TAKE CONTROL")
   if not _should_send_event(alert_type, title=title):
     # Evento en cooldown, no enviar
@@ -259,14 +272,9 @@ def send_event_full(title: str,
     "title": title or "",
     "message": message or "",
     "priority": priority,
-    "timestamp": datetime.utcnow().isoformat() + "Z",
+    # Mismo formato de cable que utcnow().isoformat()+"Z" (utcnow está deprecado en 3.12)
+    "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat() + "Z",
   }
-
-  client = _ensure_mqtt_client()
-
-  # Si no hay cliente o la conexión aún no está establecida, no enviar para evitar colas
-  if client is None or not _mqtt_connected:
-    return
 
   try:
     # Publicar utilizando el cliente persistente (QoS 0 para máximo rendimiento)

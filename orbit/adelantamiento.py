@@ -16,8 +16,11 @@ LaneChangeState = log.LaneChangeState
 params = Params()  # dispositivo Comma (antes Params("/tmp"), solo-desarrollo)
 
 def get_param_float(name: str, default: float) -> float:
+  # API moderna de Params: get() ya no acepta kwarg 'encoding' (TypeError) y las
+  # keys historicas adelantamiento_* no estan registradas (UnknownKeyName); ambos
+  # casos caian al default siempre. Si C2 revive este modulo, migrar a las keys overtake_*.
   try:
-    val = params.get(name, encoding='utf-8')
+    val = params.get(name)
     return float(val) if val is not None else default
   except Exception:
     return default

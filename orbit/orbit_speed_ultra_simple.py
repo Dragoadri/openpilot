@@ -22,19 +22,20 @@ class OrbitSpeedUltraSimple:
     self.command_duration = 0.5  # segundos
 
   def get_speed_increment(self):
-    """Obtiene el incremento de velocidad desde Params o usa el valor por defecto."""
+    """Obtiene el incremento de velocidad desde Params o usa el valor por defecto.
+
+    orbit_speed_increment es un param tipado FLOAT: get() devuelve float o None,
+    nunca str/bytes. La version anterior devolvia None implicito cuando el param
+    no estaba escrito (el `return default` solo era alcanzable via except), y ese
+    None explotaba luego en process_speed_commands (current_speed + None)."""
     try:
-      increment_str = self.params.get("orbit_speed_increment")
-      if increment_str:
-        # Si es bytes, decodificar a string
-        if isinstance(increment_str, bytes):
-          increment_str = increment_str.decode('utf-8')
-        increment = float(increment_str)
+      increment = self.params.get("orbit_speed_increment", return_default=True)
+      if increment is not None:
         # Validar que esté en un rango razonable (1-50 km/h)
-        return max(1.0, min(50.0, increment))
+        return max(1.0, min(50.0, float(increment)))
     except (ValueError, TypeError):
-      # Si hay un error al leer el incremento, usamos el valor por defecto sin log de debug
-      return self.speed_increment_default
+      pass  # error de lectura -> valor por defecto
+    return self.speed_increment_default
 
   def process_speed_commands(self, car_control, car_state, v_cruise_helper):
     """Procesa comandos de velocidad usando variables globales.

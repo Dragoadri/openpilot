@@ -38,6 +38,9 @@ class MQTTComandos:
     with open(self.jsonConfig, "r") as f:
       config = json.load(f)
       self.broker_address = config.get("broker", "localhost")
+      # broker_port antes se ignoraba aqui (1883 a fuego): en un broker con puerto
+      # no estandar los comandos morian mientras la telemetria si salia.
+      self.broker_port = int(config.get("broker_port", 1883))
       # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
       self.mqtt_username = (config.get("username") or "").strip() or None
       self.mqtt_password = config.get("password") or None
@@ -56,14 +59,14 @@ class MQTTComandos:
   def setup_mqtt(self):
     while not self.stop_event.is_set():
       try:
-        cloudlog.warning(f"[Bemposta] MQTTComandos conectando a broker {self.broker_address}:1883")
-        self.mqttc.connect(self.broker_address, 1883, 60)
+        cloudlog.warning(f"[Bemposta] MQTTComandos conectando a broker {self.broker_address}:{self.broker_port}")
+        self.mqttc.connect(self.broker_address, self.broker_port, 60)
         if not self.conectado:
           self.mqttc.loop_start()
           self.conectado = True
         break
       except Exception as e:
-        cloudlog.warning(f"[Bemposta] MQTTComandos NO pudo conectar a {self.broker_address}:1883: {e}. Reintento en 5s")
+        cloudlog.warning(f"[Bemposta] MQTTComandos NO pudo conectar a {self.broker_address}:{self.broker_port}: {e}. Reintento en 5s")
         time.sleep(5)
 
   def reload_broker(self, new_broker):
@@ -401,14 +404,8 @@ class MQTTComandos:
           try:
             from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
             set_steering_pulse("right")
-          except Exception as e:
+          except Exception:
             pass  # Error silenciado para reducir uso de memoria
-          # Mantener compatibilidad con código viejo (opcional)
-          try:
-            from openpilot.orbit.orbit_control_ultra_simple import orbit_tright
-            orbit_tright = True
-          except ImportError:
-            pass
 
         # Comando Tleft (Izquierda) - formato JSON
         if data.get("tleft"):
@@ -416,14 +413,8 @@ class MQTTComandos:
           try:
             from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
             set_steering_pulse("left")
-          except Exception as e:
+          except Exception:
             pass  # Error silenciado para reducir uso de memoria
-          # Mantener compatibilidad con código viejo (opcional)
-          try:
-            from openpilot.orbit.orbit_control_ultra_simple import orbit_tleft
-            orbit_tleft = True
-          except ImportError:
-            pass
 
       except json.JSONDecodeError:
         # Si no es JSON, tratar como string simple (formato servidor: "tleft" o "tright")
@@ -551,7 +542,8 @@ class MQTTComandos:
       increment = float(payload.strip())
       # Validar rango (1-50 km/h)
       if 1.0 <= increment <= 50.0:
-        self.params.put("orbit_speed_increment", str(increment))
+        # Param tipado FLOAT: hay que escribir float, no str (put(str) lanza TypeError).
+        self.params.put("orbit_speed_increment", increment)
     except (ValueError, Exception):
       pass  # Error silenciado para reducir uso de memoria
 
@@ -603,24 +595,26 @@ class MQTTComandos:
         elif data.get("enabled") is False:
           self._apply_overtake(False)
         
-        # Guardar parámetros configurables si vienen en el payload
+        # Guardar parámetros configurables si vienen en el payload.
+        # Params tipados FLOAT: escribir float, no str (put(str) lanzaba TypeError
+        # que además abortaba los campos restantes al saltar al except exterior).
         # Distancia de activación (20-100 metros)
         if "distancia_activacion" in data:
           distancia = float(data["distancia_activacion"])
           if 20.0 <= distancia <= 100.0:
-            self.params.put("overtake_distancia_activacion", str(distancia))
-        
+            self.params.put("overtake_distancia_activacion", distancia)
+
         # Tiempo en carril izquierdo (5-30 segundos)
         if "tiempo_carril_izquierdo" in data:
           tiempo = float(data["tiempo_carril_izquierdo"])
           if 5.0 <= tiempo <= 30.0:
-            self.params.put("overtake_tiempo_carril_izq", str(tiempo))
-        
+            self.params.put("overtake_tiempo_carril_izq", tiempo)
+
         # Incremento de velocidad (5-30 km/h)
         if "incremento_velocidad" in data:
           incremento = float(data["incremento_velocidad"])
           if 5.0 <= incremento <= 30.0:
-            self.params.put("overtake_incremento_velocidad", str(incremento))
+            self.params.put("overtake_incremento_velocidad", incremento)
             
       except (json.JSONDecodeError, AttributeError):
         # No es JSON, tratar como string simple (compatibilidad)
@@ -665,7 +659,8 @@ class MQTTComandos:
           intensidad = float(data["intensidad_frenado"])
           # Validar rango (debe ser negativo, entre -10.0 y -1.0)
           if -10.0 <= intensidad <= -1.0:
-            self.params.put("brutebreak_intensidad", str(intensidad))
+            # Param tipado FLOAT: escribir float, no str (put(str) lanza TypeError).
+            self.params.put("brutebreak_intensidad", intensidad)
             
       except (json.JSONDecodeError, AttributeError):
         # No es JSON, tratar como string simple
@@ -869,17 +864,22 @@ class MQTTComandos:
           print(f"[STEER MODE SYNC] mode=3 sin apply_target válido (recibido={apply_target!r}), payload ignorado")
           return
 
-      # Leer el valor actual para detectar cambios reales
+      # Leer el valor actual para detectar cambios reales.
+      # SteerTorqueMode es un param tipado INT: get() devuelve int|None y put()
+      # exige int (put(str) lanzaba TypeError silenciado -> el comando de la app
+      # NUNCA se aplicaba; ademas la comparacion int==str siempre daba False).
       current = self.params.get("SteerTorqueMode")
-      current_str = current if current else ""
-      new_str = str(mode)
+      try:
+        current_mode = int(current) if current is not None else 0
+      except (ValueError, TypeError):
+        current_mode = 0
 
       # Sub-target: detectar también cambios sobre el mismo modo 3.
       current_target = self.params.get("JetsonObstacleApplyTarget")
       current_target_str = current_target if current_target else ""
       target_changed = (mode == 3) and (apply_target != current_target_str)
 
-      if current_str == new_str and not target_changed:
+      if current_mode == mode and not target_changed:
         print(f"[STEER MODE SYNC] Sin cambios (ya en modo {mode}"
               + (f", apply_target={apply_target}" if mode == 3 else "") + ")")
         return
@@ -888,8 +888,8 @@ class MQTTComandos:
         self.params.put("JetsonObstacleApplyTarget", apply_target)
         print(f"[STEER MODE SYNC] JetsonObstacleApplyTarget actualizado: {current_target_str!r} -> {apply_target!r}")
 
-      self.params.put("SteerTorqueMode", new_str)
-      print(f"[STEER MODE SYNC] SteerTorqueMode actualizado: {current_str} -> {new_str}")
+      self.params.put("SteerTorqueMode", mode)
+      print(f"[STEER MODE SYNC] SteerTorqueMode actualizado: {current_mode} -> {mode}")
 
     except Exception as e:
       print(f"[STEER MODE SYNC] ERROR handle_steer_torque_mode: {e}")
