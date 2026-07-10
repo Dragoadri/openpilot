@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import os
 import socket
@@ -15,6 +17,7 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos, FONT_SCALE
 from openpilot.system.ui.lib.multilang import tr, trn
 from openpilot.system.ui.widgets import Widget
+from openpilot.selfdrive.ui.widgets import orbit_fx as fx
 
 HEADER_HEIGHT = 130
 HEAD_BUTTON_FONT_SIZE = 36
@@ -68,6 +71,13 @@ WAVE_BEAT = ((0.00, 0.0), (0.30, 0.0), (0.36, -0.30), (0.42, 0.0), (0.48, 0.20),
 WAVE_PERIOD = 125.0   # px
 WAVE_AMP = 22.0       # px
 WAVE_SPEED = 70.0     # px/s
+
+# Entrance + ambient animation
+CASCADE_START = 0.15      # s after show before the first card animates in
+HEADER_FADE_S = 0.30      # header fade-in
+SHIMMER_PERIOD = 6.0      # s between shimmer sweeps on the wordmark underline
+SHIMMER_S = 0.8           # sweep duration
+SHIMMER_W = 46            # sweep width px
 
 NetworkType = log.DeviceState.NetworkType
 NET_TYPE_NAMES = {
@@ -169,6 +179,11 @@ class HomeLayout(Widget):
     self._card_rects: dict[str, rl.Rectangle] = {}
     self._pill_rect = rl.Rectangle(0, 0, 0, 0)
 
+    # Ambient background + entrance cascade
+    self._stars = fx.Starfield(n=70, seed=1234)
+    self._cascade = fx.Cascade(stagger=0.07, duration=0.35, rise=24.0)
+    self._shown_at = time.monotonic()
+
     self._setup_callbacks()
 
   def show_event(self):
@@ -177,6 +192,7 @@ class HomeLayout(Widget):
     self._last_fast_refresh = self.last_refresh
     self._fast_refresh()
     self._refresh()
+    self._shown_at = time.monotonic()
 
   def _setup_callbacks(self):
     self.update_alert.set_dismiss_callback(lambda: self._set_state(HomeLayoutState.HOME))
@@ -202,6 +218,7 @@ class HomeLayout(Widget):
       self._last_fast_refresh = current_time
 
     rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height), VOID)
+    self._stars.render(rect, current_time, intensity=0.5)
 
     self._render_header()
 
@@ -259,20 +276,32 @@ class HomeLayout(Widget):
     normal = gui_app.font(FontWeight.NORMAL)
     medium = gui_app.font(FontWeight.MEDIUM)
 
+    ha = fx.ease_out_cubic((time.monotonic() - self._shown_at) / HEADER_FADE_S)
+
     # Brand block: logo + ORBIT wordmark with cyan accent + acronym below
     logo_y = hdr.y + (hdr.height - LOGO_SIZE) / 2
     if self._logo is not None:
       rl.draw_texture_pro(self._logo, rl.Rectangle(0, 0, self._logo.width, self._logo.height),
-                          rl.Rectangle(hdr.x, logo_y, LOGO_SIZE, LOGO_SIZE), rl.Vector2(0, 0), 0, rl.WHITE)
+                          rl.Rectangle(hdr.x, logo_y, LOGO_SIZE, LOGO_SIZE), rl.Vector2(0, 0), 0,
+                          rl.Color(255, 255, 255, int(255 * fx.clamp01(ha))))
 
     tx = hdr.x + LOGO_SIZE + 30
     wm = measure_text_cached(bold, "ORBIT", WORDMARK_SIZE, WORDMARK_SPACING)
     tg = measure_text_cached(normal, TAGLINE, TAGLINE_SIZE)
     block_h = wm.y + 16 + tg.y
     ty = hdr.y + (hdr.height - block_h) / 2
-    rl.draw_text_ex(bold, "ORBIT", rl.Vector2(int(tx), int(ty)), WORDMARK_SIZE, WORDMARK_SPACING, INK)
-    rl.draw_rectangle(int(tx), int(ty + wm.y + 5), int(wm.x), 3, PULSE)
-    rl.draw_text_ex(normal, TAGLINE, rl.Vector2(int(tx), int(ty + wm.y + 16)), TAGLINE_SIZE, 0, MUTED)
+    rl.draw_text_ex(bold, "ORBIT", rl.Vector2(int(tx), int(ty)), WORDMARK_SIZE, WORDMARK_SPACING, fx.col(INK, ha))
+    rl.draw_rectangle(int(tx), int(ty + wm.y + 5), int(wm.x), 3, fx.col(PULSE, ha))
+    rl.draw_text_ex(normal, TAGLINE, rl.Vector2(int(tx), int(ty + wm.y + 16)), TAGLINE_SIZE, 0, fx.col(MUTED, ha))
+
+    # Periodic shimmer sweeping across the cyan underline
+    phase = time.monotonic() % SHIMMER_PERIOD
+    if phase < SHIMMER_S and ha >= 1.0:
+      sx = int(tx + (wm.x - SHIMMER_W) * (phase / SHIMMER_S))
+      uy = int(ty + wm.y + 5)
+      half = SHIMMER_W // 2
+      rl.draw_rectangle_gradient_h(sx, uy, half, 3, fx.col(INK, 0.0), fx.col(INK, 0.9))
+      rl.draw_rectangle_gradient_h(sx + half, uy, half, 3, fx.col(INK, 0.9), fx.col(INK, 0.0))
 
     # Right side, laid right-to-left: link pill, then alert/update notif buttons.
     right = hdr.x + hdr.width
@@ -358,15 +387,33 @@ class HomeLayout(Widget):
        "ID de dispositivo" if dev_val != "sin registrar" else "aún sin dongle", False),
     ]
 
+    now = time.monotonic()
+    ts = now - self._shown_at - CASCADE_START
     n = len(cards)
     cw = (rect.width - CARD_GAP * (n - 1)) / n
     for i, (key, title, value, color, detail, sub, tappable) in enumerate(cards):
-      card = rl.Rectangle(rect.x + i * (cw + CARD_GAP), rect.y, cw, rect.height)
+      a, dy, _scale = self._cascade.values(ts, i)
+      card = rl.Rectangle(rect.x + i * (cw + CARD_GAP), rect.y + dy, cw, rect.height)
       self._card_rects[key] = card
+      glow, glow_color = 0.0, color
+      if key == "server" and broker_ok and backend_ok:
+        glow, glow_color = 0.20 + 0.18 * fx.pulse01(now, 3.2), COMMANDS   # breathing: all healthy
+      elif key == "link" and claimed:
+        glow, glow_color = 0.16 + 0.14 * fx.pulse01(now, 3.2), COMMANDS
+      elif tappable:
+        glow = 0.16
       self._draw_card(card, title, value, color, detail, sub, tappable, value_size=52,
-                      value_y=rect.height * 0.30, chevron_color=color)
+                      value_y=rect.height * 0.30, chevron_color=color,
+                      alpha=a, glow=glow, glow_color=glow_color)
       if key == "server":
-        self._render_telemetry_wave(card)
+        self._render_telemetry_wave(card, alpha=a)
+        if self._connected:
+          # Live pulse dot right after the SERVIDOR title
+          tw = measure_text_cached(gui_app.font(FontWeight.MEDIUM), "SERVIDOR", 26, 3)
+          dot_x, dot_y = card.x + CARD_PAD + tw.x + 22, card.y + 28 + tw.y / 2
+          blink = 0.35 + 0.65 * fx.pulse01(now, 1.6)
+          fx.draw_glow_circle(dot_x, dot_y, 9, PULSE, 0.5 * blink * a)
+          rl.draw_circle(int(dot_x), int(dot_y), 6, fx.col(PULSE, blink * a))
 
   def _render_info_cards(self, rect: rl.Rectangle):
     # Second strip: system / updater / network info (all cached, refreshed slowly).
@@ -398,43 +445,57 @@ class HomeLayout(Widget):
       ("net", "RED", self._net_ip or "--", INK, net_detail, "IP local", False),
     ]
 
+    now = time.monotonic()
+    ts = now - self._shown_at - CASCADE_START
     n = len(cards)
     cw = (rect.width - CARD_GAP * (n - 1)) / n
     for i, (key, title, value, color, detail, sub, tappable) in enumerate(cards):
-      card = rl.Rectangle(rect.x + i * (cw + CARD_GAP), rect.y, cw, rect.height)
+      a, dy, _scale = self._cascade.values(ts, 3 + i)   # continues after the status row
+      card = rl.Rectangle(rect.x + i * (cw + CARD_GAP), rect.y + dy, cw, rect.height)
       self._card_rects[key] = card
+      glow, glow_color = 0.0, color
+      if key == "update" and self.update_available:
+        glow, glow_color = 0.16 + 0.14 * fx.pulse01(now, 3.2), COMMANDS
+      elif tappable:
+        glow = 0.16
       self._draw_card(card, title, value, color, detail, sub, tappable, value_size=42,
-                      value_y=rect.height * 0.28, chevron_color=color)
+                      value_y=rect.height * 0.28, chevron_color=color,
+                      alpha=a, glow=glow, glow_color=glow_color)
 
   def _draw_card(self, card: rl.Rectangle, title: str, value: str, color: rl.Color,
                  detail: str, sub: str, tappable: bool, value_size: int, value_y: float,
-                 chevron_color: rl.Color):
+                 chevron_color: rl.Color, alpha: float = 1.0, glow: float = 0.0,
+                 glow_color: rl.Color | None = None):
     hdr_font = gui_app.font(FontWeight.MEDIUM)
     val_font = gui_app.font(FontWeight.BOLD)
     sub_font = gui_app.font(FontWeight.NORMAL)
 
-    rl.draw_rectangle_rounded(card, 0.10, 12, NAVY)
-    rl.draw_rectangle_rounded_lines_ex(card, 0.10, 12, 2, chevron_color if tappable else HAIRLINE)
+    fx.draw_card(card, accent=chevron_color, border=chevron_color if tappable else HAIRLINE,
+                 glow=glow, glow_color=glow_color, alpha=alpha)
 
     max_w = card.width - 2 * CARD_PAD
-    rl.draw_text_ex(hdr_font, title, rl.Vector2(int(card.x + CARD_PAD), int(card.y + 28)), 26, 3, MUTED)
+    rl.draw_text_ex(hdr_font, title, rl.Vector2(int(card.x + CARD_PAD), int(card.y + 28)), 26, 3,
+                    fx.col(MUTED, alpha))
     if tappable:
-      self._draw_chevron(card.x + card.width - CARD_PAD - 16, card.y + card.height / 2, 20, chevron_color)
+      self._draw_chevron(card.x + card.width - CARD_PAD - 16, card.y + card.height / 2, 20,
+                         fx.col(chevron_color, alpha))
 
     value = self._ellipsize(val_font, value, value_size, max_w - (36 if tappable else 0))
     vy = card.y + value_y
-    rl.draw_text_ex(val_font, value, rl.Vector2(int(card.x + CARD_PAD), int(vy)), value_size, 0, color)
+    rl.draw_text_ex(val_font, value, rl.Vector2(int(card.x + CARD_PAD), int(vy)), value_size, 0,
+                    fx.col(color, alpha))
 
     if detail:
       detail = self._ellipsize(sub_font, detail, 26, max_w - (36 if tappable else 0))
-      rl.draw_text_ex(sub_font, detail, rl.Vector2(int(card.x + CARD_PAD), int(vy + value_size + 18)), 26, 0, MUTED)
+      rl.draw_text_ex(sub_font, detail, rl.Vector2(int(card.x + CARD_PAD), int(vy + value_size + 18)),
+                      26, 0, fx.col(MUTED, alpha))
 
     if sub:
       sub = self._ellipsize(sub_font, sub, 24, max_w)
       rl.draw_text_ex(sub_font, sub, rl.Vector2(int(card.x + CARD_PAD), int(card.y + card.height - 52)),
-                      24, 0, MUTED_DIM)
+                      24, 0, fx.col(MUTED_DIM, alpha))
 
-  def _render_telemetry_wave(self, card: rl.Rectangle):
+  def _render_telemetry_wave(self, card: rl.Rectangle, alpha: float = 1.0):
     # Live-uplink pulse along the top-right of the SERVIDOR card: an animated
     # ECG-style polyline while OrbitConnected, a flat muted line otherwise.
     x1 = card.x + card.width - CARD_PAD
@@ -444,7 +505,7 @@ class HomeLayout(Widget):
       return
 
     if not self._connected:
-      rl.draw_line_ex(rl.Vector2(x0, base_y), rl.Vector2(x1, base_y), 3, MUTED_DIM)
+      rl.draw_line_ex(rl.Vector2(x0, base_y), rl.Vector2(x1, base_y), 3, fx.col(MUTED_DIM, alpha))
       return
 
     phase = (time.monotonic() * WAVE_SPEED) % WAVE_PERIOD
@@ -455,7 +516,7 @@ class HomeLayout(Widget):
       u = ((x - x0 + phase) % WAVE_PERIOD) / WAVE_PERIOD
       pt = rl.Vector2(x, base_y + WAVE_AMP * self._wave_offset(u))
       if prev is not None:
-        rl.draw_line_ex(prev, pt, 3, PULSE)
+        rl.draw_line_ex(prev, pt, 3, fx.col(PULSE, alpha))
       prev = pt
       x += step
 
@@ -513,26 +574,37 @@ class HomeLayout(Widget):
     inner_pad = 32
     dot_gap = 16
     pill_w = inner_pad * 2 + dot_r * 2 + dot_gap + text_size.x
-    pill_rect = rl.Rectangle(right_x - pill_w, y, pill_w, PILL_HEIGHT)
+
+    # Slide in from the right + fade during the home entrance
+    ts = time.monotonic() - self._shown_at
+    e = fx.ease_out_cubic((ts - 0.1) / 0.4)
+    pill_rect = rl.Rectangle(right_x - pill_w + (1.0 - e) * 30.0, y, pill_w, PILL_HEIGHT)
     self._pill_rect = pill_rect
 
-    rl.draw_rectangle_rounded(pill_rect, 1.0, 20, PANEL)
-    rl.draw_rectangle_rounded_lines_ex(pill_rect, 1.0, 20, 2, accent if claimed else HAIRLINE)
+    rl.draw_rectangle_rounded(pill_rect, 1.0, 20, fx.col(PANEL, e))
+    rl.draw_rectangle_rounded_lines_ex(pill_rect, 1.0, 20, 2,
+                                       fx.col(accent if claimed else HAIRLINE, e))
 
-    # status dot
+    # Status dot (breathing glow ring while linked)
     dot_x = pill_rect.x + inner_pad + dot_r
     dot_y = pill_rect.y + PILL_HEIGHT / 2
-    rl.draw_circle(int(dot_x), int(dot_y), dot_r, accent)
+    if claimed:
+      fx.draw_glow_circle(dot_x, dot_y, dot_r + 3, COMMANDS,
+                          (0.35 + 0.35 * fx.pulse01(ts, 2.6)) * e)
+    rl.draw_circle(int(dot_x), int(dot_y), dot_r, fx.col(accent, e))
 
     text_x = dot_x + dot_r + dot_gap
     text_y = pill_rect.y + (PILL_HEIGHT - text_size.y) / 2
-    rl.draw_text_ex(font, text, rl.Vector2(int(text_x), int(text_y)), PILL_FONT_SIZE, 0, accent)
+    rl.draw_text_ex(font, text, rl.Vector2(int(text_x), int(text_y)), PILL_FONT_SIZE, 0,
+                    fx.col(accent, e))
     return pill_w
 
   def _render_powered_by(self):
     # Bottom-right corner credit: "powered by drago" + the green dragon mark.
     if self._drago is None:
       return
+
+    a = fx.ease_out_cubic((time.monotonic() - self._shown_at - 0.6) / 0.4)
 
     tex = self._drago
     # Pin to the true bottom-right corner of the screen (self._rect), not the
@@ -543,7 +615,8 @@ class HomeLayout(Widget):
 
     dragon_x = x_right - tex.width
     dragon_y = y_bottom - tex.height
-    rl.draw_texture_ex(tex, rl.Vector2(int(dragon_x), int(dragon_y)), 0.0, 1.0, rl.WHITE)
+    rl.draw_texture_ex(tex, rl.Vector2(int(dragon_x), int(dragon_y)), 0.0, 1.0,
+                       rl.Color(255, 255, 255, int(255 * fx.clamp01(a))))
 
     # "powered by " (muted) + "DRAGO" (green, matching the dragon), right-aligned
     # to the left of the mark and vertically centered on it.
@@ -553,8 +626,8 @@ class HomeLayout(Widget):
     s2 = measure_text_cached(font, part2, POWERED_SIZE)
     text_x = dragon_x - 16 - (s1.x + s2.x)
     text_y = dragon_y + (tex.height - max(s1.y, s2.y)) / 2
-    rl.draw_text_ex(font, part1, rl.Vector2(int(text_x), int(text_y)), POWERED_SIZE, 0, MUTED)
-    rl.draw_text_ex(font, part2, rl.Vector2(int(text_x + s1.x), int(text_y)), POWERED_SIZE, 0, COMMANDS)
+    rl.draw_text_ex(font, part1, rl.Vector2(int(text_x), int(text_y)), POWERED_SIZE, 0, fx.col(MUTED, a))
+    rl.draw_text_ex(font, part2, rl.Vector2(int(text_x + s1.x), int(text_y)), POWERED_SIZE, 0, fx.col(COMMANDS, a))
 
   # ---------------------------------------------------------------------------
   # Cached data refresh
