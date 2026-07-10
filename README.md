@@ -59,7 +59,7 @@ A full dark "ground-station" redesign of the driver UI — same sunnypilot funct
 flowchart LR
     subgraph CAR["🚗 comma 3X · this firmware"]
         CAN["CAN bus"] --> OP["openpilot / sunnypilot<br/>safety-critical control loop"]
-        OP --> ORB["sicuem/orbit<br/>MQTT telemetry + commands"]
+        OP --> ORB["orbit/<br/>MQTT telemetry + commands"]
     end
     subgraph EDGE["🧠 Edge · optional"]
         J["NVIDIA Jetson"]
@@ -99,7 +99,7 @@ Lost acks self-heal, codes can be regenerated from the dialog, and unlinking fro
 ## 🚀 Run it
 
 1. **Install** like any sunnypilot build ([getting started](https://community.sunnypilot.ai/t/getting-started-using-sunnypilot-in-your-supported-car/251)).
-2. **Point** `sicuem/orbit/config_mqtt.json` at your ORBIT broker (`broker`, `broker_port`, `backend_port`).
+2. **Point** `orbit/config_mqtt.json` at your ORBIT broker (`broker`, `broker_port`, `backend_port`).
 3. **Pair**: Settings → Device → **Vincular con ORBIT** → scan with the app. Done — telemetry and remote control flow once claimed.
 
 ### 🕹️ Simulator
@@ -150,7 +150,7 @@ Every remote command is mirrored to the driver by the on-road ORBIT overlay.
 
 ```
 ORBITPILOT/
-├── sicuem/orbit/                     # the ORBIT device integration
+├── orbit/                            # the ORBIT device integration
 │   ├── mqtt_envio_general.py         # telemetry publisher + heartbeat + QR enroll + connection state
 │   ├── mqtt_comandos.py              # remote-command subscriber/router + enroll_ack (claim/unclaim)
 │   ├── camera_sender.py              # camera frame sender (MQTT)

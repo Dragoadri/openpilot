@@ -12,7 +12,7 @@ ButtonType = car.CarState.ButtonEvent.Type
 def main():
   params = Params()
   pm = messaging.PubMaster(['userBookmark', 'audioFeedback'])
-  # [SICUEM] carState/selfdriveStateSP solo se leian dentro del bloque `if False`
+  # [ORBIT] carState/selfdriveStateSP solo se leian dentro del bloque `if False`
   # de abajo (feature LKAS deshabilitada upstream). msgq limita a NUM_READERS=15
   # suscriptores por canal y carState va justo al limite: no gastar slots en
   # lecturas muertas. Si se reactiva ese bloque, volver a anadir ambos canales.

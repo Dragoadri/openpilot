@@ -635,5 +635,5 @@ def common_fault_avoidance(fault_condition, request, above_limit_frames, ...):
 | `selfdrive/car/hyundai/carcontroller.py` | Controlador de coche Hyundai |
 | `selfdrive/car/hyundai/hyundaican.py` | Mensajes CAN para Hyundai Legacy |
 | `selfdrive/car/hyundai/hyundaicanfd.py` | Mensajes CAN para Hyundai CAN-FD |
-| `sicuem/orbit/orbit_steering_pulse.py` | Sistema de pulso de giro ORBIT |
-| `sicuem/orbit/mqtt_comandos.py` | Comandos MQTT (lane change, control, etc) |
+| `orbit/orbit_steering_pulse.py` | Sistema de pulso de giro ORBIT |
+| `orbit/mqtt_comandos.py` | Comandos MQTT (lane change, control, etc) |
