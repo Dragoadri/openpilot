@@ -372,4 +372,5 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"OrbitLastPublish", {CLEAR_ON_MANAGER_START, STRING}},              // epoch (s) del último publish de telemetría
     {"OrbitOwner", {PERSISTENT, STRING}},                                // nombre/email del usuario que reclamó el dispositivo
     {"OrbitEnrollRegen", {CLEAR_ON_MANAGER_START, BOOL}},                // trigger: la UI pide rotar el código/QR ya
+    {"OrbitHealthcheckRequest", {CLEAR_ON_MANAGER_START, STRING}},       // trigger: comando MQTT de diagnóstico remoto pendiente de responder
 };

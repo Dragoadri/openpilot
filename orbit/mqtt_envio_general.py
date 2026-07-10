@@ -37,6 +37,8 @@ class MQTTEnvioGeneral:
     self._pairing_code = None
     self.ENROLL_ANNOUNCE_SECS = 30.0
     self.ENROLL_TTL_S = 600
+    # Diagnostico remoto (healthcheck): SubMaster propio de este hilo, perezoso.
+    self._diag_sm = None
     self.load_config()
     self.cargar_canales()
     self.init_submaster()
@@ -320,6 +322,102 @@ class MQTTEnvioGeneral:
     self.mqttc.disconnect()
     # print("🛑 Sistema MQTT detenido")  # Comentado para reducir uso de memoria
 
+  def _maybe_publish_healthcheck(self):
+    """Si la UI/app dejo una peticion (Param OrbitHealthcheckRequest), construye
+    el informe de salud y lo publica una vez. Corre en el hilo de loop()."""
+    try:
+      req = self.params.get("OrbitHealthcheckRequest")
+    except Exception:
+      return
+    if not req:
+      return
+    # Consumir la peticion de forma idempotente (aunque falle el publish).
+    try:
+      self.params.remove("OrbitHealthcheckRequest")
+    except Exception:
+      pass
+    try:
+      payload = self._build_healthcheck()
+      self.mqttc.publish(f"telemetry_mqtt/{self.DongleID}/healthcheck",
+                         json.dumps(payload), qos=0, retain=False)
+    except Exception as e:
+      cloudlog.warning(f"[ORBIT] healthcheck publish fallo: {e}")
+
+  def _build_healthcheck(self):
+    """Reune metricas de salud del dispositivo. El SubMaster de diagnostico se
+    crea y consume en ESTE hilo (msgq no es thread-safe) y se calienta unos
+    ciclos para captar datos frescos de servicios de baja frecuencia."""
+    if self._diag_sm is None:
+      self._diag_sm = messaging.SubMaster(['deviceState', 'pandaStates', 'managerState'])
+    for _ in range(6):
+      self._diag_sm.update(100)
+
+    report = {
+      "dongle_id": self.DongleID,
+      "ts": int(time.time()),
+      "fw": self.params.get("Version") or "",
+      "branch": self.params.get("GitBranch") or "",
+      "commit": (self.params.get("GitCommit") or "")[:7],
+    }
+
+    try:
+      if self._diag_sm.updated["deviceState"] or self._diag_sm.recv_frame["deviceState"] > 0:
+        ds = self._diag_sm["deviceState"]
+        cpu = list(ds.cpuTempC)
+        gpu = list(ds.gpuTempC)
+        report["device"] = {
+          "cpu_temp_c": round(max(cpu), 1) if cpu else None,
+          "gpu_temp_c": round(max(gpu), 1) if gpu else None,
+          "max_temp_c": round(float(ds.maxTempC), 1),
+          "thermal_status": str(ds.thermalStatus),
+          "mem_used_pct": int(ds.memoryUsagePercent),
+          "free_space_pct": round(float(ds.freeSpacePercent), 1),
+          "network_type": str(ds.networkType),
+          "network_strength": str(ds.networkStrength),
+        }
+    except Exception:
+      pass
+
+    try:
+      pandas = list(self._diag_sm["pandaStates"])
+      if pandas:
+        ps = pandas[0]
+        report["panda"] = {
+          "voltage_mv": int(ps.voltage),
+          "ignition": bool(ps.ignitionLine or ps.ignitionCan),
+          "fault_status": str(ps.faultStatus),
+          "faults": [str(f) for f in ps.faults],
+          "safety_model": str(ps.safetyModel),
+        }
+    except Exception:
+      pass
+
+    try:
+      procs = list(self._diag_sm["managerState"].processes)
+      not_running = [p.name for p in procs if p.shouldBeRunning and not p.running]
+      report["manager"] = {
+        "process_count": len(procs),
+        "not_running": not_running,
+      }
+    except Exception:
+      pass
+
+    # Frescura de enlaces ORBIT (ya en Params).
+    try:
+      last_pub = self.params.get("OrbitLastPublish")
+      report["orbit_last_publish_age_s"] = (int(time.time() - float(last_pub))
+                                            if last_pub else None)
+    except Exception:
+      report["orbit_last_publish_age_s"] = None
+    try:
+      jt_ts = self.params.get("JetsonTorqueTimestamp")
+      report["jetson_torque_age_s"] = (round(time.time() - float(jt_ts), 1)
+                                       if jt_ts else None)
+    except Exception:
+      report["jetson_torque_age_s"] = None
+
+    return report
+
   def loop(self):
     while not self.stop_event.is_set():
       self.pause_event.wait()
@@ -359,6 +457,9 @@ class MQTTEnvioGeneral:
       # Resetear contador si hay conexión
       if hasattr(self, '_no_connection_log_counter'):
         self._no_connection_log_counter = 0
+
+      # Responder a una peticion de diagnostico remoto (healthcheck), si la hay.
+      self._maybe_publish_healthcheck()
 
       # Publicar Jetson config si fue cambiada desde la UI del Comma
       try:

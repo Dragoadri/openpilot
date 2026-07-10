@@ -108,7 +108,8 @@ class MQTTComandos:
         "jetson_config/global",                              # Configuracion de Jetson GLOBAL (desde cualquier app)
         f"telemetry_config/{self.DongleID}/steer_torque_mode", # Modo de torque del volante (por dongle_id)
         "steer_torque_mode/global",                          # Modo de torque del volante GLOBAL
-        f"telemetry_config/{self.DongleID}/enroll_ack"       # Ack de enrolamiento ORBIT (backend → firmware)
+        f"telemetry_config/{self.DongleID}/enroll_ack",      # Ack de enrolamiento ORBIT (backend → firmware)
+        f"telemetry_config/{self.DongleID}/healthcheck"      # Peticion de diagnostico remoto (backend/app → firmware)
       ]
 
       for topic in topics:
@@ -264,8 +265,23 @@ class MQTTComandos:
       elif topic.endswith("/enroll_ack"):
         self.handle_enroll_ack(payload)
 
+      # Peticion de diagnostico remoto (healthcheck)
+      elif topic.endswith("/healthcheck"):
+        self.handle_healthcheck(payload)
+
     except Exception:
       pass  # Error silenciado para reducir uso de memoria
+
+  def handle_healthcheck(self, payload):
+    """Peticion de diagnostico remoto.
+
+    No se puede tocar cereal desde este hilo de callback de paho (msgq no es
+    thread-safe). Se deja una peticion en un Param que MQTTEnvioGeneral.loop()
+    recoge en su propio hilo, construye el informe (deviceState/pandaStates/
+    managerState + version) y lo publica en telemetry_mqtt/<dongle>/healthcheck.
+    """
+    self.params.put("OrbitHealthcheckRequest", str(int(time.time())))
+    self.save_debug_message(f"telemetry_config/{self.DongleID}/healthcheck", payload or "request")
 
   def handle_lane_change_left(self, payload):
     """Maneja el comando de cambio de carril a la izquierda.
