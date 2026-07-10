@@ -133,6 +133,7 @@ class SelfdriveD(CruiseHelper):
     self.cruise_mismatch_counter = 0
     self.last_steering_pressed_frame = 0
     self.distance_traveled = 0
+    self._orbit_prev_hardbrake = False   # flanco para el aviso predictivo ORBIT
     self.last_functional_fan_frame = 0
     self.events_prev = []
     self.logged_comm_issue = None
@@ -470,6 +471,25 @@ class SelfdriveD(CruiseHelper):
     planner_fcw = self.sm['longitudinalPlan'].fcw and self.enabled
     if (planner_fcw or model_fcw) and not self.CP.notCar:
       self.events.add(EventName.fcw)
+
+    # [Orbit] aviso predictivo de frenada por MQTT: flanco de subida de la
+    # prediccion del modelo. Solo un heads-up/evento de investigacion; NO actua
+    # sobre los frenos. events_mqtt aplica su propio cooldown (12s) por alert_type.
+    hard_brake = bool(self.sm['modelV2'].meta.hardBrakePredicted)
+    if hard_brake and not self._orbit_prev_hardbrake:
+      try:
+        from openpilot.orbit import events_mqtt
+        lead = self.sm['radarState'].leadOne
+        ctx = f"lead a {lead.dRel:.0f} m" if lead.status else "sin vehiculo delantero"
+        events_mqtt.send_event_full(
+          title="HARD BRAKE PREDICTED",
+          message=f"El modelo anticipa una frenada fuerte ({ctx}).",
+          priority=3, event_name="hardBrakePredicted", event_type="warning",
+          alert_type="orbit/hardBrakePredicted",
+        )
+      except Exception:
+        pass
+    self._orbit_prev_hardbrake = hard_brake
 
     # GPS checks
     gps_ok = self.sm.recv_frame[self.gps_location_service] > 0 and (self.sm.frame - self.sm.recv_frame[self.gps_location_service]) * DT_CTRL < 2.0
