@@ -27,7 +27,7 @@ from openpilot.selfdrive.ui.sunnypilot.layouts.settings.trips import TripsLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.orbit_panel import OrbitLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.vehicle import VehicleLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.visuals import VisualsLayout
-from openpilot.system.ui.lib.application import gui_app, MousePos
+from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos
 from openpilot.system.ui.lib.multilang import tr_noop
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.wifi_manager import WifiManager
@@ -195,10 +195,12 @@ class SettingsLayoutSP(OP.SettingsLayout):
         rl.Rectangle(logo_x, logo_y, OP.LOGO_SIZE, OP.LOGO_SIZE),
         rl.Vector2(0, 0), 0, rl.WHITE,
       )
-    wm_h = measure_text_cached(self._font_bold, "ORBIT", 64).y
-    rl.draw_text_ex(self._font_bold, "ORBIT",
-                    rl.Vector2(logo_x + OP.LOGO_SIZE + 22, logo_y + (OP.LOGO_SIZE - wm_h) / 2),
-                    64, 4, OP.ORBIT_INK)
+    # Wordmark Inter 800 con degradado blanco->azul (mismo tratamiento que splash/home)
+    xbold = gui_app.font(FontWeight.EXTRA_BOLD)
+    wm = measure_text_cached(xbold, "ORBIT", 64, 9)
+    fx.draw_text_gradient_v(xbold, "ORBIT",
+                            rl.Vector2(int(logo_x + OP.LOGO_SIZE + 22), int(logo_y + (OP.LOGO_SIZE - wm.y) / 2)),
+                            64, 9, width=wm.x, height=wm.y)
     # No hairline under the brand: the mockup separates brand from nav by spacing only.
     sep_y = logo_y + OP.LOGO_SIZE + 20
 

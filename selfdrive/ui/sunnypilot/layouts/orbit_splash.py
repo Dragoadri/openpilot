@@ -30,8 +30,10 @@ LOGO_FRAC = 0.26   # logo width as a fraction of the screen width
 WORDMARK_SIZE = 150
 WORDMARK_SPACING = 26         # final tracking
 WORDMARK_SPACING_WIDE = 64    # tracking animates in from this
-TAGLINE = "Open Remote Bidirectional IoV Telemetry"
+# Mayusculas + tracking ancho, como el .tag del mockup (letter-spacing .34em)
+TAGLINE = "OPEN REMOTE BIDIRECTIONAL IOV TELEMETRY"
 TAGLINE_SIZE = 40
+TAGLINE_SPACING = 13
 RING_SPIN_DPS = 40.0          # continuous ring rotation, deg/s
 
 # Badge "powered by DRAGO" (esquina inferior derecha; tap -> pantalla sobre drago)
@@ -102,11 +104,12 @@ class OrbitSplash(Widget):
 
     cx = rect.x + rect.width / 2.0
     bold = gui_app.font(FontWeight.BOLD)
+    xbold = gui_app.font(FontWeight.EXTRA_BOLD)   # wordmark: Inter 800, como el mockup
     normal = gui_app.font(FontWeight.NORMAL)
 
     logo_w = int(min(rect.width * LOGO_FRAC, 460))
-    wm_size = measure_text_cached(bold, "ORBIT", WORDMARK_SIZE, WORDMARK_SPACING)
-    tg_size = measure_text_cached(normal, TAGLINE, TAGLINE_SIZE)
+    wm_size = measure_text_cached(xbold, "ORBIT", WORDMARK_SIZE, WORDMARK_SPACING)
+    tg_size = measure_text_cached(normal, TAGLINE, TAGLINE_SIZE, TAGLINE_SPACING)
     # El anillo sobresale ~0.14*logo_h por debajo del logo: el hueco al wordmark
     # debe superarlo con aire, o el conjunto se ve apelmazado.
     gap_logo, gap_wordmark = 78, 48
@@ -159,9 +162,11 @@ class OrbitSplash(Widget):
     wg = _win(t, 1.1, 1.8)
     if wg > 0.0:
       spacing = int(WORDMARK_SPACING_WIDE + (WORDMARK_SPACING - WORDMARK_SPACING_WIDE) * fx.ease_out_cubic(wg))
-      cur = measure_text_cached(bold, "ORBIT", WORDMARK_SIZE, spacing)
-      rl.draw_text_ex(bold, "ORBIT", rl.Vector2(int(cx - cur.x / 2.0), int(y)),
-                      WORDMARK_SIZE, spacing, fx.col(fx.INK, wg * exit_a))
+      cur = measure_text_cached(xbold, "ORBIT", WORDMARK_SIZE, spacing)
+      # Relleno con degradado vertical blanco->azul (background-clip:text del mockup)
+      fx.draw_text_gradient_v(xbold, "ORBIT", rl.Vector2(int(cx - cur.x / 2.0), int(y)),
+                              WORDMARK_SIZE, spacing, width=cur.x, height=cur.y,
+                              alpha=wg * exit_a)
       uw = wm_size.x * fx.ease_out_cubic(_win(t, 1.4, 2.0))
       if uw > 1.0:
         rl.draw_rectangle(int(cx - uw / 2.0), int(y + wm_size.y + 18), int(uw), 4,
@@ -173,7 +178,7 @@ class OrbitSplash(Widget):
     if tgp > 0.0:
       rl.draw_text_ex(normal, TAGLINE,
                       rl.Vector2(int(cx - tg_size.x / 2.0), int(y + 12.0 * (1.0 - tgp))),
-                      TAGLINE_SIZE, 0, fx.col(fx.MUTED, tgp * exit_a))
+                      TAGLINE_SIZE, TAGLINE_SPACING, fx.col(fx.MUTED, tgp * exit_a))
 
     # Orbital progress arc + pulsing tap hint
     pa = _win(t, 0.6, 1.2) * exit_a

@@ -76,6 +76,49 @@ def draw_glow_circle(cx: float, cy: float, r: float, color: rl.Color, strength: 
     rl.draw_circle(int(cx), int(cy), r * mul, col(color, a * strength))
 
 
+# Wordmark gradient (from the orbit-ui-mockup artifact, the design source of
+# truth): white at the cap line -> pale blue at 70% -> uplink blue at the
+# baseline. (fraction of text height, color) stops.
+WORDMARK_STOPS = ((0.0, rl.Color(255, 255, 255, 255)),
+                  (0.7, rl.Color(191, 214, 255, 255)),
+                  (1.0, rl.Color(125, 180, 255, 255)))
+
+
+def lerp_stops(stops: tuple, f: float) -> rl.Color:
+  """Piecewise-linear color for fraction f (0..1) along gradient stops."""
+  for (f0, c0), (f1, c1) in zip(stops, stops[1:], strict=False):
+    if f <= f1:
+      t = (f - f0) / (f1 - f0) if f1 > f0 else 0.0
+      return rl.Color(int(c0.r + (c1.r - c0.r) * t), int(c0.g + (c1.g - c0.g) * t),
+                      int(c0.b + (c1.b - c0.b) * t), 255)
+  return stops[-1][1]
+
+
+def draw_text_gradient_v(font, text: str, pos, size: int, spacing: int, *,
+                         width: float, height: float,
+                         stops: tuple = WORDMARK_STOPS, alpha: float = 1.0,
+                         bands: int = 12) -> None:
+  """Vertical-gradient text fill (the CSS background-clip:text look): the same
+  string is drawn once per horizontal band under a scissor, tinted with that
+  band's gradient color. Cheap for short display strings like the wordmark.
+  width/height are the RENDERED metrics — pass the measure_text_cached result
+  (this module stays leaf-level, so it cannot apply FONT_SCALE itself)."""
+  if alpha <= 0.0:
+    return
+  x, y, h = int(pos.x), int(pos.y), max(1.0, height)
+  a255 = int(255 * clamp01(alpha))
+  for i in range(bands):
+    y0 = int(y + h * i / bands)
+    y1 = int(y + h * (i + 1) / bands)
+    if y1 <= y0:
+      y1 = y0 + 1
+    c = lerp_stops(stops, (i + 0.5) / bands)
+    rl.begin_scissor_mode(x, y0, int(width) + 2, y1 - y0)
+    rl.draw_text_ex(font, text, rl.Vector2(x, y), size, spacing,
+                    rl.Color(c.r, c.g, c.b, a255))
+    rl.end_scissor_mode()
+
+
 def draw_card(rect: rl.Rectangle, *, accent: rl.Color, border: rl.Color | None = None,
               glow: float = 0.0, glow_color: rl.Color | None = None, alpha: float = 1.0,
               roundness: float = 0.10, segments: int = 12) -> None:

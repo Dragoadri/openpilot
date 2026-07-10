@@ -282,7 +282,6 @@ class HomeLayout(Widget):
   # ---------------------------------------------------------------------------
   def _render_header(self):
     hdr = self.header_rect
-    bold = gui_app.font(FontWeight.BOLD)
     normal = gui_app.font(FontWeight.NORMAL)
     medium = gui_app.font(FontWeight.MEDIUM)
 
@@ -296,11 +295,13 @@ class HomeLayout(Widget):
                           rl.Color(255, 255, 255, int(255 * fx.clamp01(ha))))
 
     tx = hdr.x + LOGO_SIZE + 30
-    wm = measure_text_cached(bold, "ORBIT", WORDMARK_SIZE, WORDMARK_SPACING)
+    xbold = gui_app.font(FontWeight.EXTRA_BOLD)   # wordmark: Inter 800 con degradado, como el mockup
+    wm = measure_text_cached(xbold, "ORBIT", WORDMARK_SIZE, WORDMARK_SPACING)
     tg = measure_text_cached(normal, TAGLINE, TAGLINE_SIZE)
     block_h = wm.y + 16 + tg.y
     ty = hdr.y + (hdr.height - block_h) / 2
-    rl.draw_text_ex(bold, "ORBIT", rl.Vector2(int(tx), int(ty)), WORDMARK_SIZE, WORDMARK_SPACING, fx.col(INK, ha))
+    fx.draw_text_gradient_v(xbold, "ORBIT", rl.Vector2(int(tx), int(ty)), WORDMARK_SIZE,
+                            WORDMARK_SPACING, width=wm.x, height=wm.y, alpha=ha)
     rl.draw_rectangle(int(tx), int(ty + wm.y + 5), int(wm.x), 3, fx.col(PULSE, ha))
     rl.draw_text_ex(normal, TAGLINE, rl.Vector2(int(tx), int(ty + wm.y + 16)), TAGLINE_SIZE, 0, fx.col(MUTED, ha))
 
