@@ -1,9 +1,11 @@
 """
-ORBIT boot splash.
+ORBIT boot splash — cinematic phased intro.
 
 A full-screen branding screen shown once each time the UI starts. It is pushed
-on top of the widget nav stack (so on big_ui only it renders), fades in, holds,
-then auto-dismisses after a few seconds (or on tap) by popping itself.
+on top of the widget nav stack (so on big_ui only it renders), plays a phased
+boot sequence (starfield -> tri-color ring draw-in + logo bloom -> wordmark
+tracking-in -> tagline), shows a thin orbital progress arc, then auto-dismisses
+(or dismisses on tap) by popping itself.
 
 ORBIT — Open Remote Bidirectional IoV Telemetry.
 """
@@ -12,32 +14,30 @@ import time
 
 import pyray as rl
 
+from openpilot.selfdrive.ui.widgets import orbit_fx as fx
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 
 LOGO_PATH = "img_orbit_logo.png"   # resolved under selfdrive/assets/
 
-DURATION = 4.5   # seconds on screen before auto-dismiss
-FADE = 0.6       # fade in / fade out seconds
+DURATION = 5.5     # seconds on screen before auto-dismiss
+EXIT_FADE = 0.5    # global fade/zoom-out at the very end
 
-# ORBIT palette (from the logo) — mirrors the home screen.
-VOID = (11, 18, 32)       # #0B1220 background
-INK = (226, 236, 255)     # #E2ECFF near-white
-MUTED = (147, 180, 230)   # #93B4E6
-CYAN = (34, 211, 238)     # #22D3EE live pulse accent
-BLUE = (125, 180, 255)    # #7DB4FF uplink
-GREEN = (74, 222, 128)    # #4ADE80 commands/downlink
-
-LOGO_FRAC = 0.26          # logo width as a fraction of the screen width
+LOGO_FRAC = 0.26   # logo width as a fraction of the screen width
 WORDMARK_SIZE = 150
-WORDMARK_SPACING = 26
-TAGLINE_SIZE = 40
+WORDMARK_SPACING = 26         # final tracking
+WORDMARK_SPACING_WIDE = 64    # tracking animates in from this
 TAGLINE = "Open Remote Bidirectional IoV Telemetry"
+TAGLINE_SIZE = 40
+RING_SPIN_DPS = 40.0          # continuous ring rotation, deg/s
 
 
-def _col(rgb, alpha):
-  return rl.Color(rgb[0], rgb[1], rgb[2], int(alpha))
+def _win(t: float, a: float, b: float) -> float:
+  """0..1 progress of t through the window [a, b]."""
+  if b <= a:
+    return 1.0
+  return fx.clamp01((t - a) / (b - a))
 
 
 class OrbitSplash(Widget):
@@ -45,6 +45,7 @@ class OrbitSplash(Widget):
     super().__init__()
     self._start: float | None = None
     self._done = False
+    self._stars = fx.Starfield(n=90, seed=42)
 
   def _dismiss(self):
     # Pop by identity: never pop another widget if something got pushed on top.
@@ -62,79 +63,111 @@ class OrbitSplash(Widget):
   def _handle_mouse_release(self, mouse_pos):
     self._dismiss()
 
-  def _alpha(self, elapsed: float) -> float:
-    if elapsed < FADE:
-      return max(0.0, elapsed / FADE)
-    if elapsed > DURATION - FADE:
-      return max(0.0, (DURATION - elapsed) / FADE)
-    return 1.0
-
   def _render(self, rect: rl.Rectangle):
     now = time.monotonic()
     if self._start is None:
       self._start = now
-    elapsed = now - self._start
-    a = self._alpha(elapsed) * 255.0
+    t = now - self._start
+    exit_a = fx.clamp01((DURATION - t) / EXIT_FADE)   # 1 -> 0 during the exit
+
+    rl.draw_rectangle_rec(rect, fx.VOID)
+
+    # Phase 0 (0.0-0.6): the starfield fades in
+    self._stars.render(rect, t, intensity=_win(t, 0.0, 0.6) * exit_a)
+
+    # Top edge light (replaces the old solid 14px bars)
+    g = _win(t, 0.2, 1.0) * exit_a
+    rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), 2, fx.col(fx.CYAN, 0.45 * g))
+    rl.draw_rectangle_gradient_v(int(rect.x), int(rect.y) + 2, int(rect.width), 26,
+                                 fx.col(fx.CYAN, 0.10 * g), fx.col(fx.CYAN, 0.0))
 
     cx = rect.x + rect.width / 2.0
-
-    # Background + ORBIT accent bars (top/bottom)
-    rl.draw_rectangle_rec(rect, _col(VOID, 255))
-    bar_h = 14
-    rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), bar_h, _col(CYAN, a))
-    rl.draw_rectangle(int(rect.x), int(rect.y + rect.height - bar_h), int(rect.width), bar_h, _col(BLUE, a))
-
-    # Stacked hero block (logo + wordmark + tagline), vertically centered.
     bold = gui_app.font(FontWeight.BOLD)
     normal = gui_app.font(FontWeight.NORMAL)
 
     logo_w = int(min(rect.width * LOGO_FRAC, 460))
-    wordmark_size = measure_text_cached(bold, "ORBIT", WORDMARK_SIZE, WORDMARK_SPACING)
-    tagline_size = measure_text_cached(normal, TAGLINE, TAGLINE_SIZE)
-
-    gap_logo = 34
-    gap_wordmark = 24
-
-    logo_h = logo_w  # the logo asset is square
-    block_h = logo_h + gap_logo + wordmark_size.y + gap_wordmark + tagline_size.y
+    wm_size = measure_text_cached(bold, "ORBIT", WORDMARK_SIZE, WORDMARK_SPACING)
+    tg_size = measure_text_cached(normal, TAGLINE, TAGLINE_SIZE)
+    gap_logo, gap_wordmark = 34, 24
+    logo_h = logo_w  # square asset
+    block_h = logo_h + gap_logo + wm_size.y + gap_wordmark + tg_size.y
     y = rect.y + max((rect.height - block_h) / 2.0, rect.height * 0.14)
-
-    # Animated orbit around the logo: pulsing cyan glow + a rotating tri-color ring.
     logo_cx, logo_cy = cx, y + logo_h / 2.0
-    pulse = 0.5 + 0.5 * math.sin(elapsed * 2.6)
-    rl.draw_circle(int(logo_cx), int(logo_cy), logo_h * 0.52, _col(CYAN, a * (0.08 + 0.16 * pulse)))
-    ring_r = logo_h * 0.64
-    spin = (elapsed * 80.0) % 360.0
-    for k, col in enumerate((CYAN, BLUE, GREEN)):
-      start = spin + k * 120.0
-      rl.draw_ring(rl.Vector2(logo_cx, logo_cy), ring_r - 5, ring_r, start, start + 80, 48, _col(col, a * 0.85))
 
-    # Logo (true colors)
+    # Phase 1 (0.3-1.2 staggered): the tri-color ring draws itself in, then spins
+    ring_r = logo_h * 0.64
+    spin = (t * RING_SPIN_DPS) % 360.0
+    for k, color in enumerate((fx.CYAN, fx.BLUE_HI, fx.GREEN)):
+      sweep = 80.0 * fx.ease_out_cubic(_win(t, 0.3 + 0.15 * k, 1.2 + 0.15 * k))
+      if sweep <= 0.5:
+        continue
+      start = spin + k * 120.0
+      rl.draw_ring(rl.Vector2(logo_cx, logo_cy), ring_r - 5, ring_r, start, start + sweep,
+                   48, fx.col(color, 0.85 * exit_a))
+
+    # Satellite dot + fading trail traveling the ring (after the draw-in)
+    if t > 1.2:
+      sat_a = _win(t, 1.2, 1.6) * exit_a
+      ang = math.radians(spin * 2.2)
+      sx = logo_cx + ring_r * math.cos(ang)
+      sy = logo_cy + ring_r * math.sin(ang)
+      fx.draw_glow_circle(sx, sy, 7.0, fx.CYAN, 0.5 * sat_a)
+      rl.draw_circle(int(sx), int(sy), 6.0, fx.col(fx.CYAN, 0.9 * sat_a))
+      for lag, aa, rr in ((7.0, 0.45, 4.5), (14.0, 0.2, 3.0)):
+        ang2 = math.radians(spin * 2.2 - lag)
+        rl.draw_circle(int(logo_cx + ring_r * math.cos(ang2)),
+                       int(logo_cy + ring_r * math.sin(ang2)), rr, fx.col(fx.CYAN, aa * sat_a))
+
+    # Phase 1b (0.4-1.1): logo scales in with a spring + breathing cyan bloom
+    lg = _win(t, 0.4, 1.1)
+    la = lg * exit_a
+    scale = (0.7 + 0.3 * fx.ease_out_back(lg)) * (1.0 + 0.06 * (1.0 - exit_a))
+    fx.draw_glow_circle(logo_cx, logo_cy, logo_h * 0.55, fx.CYAN,
+                        (0.35 + 0.35 * fx.pulse01(t, 2.4)) * la)
     try:
       tex = gui_app.texture(LOGO_PATH, logo_w, logo_h, keep_aspect_ratio=True)
-      rl.draw_texture_ex(tex, rl.Vector2(cx - tex.width / 2.0, y), 0.0, 1.0, _col((255, 255, 255), a))
+      dw, dh = tex.width * scale, tex.height * scale
+      rl.draw_texture_pro(tex, rl.Rectangle(0, 0, tex.width, tex.height),
+                          rl.Rectangle(logo_cx - dw / 2.0, logo_cy - dh / 2.0, dw, dh),
+                          rl.Vector2(0, 0), 0.0, rl.Color(255, 255, 255, int(255 * fx.clamp01(la))))
     except Exception:
       pass
     y += logo_h + gap_logo
 
-    # Wordmark + cyan accent underline that sweeps in from the center
-    rl.draw_text_ex(bold, "ORBIT", rl.Vector2(int(cx - wordmark_size.x / 2.0), int(y)),
-                    WORDMARK_SIZE, WORDMARK_SPACING, _col(INK, a))
-    uw = wordmark_size.x * min(1.0, elapsed / (FADE + 0.5))
-    rl.draw_rectangle(int(cx - uw / 2.0), int(y + wordmark_size.y + 10), int(uw), 4, _col(CYAN, a))
-    y += wordmark_size.y + gap_wordmark
+    # Phase 2 (1.1-1.8): wordmark tracking-in + center-out cyan underline
+    wg = _win(t, 1.1, 1.8)
+    if wg > 0.0:
+      spacing = int(WORDMARK_SPACING_WIDE + (WORDMARK_SPACING - WORDMARK_SPACING_WIDE) * fx.ease_out_cubic(wg))
+      cur = measure_text_cached(bold, "ORBIT", WORDMARK_SIZE, spacing)
+      rl.draw_text_ex(bold, "ORBIT", rl.Vector2(int(cx - cur.x / 2.0), int(y)),
+                      WORDMARK_SIZE, spacing, fx.col(fx.INK, wg * exit_a))
+      uw = wm_size.x * fx.ease_out_cubic(_win(t, 1.4, 2.0))
+      if uw > 1.0:
+        rl.draw_rectangle(int(cx - uw / 2.0), int(y + wm_size.y + 10), int(uw), 4,
+                          fx.col(fx.CYAN, wg * exit_a))
+    y += wm_size.y + gap_wordmark
 
-    # Tagline
-    rl.draw_text_ex(normal, TAGLINE, rl.Vector2(int(cx - tagline_size.x / 2.0), int(y)),
-                    TAGLINE_SIZE, 0, _col(MUTED, a))
+    # Phase 3 (1.7-2.3): tagline rises in
+    tgp = fx.ease_out_cubic(_win(t, 1.7, 2.3))
+    if tgp > 0.0:
+      rl.draw_text_ex(normal, TAGLINE,
+                      rl.Vector2(int(cx - tg_size.x / 2.0), int(y + 12.0 * (1.0 - tgp))),
+                      TAGLINE_SIZE, 0, fx.col(fx.MUTED, tgp * exit_a))
 
-    # Hint near the bottom (gently pulsing)
-    hint = "toca la pantalla para continuar"
-    hfont = gui_app.font(FontWeight.NORMAL)
-    hw = measure_text_cached(hfont, hint, 30).x
-    rl.draw_text_ex(hfont, hint, rl.Vector2(cx - hw / 2.0, rect.y + rect.height - 70), 30, 0,
-                    _col(MUTED, a * (0.5 + 0.5 * pulse)))
+    # Orbital progress arc (bottom-center) + pulsing tap hint
+    pa = _win(t, 0.6, 1.2) * exit_a
+    if pa > 0.0:
+      ctr = rl.Vector2(cx, rect.y + rect.height - 158)
+      rl.draw_ring(ctr, 23, 26, 0, 360, 48, fx.col(fx.HAIRLINE, 0.8 * pa))
+      rl.draw_ring(ctr, 23, 26, -90, -90 + 360.0 * fx.clamp01(t / DURATION), 48,
+                   fx.col(fx.CYAN, 0.85 * pa))
+    if t > 2.2:
+      hint = "toca la pantalla para continuar"
+      ha = _win(t, 2.2, 2.8) * (0.5 + 0.5 * fx.pulse01(t, 1.8)) * exit_a
+      hw = measure_text_cached(normal, hint, 30).x
+      rl.draw_text_ex(normal, hint, rl.Vector2(cx - hw / 2.0, rect.y + rect.height - 96),
+                      30, 0, fx.col(fx.MUTED, ha))
 
     # Auto-dismiss
-    if elapsed >= DURATION:
+    if t >= DURATION:
       self._dismiss()
