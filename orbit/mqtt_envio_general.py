@@ -115,7 +115,7 @@ class MQTTEnvioGeneral:
     dropped = [item["canal"] for item in enabled if item["canal"] not in SERVICE_LIST]
     if dropped:
       print(f"[Bemposta] canales sin servicio cereal, ignorados: {dropped}")
-    # Respetar los toggles de UI del panel TelUem (param f"{canal}_toggle"). Su
+    # Respetar los toggles de UI del panel de canales ORBIT (param f"{canal}_toggle"). Su
     # consumidor original (SicMqttHilo2) fue retirado y los toggles quedaron
     # huerfanos; aqui volvemos a honrarlos SIN cambiar el comportamiento por
     # defecto: un canal solo se excluye si su toggle esta EXPLICITAMENTE a False.
@@ -140,7 +140,7 @@ class MQTTEnvioGeneral:
     }
 
   def _maybe_reload_canales(self):
-    """Re-evalua en caliente los toggles de canal del panel TelUem
+    """Re-evalua en caliente los toggles de canal del panel ORBIT
     (param f"{canal}_toggle"). cargar_canales() solo corria en __init__, asi que
     activar/desactivar un canal desde la UI no surtia efecto hasta reiniciar
     openpilot. Lecturas de Params baratas cada TOGGLES_RELOAD_SECS; si cambia la
@@ -328,7 +328,7 @@ class MQTTEnvioGeneral:
       # Recoger en caliente un cambio de IP del broker hecho desde la UI.
       self._maybe_reload_broker()
 
-      # Recoger en caliente los toggles de canal cambiados desde la UI (TelUem).
+      # Recoger en caliente los toggles de canal cambiados desde la UI (panel ORBIT).
       self._maybe_reload_canales()
 
       # Enrolamiento ORBIT (QR): generar/rotar el codigo SIEMPRE (aunque no haya

@@ -316,21 +316,16 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"waitingToReturn", {PERSISTENT, BOOL}},
     {"returningRight", {PERSISTENT, BOOL}},
     {"OvertakeTargetSpeedKph", {CLEAR_ON_MANAGER_START, FLOAT, "0"}},
-    {"test_overtake_simulador", {CLEAR_ON_MANAGER_START, BOOL}},
     {"sic_adelantar", {PERSISTENT | CLEAR_ON_MANAGER_START, BOOL}},
     {"sic_adelantar_bsm", {PERSISTENT | CLEAR_ON_MANAGER_START, BOOL}},     // DEPRECATED compat
     {"sic_adelantar_nobsm", {PERSISTENT | CLEAR_ON_MANAGER_START, BOOL}},   // DEPRECATED compat
     {"overtake_distancia_activacion", {PERSISTENT, FLOAT, "50"}},
     {"overtake_tiempo_carril_izq", {PERSISTENT, FLOAT, "15"}},
     {"overtake_incremento_velocidad", {PERSISTENT, FLOAT, "15"}},
-    {"adelantamiento_vel_diff", {PERSISTENT, FLOAT, "10"}},
-    {"adelantamiento_distancia", {PERSISTENT, FLOAT, "50"}},
     {"ActivateEvent", {PERSISTENT, BOOL}},
     // Frenado / longitudinal
     {"brutebreak_active", {CLEAR_ON_MANAGER_START, BOOL}},
     {"brutebreak_intensidad", {PERSISTENT, FLOAT, "-3.5"}},
-    {"DisableLongControl", {PERSISTENT, BOOL}},
-    {"intervalos_toggle", {PERSISTENT, BOOL}},
     // Velocidad
     {"Velocidad_C1", {PERSISTENT, STRING}},
     {"Velocidad_C2", {PERSISTENT, STRING}},
@@ -347,20 +342,17 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"orbit_speed_decrease", {CLEAR_ON_MANAGER_START, BOOL}},
     {"orbit_steering_pulse", {CLEAR_ON_MANAGER_START, STRING}},   // pulso giro cruceta: "direction:expiry_ms" (cruza barrera de proceso a controlsd)
     // Toggles UI / telemetría
-    {"telemetria_uem", {PERSISTENT, BOOL}},
     {"modo_debug", {PERSISTENT | BACKUP, BOOL}},
-    {"silenciar_alertas_comm", {PERSISTENT | BACKUP, BOOL}},           // UEM: no mostrar commIssue/locationd/paramsd TemporaryError (solo pruebas)
+    {"silenciar_alertas_comm", {PERSISTENT | BACKUP, BOOL}},           // ORBIT: no mostrar commIssue/locationd/paramsd TemporaryError (solo pruebas)
     {"show_blindspot", {PERSISTENT, BOOL}},
     {"carState_toggle", {PERSISTENT, BOOL}},
     {"carControl_toggle", {PERSISTENT, BOOL}},
     {"controlsState_toggle", {PERSISTENT, BOOL}},
     {"liveCalibration_toggle", {PERSISTENT, BOOL}},
-    {"lider_toggle", {PERSISTENT, BOOL}},
     {"gpsLocationExternal_toggle", {PERSISTENT, BOOL}},
+    {"gpsLocation_toggle", {PERSISTENT, BOOL}},
     {"drivingModelData_toggle", {PERSISTENT, BOOL}},
     {"radarState_toggle", {PERSISTENT, BOOL}},
-    {"navInstruction_toggle", {PERSISTENT, BOOL}},
-    {"mapbox_toggle", {PERSISTENT, BOOL}},
     // Navegación (distancias de maniobra) + sender UEM
     {"roundabout_distance", {PERSISTENT, STRING}},
     {"intersection_distance", {PERSISTENT, STRING}},

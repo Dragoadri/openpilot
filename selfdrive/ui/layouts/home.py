@@ -88,15 +88,15 @@ class HomeLayoutState(IntEnum):
 
 
 class _ServerSettingsModal(Widget):
-  """Full-screen modal wrapping the Orbit/SICUEM server-IP settings panel so it
-  can be opened straight from the home (tap the SERVIDOR card)."""
+  """Full-screen modal wrapping the ORBIT server settings so they can be
+  opened straight from the home (tap the SERVIDOR card)."""
 
   def __init__(self):
     super().__init__()
-    from openpilot.selfdrive.ui.sunnypilot.layouts.settings.uem_sub_layouts.server_ip_settings import (
-      ServerIpSettingsLayout,
+    from openpilot.selfdrive.ui.sunnypilot.layouts.settings.orbit_sub_layouts.server_settings import (
+      ServerSettingsLayout,
     )
-    self._panel = ServerIpSettingsLayout(back_btn_callback=gui_app.pop_widget)
+    self._panel = ServerSettingsLayout(back_btn_callback=gui_app.pop_widget)
 
   def show_event(self):
     super().show_event()

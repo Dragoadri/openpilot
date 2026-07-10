@@ -4,10 +4,11 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-JetsonSettings sub-panel (SIC-UEM / Orbit).
+Subpanel Jetson (ORBIT).
 
 Port of the old Qt JetsonSettings (selfdrive/ui/sunnypilot/qt/offroad/settings/
-sunnypilot/jetson_settings.cc) to the raylib/Python sunnypilot UI.
+sunnypilot/jetson_settings.cc) to the raylib/Python sunnypilot UI, reorganizado
+en secciones ENLACE / ESTADO / RED (rediseno ORBIT 2026-07-10).
 
 Lets the user:
   - Select the steer-torque source mode (MODELO COMMA / COMMA+JETSON / JETSON /
@@ -35,12 +36,12 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.sunnypilot.widgets.input_dialog import InputDialogSP
+from openpilot.selfdrive.ui.widgets.orbit_section import SectionHeaderSP
 from openpilot.system.ui.sunnypilot.widgets.list_view import (
   multiple_button_item_sp,
   button_item_sp,
   toggle_item_sp,
   ListItemSP,
-  LineSeparatorSP,
 )
 from openpilot.system.ui.widgets import Widget, DialogResult
 from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
@@ -50,8 +51,9 @@ from openpilot.system.ui.widgets.scroller_tici import Scroller
 
 # Mode index in the button row -> SteerTorqueMode int value.
 # Button row order matches the old Qt layout:
-#   ['MODELO COMMA', 'COMMA+JETSON', 'JETSON', 'TEST MAX'] -> 0, 3, 1, 2
-MODE_BUTTONS = ["MODELO COMMA", "COMMA+JETSON", "JETSON", "TEST MAX"]
+#   ['COMMA', 'COMMA+JETSON', 'JETSON', 'TEST MAX'] -> 0, 3, 1, 2
+# (etiquetas cortas: 'MODELO COMMA' desbordaba los 320px del boton)
+MODE_BUTTONS = ["COMMA", "COMMA+JETSON", "JETSON", "TEST MAX"]
 INDEX_TO_MODE = {0: 0, 1: 3, 2: 1, 3: 2}
 MODE_TO_INDEX = {v: k for k, v in INDEX_TO_MODE.items()}
 MODE_NAMES = {0: "MODELO COMMA", 1: "JETSON", 2: "TEST MAX", 3: "COMMA+JETSON"}
@@ -113,10 +115,6 @@ class JetsonSettingsLayout(Widget):
       initial_state=bool(self._config.get("jetson_enabled", False)),
       callback=self._on_jetson_enabled,
     )
-    self._enabled_status = ListItemSP(
-      title=lambda: self._jetson_enabled_status_text(),
-      description="",
-    )
 
     self._mode_selector = multiple_button_item_sp(
       title=lambda: tr("Control del volante"),
@@ -166,24 +164,19 @@ class JetsonSettingsLayout(Widget):
     )
 
     # ESTADO: read-only live rows (param reads throttled in _update_state)
-    self._status_mode = text_item(lambda: tr("Modo actual"), lambda: MODE_NAMES.get(self._read_mode(), "-"))
-    self._status_ip = text_item(lambda: tr("IP Jetson"), lambda: str(self._config.get("jetson_ip") or "-"))
     self._status_torque = text_item(lambda: tr("Torque actual"), self._torque_text)
     self._status_obstacle = text_item(lambda: tr("Obstaculo detectado"), self._obstacle_yesno_text)
 
     items = [
+      SectionHeaderSP(tr("ENLACE")),
       self._jetson_enabled_toggle,
-      self._enabled_status,
-      LineSeparatorSP(40),
       self._mode_selector,
       self._mode_status,
       self._obstacle_label,
-      LineSeparatorSP(40),
-      self._status_mode,
-      self._status_ip,
+      SectionHeaderSP(tr("ESTADO")),
       self._status_torque,
       self._status_obstacle,
-      LineSeparatorSP(40),
+      SectionHeaderSP(tr("RED")),
       self._ip_button,
       self._comma_ip_button,
       self._img_port_button,
@@ -399,9 +392,6 @@ class JetsonSettingsLayout(Widget):
   def _on_jetson_enabled(self, enabled: bool):
     self._config["jetson_enabled"] = bool(enabled)
     self._save_config()
-
-  def _jetson_enabled_status_text(self) -> str:
-    return tr("Estado: ACTIVA") if self._config.get("jetson_enabled", False) else tr("Estado: INACTIVA")
 
   def _sync_jetson_enabled(self):
     toggle = getattr(self, "_jetson_enabled_toggle", None)

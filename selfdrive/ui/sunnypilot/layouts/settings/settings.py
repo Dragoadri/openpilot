@@ -22,7 +22,7 @@ from openpilot.selfdrive.ui.sunnypilot.layouts.settings.software import Software
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.steering import SteeringLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.sunnylink import SunnylinkLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.trips import TripsLayout
-from openpilot.selfdrive.ui.sunnypilot.layouts.settings.uem import UemLayout
+from openpilot.selfdrive.ui.sunnypilot.layouts.settings.orbit_panel import OrbitLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.vehicle import VehicleLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.visuals import VisualsLayout
 from openpilot.system.ui.lib.application import gui_app, MousePos
@@ -53,7 +53,7 @@ OP.PanelType = IntEnum(
     "NAVIGATION",
     "TRIPS",
     "VEHICLE",
-    "UEM",
+    "ORBIT",
   ],
   start=0,
 )
@@ -108,7 +108,12 @@ class NavButton(Widget):
 
     if self.panel_info.icon:
       icon_texture = gui_app.texture(self.panel_info.icon, ICON_SIZE, ICON_SIZE, keep_aspect_ratio=True)
-      tint = OP.ORBIT_CYAN if is_selected else OP.ORBIT_MUTED
+      # El logo ORBIT es multicolor: el tinte cyan/muted lo aplastaria. La
+      # seleccion ya la marcan el chip y la barra, asi que se dibuja tal cual.
+      if self.panel_info.icon == "img_orbit_logo.png":
+        tint = rl.WHITE
+      else:
+        tint = OP.ORBIT_CYAN if is_selected else OP.ORBIT_MUTED
       rl.draw_texture_ex(
         icon_texture,
         rl.Vector2(chip_rect.x + (chip - icon_texture.width) / 2, chip_rect.y + (chip - icon_texture.height) / 2),
@@ -136,7 +141,7 @@ class SettingsLayoutSP(OP.SettingsLayout):
     wifi_manager.set_active(False)
 
     self._panels = {
-      OP.PanelType.UEM: PanelInfo(tr_noop("UEM"), UemLayout(), icon="icons/link.png"),
+      OP.PanelType.ORBIT: PanelInfo(tr_noop("ORBIT"), OrbitLayout(), icon="img_orbit_logo.png"),
       OP.PanelType.DEVICE: PanelInfo(tr_noop("Device"), DeviceLayoutSP(), icon="../../sunnypilot/selfdrive/assets/offroad/icon_home.png"),
       OP.PanelType.NETWORK: PanelInfo(tr_noop("Network"), NetworkUISP(wifi_manager), icon="icons/network.png"),
       OP.PanelType.SUNNYLINK: PanelInfo(tr_noop("sunnylink"), SunnylinkLayout(), icon="icons/wifi_strength_full.png"),
@@ -154,6 +159,10 @@ class SettingsLayoutSP(OP.SettingsLayout):
       OP.PanelType.FIREHOSE: PanelInfo(tr_noop("Firehose"), FirehoseLayout(), icon="../../sunnypilot/selfdrive/assets/offroad/icon_firehose.png"),
       OP.PanelType.DEVELOPER: PanelInfo(tr_noop("Developer"), DeveloperLayoutSP(), icon="icons/shell.png"),
     }
+
+    # ORBIT es la primera tile del rail: que sea tambien el panel inicial
+    # (la base arranca en DEVICE y la tile superior quedaba sin seleccionar).
+    self._current_panel = OP.PanelType.ORBIT
 
   def _draw_sidebar(self, rect: rl.Rectangle):
     rl.draw_rectangle_rec(rect, OP.SIDEBAR_COLOR)

@@ -4,23 +4,12 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 
-TelUemSettings sub-panel (SIC-UEM / Orbit).
+Subpanel de canales de telemetria ORBIT.
 
-Port of the old Qt TelUemSettings (selfdrive/ui/sunnypilot/qt/offroad/settings/
-sunnypilot/teluem_settings.cc). Per-channel telemetry toggles that gate which
-cereal channels the SIC-UEM MQTT sender (orbit/mqtt_envio_general.py)
-publishes.
-
-Faithful port: the original bool toggles in the original order. The original was a
-pure ParamControlSP binding with no extra logic (updateToggles() was empty), so
-this is a layout-only port. All params already exist in common/params_keys.h as
-{PERSISTENT, BOOL}.
-
-Note: the migrated backend also reads controlsState_toggle / liveCalibration_toggle,
-but the original TelUem panel never exposed them, so they are
-intentionally left out here to stay faithful to the original UI. intervalos_toggle
-is also written programmatically by the backend; it is kept as a toggle to match
-the original, but the backend may override it.
+Toggles por canal que gobiernan que canales cereal publica el emisor MQTT
+(orbit/mqtt_envio_general.py, via _canal_habilitado("<canal>_toggle")). La
+lista refleja orbit/canales.json; el heartbeat de presencia (carState cada 3 s
+en parado) se publica siempre, independientemente de estos toggles.
 """
 import json
 import time
@@ -35,23 +24,23 @@ from openpilot.system.ui.widgets.list_view import text_item
 from openpilot.system.ui.widgets.network import NavButton
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 
-# Written by orbit/camera_sender.py (_save_config); read-only here.
+# Escrito por orbit/camera_sender.py (_save_config); aqui solo lectura.
 CAMERA_CONFIG_FILE = "/data/orbit_camera_config.json"
 
-# (param, title, description) in the original order (teluem_settings.cc:49-101)
+# (param, titulo, descripcion) — alineado con orbit/canales.json.
 TELEMETRY_TOGGLES = [
-  ("intervalos_toggle", "INTERVALOS", "Controla el envio de telemetria por intervalos de tiempo."),
-  ("lider_toggle", "LIDER", "Publica el estado del modo lider por MQTT."),
-  ("carState_toggle", "CarState UEM", "Publica el canal carState por MQTT."),
-  ("carControl_toggle", "carControl UEM", "Publica el canal carControl por MQTT."),
-  ("gpsLocationExternal_toggle", "GPSLocation UEM", "Publica la localizacion GPS externa por MQTT."),
-  ("radarState_toggle", "radarState UEM", "Publica el canal radarState por MQTT."),
-  ("drivingModelData_toggle", "drivingModelData UEM", "Publica los datos del modelo de conduccion por MQTT."),
-  ("mapbox_toggle", "RESPUESTA MAPBOX", "Publica la respuesta de Mapbox por MQTT."),
+  ("carState_toggle", "carState", "Publica el estado del vehiculo (velocidad, pedales, volante) por MQTT."),
+  ("carControl_toggle", "carControl", "Publica las ordenes de control enviadas al coche por MQTT."),
+  ("gpsLocationExternal_toggle", "gpsLocationExternal", "Publica la localizacion GPS externa por MQTT."),
+  ("gpsLocation_toggle", "gpsLocation", "Publica la localizacion GPS del dispositivo por MQTT."),
+  ("radarState_toggle", "radarState", "Publica los objetivos del radar por MQTT."),
+  ("drivingModelData_toggle", "drivingModelData", "Publica la salida del modelo de conduccion por MQTT."),
+  ("controlsState_toggle", "controlsState", "Publica el estado interno del control por MQTT."),
+  ("liveCalibration_toggle", "liveCalibration", "Publica la calibracion en vivo por MQTT."),
 ]
 
 
-class TelUemSettingsLayout(Widget):
+class TelemetrySettingsLayout(Widget):
   def __init__(self, back_btn_callback: Callable):
     super().__init__()
     self._back_button = NavButton(tr("Back"))
@@ -61,7 +50,7 @@ class TelUemSettingsLayout(Widget):
     self._camera_cfg_read_ts = 0.0
 
     items = self._initialize_items()
-    self._scroller = Scroller(items, line_separator=True, spacing=0)
+    self._scroller = Scroller(items, line_separator=False, spacing=0)
 
   def _initialize_items(self):
     items = []
