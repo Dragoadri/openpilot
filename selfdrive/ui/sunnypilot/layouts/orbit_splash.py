@@ -107,7 +107,9 @@ class OrbitSplash(Widget):
     logo_w = int(min(rect.width * LOGO_FRAC, 460))
     wm_size = measure_text_cached(bold, "ORBIT", WORDMARK_SIZE, WORDMARK_SPACING)
     tg_size = measure_text_cached(normal, TAGLINE, TAGLINE_SIZE)
-    gap_logo, gap_wordmark = 34, 24
+    # El anillo sobresale ~0.14*logo_h por debajo del logo: el hueco al wordmark
+    # debe superarlo con aire, o el conjunto se ve apelmazado.
+    gap_logo, gap_wordmark = 78, 48
     logo_h = logo_w  # square asset
     block_h = logo_h + gap_logo + wm_size.y + gap_wordmark + tg_size.y
     y = rect.y + max((rect.height - block_h) / 2.0, rect.height * 0.14)
@@ -162,7 +164,7 @@ class OrbitSplash(Widget):
                       WORDMARK_SIZE, spacing, fx.col(fx.INK, wg * exit_a))
       uw = wm_size.x * fx.ease_out_cubic(_win(t, 1.4, 2.0))
       if uw > 1.0:
-        rl.draw_rectangle(int(cx - uw / 2.0), int(y + wm_size.y + 10), int(uw), 4,
+        rl.draw_rectangle(int(cx - uw / 2.0), int(y + wm_size.y + 18), int(uw), 4,
                           fx.col(fx.CYAN, wg * exit_a))
     y += wm_size.y + gap_wordmark
 
@@ -187,7 +189,7 @@ class OrbitSplash(Widget):
       hint = "toca la pantalla para continuar"
       ha = _win(t, 2.2, 2.8) * (0.5 + 0.5 * fx.pulse01(t, 1.8)) * exit_a
       hw = measure_text_cached(normal, hint, 30).x
-      rl.draw_text_ex(normal, hint, rl.Vector2(cx - hw / 2.0, rect.y + rect.height - 96),
+      rl.draw_text_ex(normal, hint, rl.Vector2(cx - hw / 2.0, rect.y + rect.height - 64),
                       30, 0, fx.col(fx.MUTED, ha))
 
     # Badge "powered by DRAGO" (inferior derecha; tap -> pantalla sobre drago)
