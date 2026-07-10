@@ -14,9 +14,9 @@ torqued, lagd, calibrationd, locationd) fallan un ciclo sus checks de carState
 -> publican valid=False -> selfdrived: commIssue / locationdTemporaryError.
 
 USO (en el comma, con openpilot corriendo y coche encendido):
-    cd /data/openpilot && python3 tools/sicuem/diag_msgq_readers.py            # carState, 20 s
-    python3 tools/sicuem/diag_msgq_readers.py --service carState --dur 30
-    python3 tools/sicuem/diag_msgq_readers.py --service liveCalibration
+    cd /data/openpilot && python3 tools/orbit/diag_msgq_readers.py            # carState, 20 s
+    python3 tools/orbit/diag_msgq_readers.py --service carState --dur 30
+    python3 tools/orbit/diag_msgq_readers.py --service liveCalibration
 
 Salida: registro de expulsiones (evict-all), quien se registra tras cada una
 (el primero = el proceso que desbordo el limite), y tabla final de slots con

@@ -9,7 +9,7 @@ ones") y cada proceso pierde su cola un ciclo -> commIssue 1 Hz al conducir.
 
 Aplicar EN EL DEVICE (o en un fork propio de commaai/msgq):
     cd /data/openpilot/msgq_repo
-    git apply ../tools/sicuem/msgq_num_readers.patch
+    git apply ../tools/orbit/msgq_num_readers.patch
     cd /data/openpilot && scons -j$(nproc)   # rebuild completo
     sudo reboot                              # OBLIGATORIO: limpia /dev/shm/*
                                              # (la cabecera shm cambia de tamano;

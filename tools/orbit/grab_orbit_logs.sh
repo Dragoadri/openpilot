@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# grab_sicuem_logs.sh
+# grab_orbit_logs.sh
 #   Extrae del comma (por SSH) los logs que muestran POR QUE se desactiva OP:
 #     - "Communication Issue Between Processes"  -> evento commIssue
 #     - "locationd - Temporary Error"            -> evento locationdTemporaryError
@@ -11,16 +11,16 @@
 #   Esa es la pista decisiva para confirmar/afinar el fix de contension de I/O.
 #
 # USO:
-#   tools/sicuem/grab_sicuem_logs.sh pull            # modo offline (tras reproducir el fallo)
-#   tools/sicuem/grab_sicuem_logs.sh live            # modo en vivo (mientras reproduces)
-#   tools/sicuem/grab_sicuem_logs.sh pull comma@IP   # host explicito
+#   tools/orbit/grab_orbit_logs.sh pull            # modo offline (tras reproducir el fallo)
+#   tools/orbit/grab_orbit_logs.sh live            # modo en vivo (mientras reproduces)
+#   tools/orbit/grab_orbit_logs.sh pull comma@IP   # host explicito
 #
 # VARIABLES DE ENTORNO (opcionales):
 #   HOST=comma@192.168.43.1   Host SSH. Tethering USB -> 192.168.43.1.
 #                             comma prime -> usar  HOST=comma-<dongleid>  (proxy ssh.comma.ai)
 #   KEY=~/.ssh/mi_github_key  Clave privada SSH (la que registraste en el comma).
 #   PORT=22                   Puerto SSH.
-#   OUTDIR=./sicuem_logs      Carpeta local de salida (modo pull).
+#   OUTDIR=./orbit_logs      Carpeta local de salida (modo pull).
 #   SECS=40                   Duracion de captura en modo live (segundos).
 # ============================================================================
 set -uo pipefail
@@ -28,7 +28,7 @@ set -uo pipefail
 MODE="${1:-pull}"
 HOST="${2:-${HOST:-comma@192.168.43.1}}"
 PORT="${PORT:-22}"
-OUTDIR="${OUTDIR:-./sicuem_logs/$(date +%Y%m%d_%H%M%S)}"
+OUTDIR="${OUTDIR:-./orbit_logs/$(date +%Y%m%d_%H%M%S)}"
 SECS="${SECS:-40}"
 REMOTE_OP="/data/openpilot"
 
@@ -131,7 +131,7 @@ PY
     echo "  Segmentos: $SEGS"
 
     echo "  -> VEREDICTO (analyze_route_logs.py en el comma; puede tardar ~30-60s)..."
-    ssh_do "cd $REMOTE_OP && { [ -x .venv/bin/python3 ] && PB=.venv/bin/python3 || PB=python3; }; PYTHONPATH=$REMOTE_OP \$PB tools/sicuem/analyze_route_logs.py $SEGS 2>&1" \
+    ssh_do "cd $REMOTE_OP && { [ -x .venv/bin/python3 ] && PB=.venv/bin/python3 || PB=python3; }; PYTHONPATH=$REMOTE_OP \$PB tools/orbit/analyze_route_logs.py $SEGS 2>&1" \
       | tee "$OUTDIR/veredicto.txt" \
       || echo "    (analyze fallo en el comma; abajo quedan rlog/qlog para analizar en local)"
 

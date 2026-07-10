@@ -14,10 +14,10 @@ en el instante de la desactivación → eso señala el proceso culpable.
    TAKE CONTROL / locationd). No hace falta nada más; queda grabado en el log de la ruta.
 2. **Más tarde, tú** accedes al comma por SSH y sacas los logs:
    ```bash
-   KEY=~/.ssh/tu_clave_github tools/sicuem/grab_sicuem_logs.sh pull
+   KEY=~/.ssh/tu_clave_github tools/orbit/grab_orbit_logs.sh pull
    ```
    Esto baja swaglog + `rlog`/`qlog` de la última ruta y, en tu PC, produce un **VEREDICTO**
-   automático en `sicuem_logs/<fecha>/veredicto.txt` diciendo la causa exacta:
+   automático en `orbit_logs/<fecha>/veredicto.txt` diciendo la causa exacta:
    - desfase de reloj sensord↔cámara (causa #1, el bug de locationd),
    - o caída de frecuencia de modelV2/cameraOdometry (causa #2),
    - o el servicio concreto que aparece en el `commIssue`.
@@ -25,7 +25,7 @@ en el instante de la desactivación → eso señala el proceso culpable.
 
 Si ya tienes los segmentos descargados, puedes correr el analizador a mano:
 ```bash
-PYTHONPATH=. python3 tools/sicuem/analyze_route_logs.py sicuem_logs/<fecha>/route/*/
+PYTHONPATH=. python3 tools/orbit/analyze_route_logs.py orbit_logs/<fecha>/route/*/
 ```
 
 ## 1) Conectarte por SSH al comma
@@ -51,16 +51,16 @@ sudo systemctl restart comma   # reiniciar openpilot limpio para reproducir
 ### Modo OFFLINE — después de reproducir el fallo
 ```bash
 # (HOST/KEY opcionales; por defecto comma@192.168.43.1)
-KEY=~/.ssh/tu_clave_github tools/sicuem/grab_sicuem_logs.sh pull
+KEY=~/.ssh/tu_clave_github tools/orbit/grab_orbit_logs.sh pull
 ```
-Genera en `./sicuem_logs/<fecha>/`:
+Genera en `./orbit_logs/<fecha>/`:
 - `commissue_resumen.txt` → cada `commIssue` con sus arrays `not_alive/not_freq_ok/invalid`.
 - `onroad_events.txt` → conteo de `locationdTemporaryError`, `commIssue`, etc. (de qlog).
 - `eventos_swaglog.txt` → líneas crudas (incluye errores `[Bemposta]` del hilo MQTT).
 
 ### Modo EN VIVO — mientras reproduces (activa OP durante la captura)
 ```bash
-SECS=40 KEY=~/.ssh/tu_clave_github tools/sicuem/grab_sicuem_logs.sh live
+SECS=40 KEY=~/.ssh/tu_clave_github tools/orbit/grab_orbit_logs.sh live
 ```
 Genera: `live_errors.txt` (commIssue con fichero:línea), `live_freq.txt` (Hz reales por
 servicio: el que esté por debajo es el que cae), `live_cpu.txt` (CPU por proceso),

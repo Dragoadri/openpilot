@@ -4,23 +4,23 @@
 #          para pasarmelo. Un comando, un fichero. Ya esta.
 #
 # USO A) desde tu PC (despues de que el conductor haya hecho la ruta):
-#   tools/sicuem/log.sh                      # comma por USB/tethering (192.168.43.1)
-#   tools/sicuem/log.sh comma@192.168.1.50   # otra IP
-#   KEY=~/.ssh/tu_clave tools/sicuem/log.sh  # con clave SSH concreta
+#   tools/orbit/log.sh                      # comma por USB/tethering (192.168.43.1)
+#   tools/orbit/log.sh comma@192.168.1.50   # otra IP
+#   KEY=~/.ssh/tu_clave tools/orbit/log.sh  # con clave SSH concreta
 #
 # USO B) si YA estas conectado por ssh DENTRO del comma:
-#   tools/sicuem/log.sh local
+#   tools/orbit/log.sh local
 #
-# Resultado: crea  sicuem_log_<fecha>.txt  en la carpeta actual. Me lo pasas.
+# Resultado: crea  orbit_log_<fecha>.txt  en la carpeta actual. Me lo pasas.
 # ============================================================================
 HOST="${1:-${HOST:-comma@192.168.43.1}}"
-OUT="sicuem_log_$(date +%Y%m%d_%H%M%S).txt"
+OUT="orbit_log_$(date +%Y%m%d_%H%M%S).txt"
 
 SSH=(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
 [ -n "${KEY:-}" ] && SSH+=(-i "$KEY")
 
 # --- payload: lo que se ejecuta EN el comma (local o por ssh) ---
-PAYLOAD_FILE="$(mktemp 2>/dev/null || echo /tmp/sicuem_payload.$$)"
+PAYLOAD_FILE="$(mktemp 2>/dev/null || echo /tmp/orbit_payload.$$)"
 cat > "$PAYLOAD_FILE" <<'REMOTE'
 echo "==================== SICUEM LOG ===================="
 date 2>/dev/null

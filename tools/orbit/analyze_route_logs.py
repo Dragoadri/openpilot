@@ -6,11 +6,11 @@ analyze_route_logs.py — VEREDICTO offline de por qué OP se desactiva al engan
 
 Flujo previsto:
   1) El conductor hace una ruta e intenta enganchar OP (se reproduce el fallo).
-  2) Mas tarde sacas los logs del comma (tools/sicuem/grab_sicuem_logs.sh pull).
+  2) Mas tarde sacas los logs del comma (tools/orbit/grab_orbit_logs.sh pull).
   3) Corres ESTE script sobre el/los segmento(s) descargado(s) -> te dice la causa.
 
 Uso (en tu PC, dentro del repo openpilot):
-  PYTHONPATH=. python3 tools/sicuem/analyze_route_logs.py <ruta_a_segmento_o_rlog/qlog> [...]
+  PYTHONPATH=. python3 tools/orbit/analyze_route_logs.py <ruta_a_segmento_o_rlog/qlog> [...]
   # acepta un directorio de segmento (busca rlog.zst/qlog.zst dentro) o ficheros sueltos.
 
 Que mira y por que:
@@ -33,7 +33,7 @@ try:
   from openpilot.tools.lib.logreader import LogReader, ReadMode  # noqa: F401
   from openpilot.selfdrive.test.process_replay.migration import migrate_all
 except Exception as e:
-  print(f"ERROR importando LogReader: {e}\nEjecuta con: PYTHONPATH=. python3 tools/sicuem/analyze_route_logs.py <seg>")
+  print(f"ERROR importando LogReader: {e}\nEjecuta con: PYTHONPATH=. python3 tools/orbit/analyze_route_logs.py <seg>")
   sys.exit(2)
 
 

@@ -3,7 +3,7 @@
 """
 Diagnostico MQTT Orbit — EJECUTAR EN EL COMMA.
 
-  cd /data/openpilot && python3 tools/sicuem/diag_mqtt_orbit.py
+  cd /data/openpilot && python3 tools/orbit/diag_mqtt_orbit.py
 
 Comprueba, en orden, por que el dispositivo no aparece "conectado" en la app:
   1) Que las librerias (paho, cereal, numpy, zmq, cv2, requests) importan.
@@ -57,9 +57,9 @@ def main() -> int:
   print("\n3) CONFIG BROKER")
   broker, port = None, 1883
   candidates = [
-    os.path.join("/data/openpilot", "sicuem/orbit/config_mqtt.json"),
+    os.path.join("/data/openpilot", "orbit/config_mqtt.json"),
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                 "sicuem/orbit/config_mqtt.json"),
+                 "orbit/config_mqtt.json"),
   ]
   cfgpath = next((p for p in candidates if os.path.exists(p)), candidates[0])
   try:

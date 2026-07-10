@@ -73,7 +73,7 @@ El sunnypilot stock vive justo en 15; nuestra telemetría (+1) lo desborda.
 ```bash
 # con el coche encendido y openpilot corriendo:
 cd /data/openpilot
-python3 tools/sicuem/diag_msgq_readers.py --service carState --dur 30
+python3 tools/orbit/diag_msgq_readers.py --service carState --dur 30
 ```
 
 - Si imprime `EVICT-ALL` cada ~1.000-1.001 s → mecanismo confirmado; el
@@ -83,7 +83,7 @@ python3 tools/sicuem/diag_msgq_readers.py --service carState --dur 30
 
 ## Fix definitivo (opcional, recomendado a medio plazo)
 
-Subir el límite: `tools/sicuem/msgq_num_readers.patch` (NUM_READERS 15→31 en
+Subir el límite: `tools/orbit/msgq_num_readers.patch` (NUM_READERS 15→31 en
 `msgq_repo/msgq/msgq.h`). Requiere rebuild completo + **reboot** (cambia el
 layout de las colas en /dev/shm). Al ser un submódulo, para hacerlo permanente
 hay que hacer fork de `commaai/msgq` y apuntar `.gitmodules` al fork. Detalles
