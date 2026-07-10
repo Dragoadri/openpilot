@@ -36,7 +36,7 @@ from openpilot.selfdrive.ui.sunnypilot.layouts.settings.orbit_sub_layouts.server
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.orbit_sub_layouts.telemetry_settings import TelemetrySettingsLayout
 
 _REFRESH_SECONDS = 2.0
-_HERO_HEIGHT = 260
+_HERO_HEIGHT = 312
 # El heartbeat MQTT escribe OrbitLastPublish cada ~3 s; sin dato fresco en 30 s
 # el enlace se considera caido aunque OrbitConnected quedara en True (el
 # proceso pudo morir sin escribir el False de despedida).
@@ -119,42 +119,44 @@ class _OrbitHero(Widget):
     rl.draw_rectangle_rounded(card, 0.12, 12, OP.ORBIT_NAVY)
     rl.draw_rectangle_rounded_lines_ex(card, 0.12, 12, 2, OP.ORBIT_HAIRLINE)
 
-    pad = 32
+    # Aire: padding generoso y separacion clara entre bloque de titulo y chips
+    # (peticion 2026-07-10: "mas aire y espacio con servidor, enlace y demas").
+    pad = 40
     logo_size = 128
     text_x = card.x + pad
     if self._logo is not None:
       rl.draw_texture_pro(
         self._logo,
         rl.Rectangle(0, 0, self._logo.width, self._logo.height),
-        rl.Rectangle(card.x + pad, card.y + (card.height - logo_size) / 2 - 20, logo_size, logo_size),
+        rl.Rectangle(card.x + pad, card.y + 44, logo_size, logo_size),
         rl.Vector2(0, 0), 0, rl.WHITE,
       )
-      text_x = card.x + pad + logo_size + 30
+      text_x = card.x + pad + logo_size + 36
 
-    title_y = card.y + 42
+    title_y = card.y + 48
     rl.draw_text_ex(self._font_bold, "ORBIT", rl.Vector2(text_x, title_y), 60, 4, OP.ORBIT_INK)
-    subtitle_y = title_y + measure_text_cached(self._font_bold, "ORBIT", 60, 4).y + 6
+    subtitle_y = title_y + measure_text_cached(self._font_bold, "ORBIT", 60, 4).y + 12
     rl.draw_text_ex(self._font, tr("Estacion de control del vehiculo"),
                     rl.Vector2(text_x, subtitle_y), 32, 0, OP.ORBIT_MUTED)
 
-    # Chips de estado, fila inferior de la tarjeta.
-    chip_h = 52
-    chip_y = card.y + card.height - chip_h - 24
+    # Chips de estado, fila inferior de la tarjeta, con holgura entre ellos.
+    chip_h = 58
+    chip_y = card.y + card.height - chip_h - 32
     x = card.x + pad
     for label, ok in self._chips:
       size = measure_text_cached(self._font_bold, label, 28, 1)
-      chip_w = size.x + chip_h + 26
+      chip_w = size.x + chip_h + 40
       if x + chip_w > card.x + card.width - pad:
         break
       chip_rect = rl.Rectangle(x, chip_y, chip_w, chip_h)
       rl.draw_rectangle_rounded(chip_rect, 1.0, 12, OP.ORBIT_VOID)
       rl.draw_rectangle_rounded_lines_ex(chip_rect, 1.0, 12, 2, OP.ORBIT_HAIRLINE)
       dot_color = OP.ORBIT_GREEN if ok else rl.Color(OP.ORBIT_MUTED.r, OP.ORBIT_MUTED.g, OP.ORBIT_MUTED.b, 120)
-      rl.draw_circle(int(x + 26), int(chip_y + chip_h / 2), 8, dot_color)
+      rl.draw_circle(int(x + 30), int(chip_y + chip_h / 2), 8, dot_color)
       text_color = OP.ORBIT_INK if ok else OP.ORBIT_MUTED
       rl.draw_text_ex(self._font_bold, label,
-                      rl.Vector2(x + 44, chip_y + (chip_h - size.y) / 2), 28, 1, text_color)
-      x += chip_w + 16
+                      rl.Vector2(x + 52, chip_y + (chip_h - size.y) / 2), 28, 1, text_color)
+      x += chip_w + 24
 
 
 class OrbitLayout(Widget):
