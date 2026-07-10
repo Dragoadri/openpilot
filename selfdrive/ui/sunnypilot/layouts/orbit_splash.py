@@ -173,10 +173,13 @@ class OrbitSplash(Widget):
                       rl.Vector2(int(cx - tg_size.x / 2.0), int(y + 12.0 * (1.0 - tgp))),
                       TAGLINE_SIZE, 0, fx.col(fx.MUTED, tgp * exit_a))
 
-    # Orbital progress arc (bottom-center) + pulsing tap hint
+    # Orbital progress arc + pulsing tap hint
     pa = _win(t, 0.6, 1.2) * exit_a
     if pa > 0.0:
-      ctr = rl.Vector2(cx, rect.y + rect.height - 158)
+      # Bottom-left corner: the centered hero block reaches the lower third at
+      # device resolution (a bottom-center arc would sit on the tagline), and
+      # the powered-by DRAGO badge owns the bottom-right.
+      ctr = rl.Vector2(rect.x + 90, rect.y + rect.height - 90)
       rl.draw_ring(ctr, 23, 26, 0, 360, 48, fx.col(fx.HAIRLINE, 0.8 * pa))
       rl.draw_ring(ctr, 23, 26, -90, -90 + 360.0 * fx.clamp01(t / DURATION), 48,
                    fx.col(fx.CYAN, 0.85 * pa))

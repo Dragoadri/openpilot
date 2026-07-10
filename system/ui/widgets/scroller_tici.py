@@ -41,6 +41,8 @@ class Scroller(Widget):
 
   def _render(self, _):
     # TODO: don't draw items that are not in the viewport
+    # NOTE: SettingsLayoutSP._draw_nav_marker relies on every nav item's rect being
+    # refreshed each frame; if culling is ever implemented, keep offscreen rects fresh.
     visible_items = [item for item in self._items if item.is_visible]
 
     # Add line separator between items

@@ -6,6 +6,8 @@ See the LICENSE.md file in the root directory for more details.
 """
 from dataclasses import dataclass
 from enum import IntEnum
+import math
+import time
 
 import pyray as rl
 from openpilot.selfdrive.ui.layouts.settings import settings as OP
@@ -31,6 +33,7 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.wifi_manager import WifiManager
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.scroller_tici import Scroller
+from openpilot.selfdrive.ui.widgets import orbit_fx as fx
 
 # from openpilot.selfdrive.ui.sunnypilot.layouts.settings.navigation import NavigationLayout
 
@@ -38,6 +41,9 @@ OP.PANEL_COLOR = rl.Color(13, 20, 34, 255)   # ORBIT dark ground (was near-black
 ICON_SIZE = 40               # icono dentro del chip: mas pequeno que el chip para que respire
 NAV_TILE_INSET = 15          # vertical inset per allocated row → top/bottom margin between tiles
 NAV_TILE_H_INSET = 12        # horizontal inset → side margin so tiles float inside the rail
+MARKER_ANIM_S = 0.22     # cyan marker slide between tiles
+PANEL_ANIM_S = 0.22      # panel slide+fade on tab change
+PANEL_SLIDE_PX = 36.0
 
 OP.PanelType = IntEnum(
   "PanelType",
@@ -88,20 +94,19 @@ class NavButton(Widget):
     if is_selected:
       rl.draw_rectangle_rounded(tile, 0.24, 12, OP.ORBIT_PANEL)
       rl.draw_rectangle_rounded_lines_ex(tile, 0.24, 12, 2, OP.ORBIT_HAIRLINE)
-      # cyan marker bar, flush to the left edge, with a faint halo (glow proxy)
-      bar = rl.Rectangle(tile.x + 3, tile.y + tile.height * 0.18, 11, tile.height * 0.64)
-      halo = rl.Rectangle(bar.x - 3, bar.y - 3, bar.width + 6, bar.height + 6)
-      rl.draw_rectangle_rounded(halo, 1.0, 8, rl.Color(OP.ORBIT_CYAN.r, OP.ORBIT_CYAN.g, OP.ORBIT_CYAN.b, 55))
-      rl.draw_rectangle_rounded(bar, 1.0, 8, OP.ORBIT_CYAN)
+      # (cyan marker bar + halo now drawn by the sidebar so it can slide between tiles)
     elif hovered and mouse_down:
-      rl.draw_rectangle_rounded(tile, 0.24, 12, OP.ORBIT_NAVY)
+      pressed = rl.Rectangle(tile.x + 2, tile.y + 2, tile.width - 4, tile.height - 4)
+      rl.draw_rectangle_rounded(pressed, 0.24, 12, OP.ORBIT_NAVY)
 
     # Icon chip: el icono (ICON_SIZE) es claramente menor que el chip, de forma
     # que queda enmarcado con padding. Chip con fondo tintado + borde fino.
     chip = tile.height * 0.68
     chip_rect = rl.Rectangle(tile.x + 26, tile.y + (tile.height - chip) / 2, chip, chip)
     if is_selected:
-      chip_bg = rl.Color(OP.ORBIT_CYAN.r, OP.ORBIT_CYAN.g, OP.ORBIT_CYAN.b, 45)
+      # Fondo respirando alrededor de la base 45; el borde queda fijo.
+      chip_a = int(45 + 14 * math.sin(time.monotonic() * 2.4))
+      chip_bg = rl.Color(OP.ORBIT_CYAN.r, OP.ORBIT_CYAN.g, OP.ORBIT_CYAN.b, chip_a)
       chip_border = rl.Color(OP.ORBIT_CYAN.r, OP.ORBIT_CYAN.g, OP.ORBIT_CYAN.b, 115)
     else:
       chip_bg = rl.Color(OP.ORBIT_MUTED.r, OP.ORBIT_MUTED.g, OP.ORBIT_MUTED.b, 20)
@@ -135,6 +140,10 @@ class SettingsLayoutSP(OP.SettingsLayout):
   def __init__(self):
     OP.SettingsLayout.__init__(self)
     self._nav_items: list[Widget] = []
+    # Marker-slide + panel-transition animation state
+    self._marker_prev = self._current_panel
+    self._marker_t0 = 0.0
+    self._panel_switch_t0 = 0.0
 
     # Create sidebar scroller
     self._sidebar_scroller = Scroller([], spacing=0, line_separator=False, pad_end=False)
@@ -166,9 +175,13 @@ class SettingsLayoutSP(OP.SettingsLayout):
     # ORBIT es la primera tile del rail: que sea tambien el panel inicial
     # (la base arranca en DEVICE y la tile superior quedaba sin seleccionar).
     self._current_panel = OP.PanelType.ORBIT
+    self._marker_prev = self._current_panel
 
   def _draw_sidebar(self, rect: rl.Rectangle):
     rl.draw_rectangle_rec(rect, OP.SIDEBAR_COLOR)
+    # Subtle vertical light so the rail reads as lit from above
+    rl.draw_rectangle_gradient_v(int(rect.x), int(rect.y), int(rect.width), int(rect.height * 0.45),
+                                 rl.Color(27, 44, 72, 70), rl.Color(27, 44, 72, 0))
     mouse_pos = rl.get_mouse_position()
     mouse_down = rl.is_mouse_button_down(rl.MouseButton.MOUSE_BUTTON_LEFT)
 
@@ -208,6 +221,62 @@ class SettingsLayoutSP(OP.SettingsLayout):
     nav_rect = rl.Rectangle(rect.x + OP.SB_PAD, nav_top, rect.width - 2 * OP.SB_PAD, close_top - 22 - nav_top)
     if self._nav_items:
       self._sidebar_scroller.render(nav_rect)
+      self._draw_nav_marker(nav_rect)
+
+  def _draw_nav_marker(self, nav_rect: rl.Rectangle):
+    """Cyan selection marker + halo, drawn over the rail so it can slide with
+    easing between the previous and the current tile. button_rects are updated
+    every frame by the scroller, so the marker follows scrolling too."""
+    cur = self._panels[self._current_panel].button_rect
+    if cur.width <= 0:
+      return
+    prev = self._panels[self._marker_prev].button_rect
+    t = fx.clamp01((time.monotonic() - self._marker_t0) / MARKER_ANIM_S)
+    if prev.width <= 0 or t >= 1.0:
+      row = cur
+    else:
+      e = fx.ease_out_cubic(t)
+      row = rl.Rectangle(prev.x + (cur.x - prev.x) * e, prev.y + (cur.y - prev.y) * e,
+                         prev.width + (cur.width - prev.width) * e,
+                         prev.height + (cur.height - prev.height) * e)
+    tile_y = row.y + NAV_TILE_INSET
+    tile_h = row.height - 2 * NAV_TILE_INSET
+    bar = rl.Rectangle(row.x + NAV_TILE_H_INSET + 3, tile_y + tile_h * 0.18, 11, tile_h * 0.64)
+    halo = rl.Rectangle(bar.x - 3, bar.y - 3, bar.width + 6, bar.height + 6)
+    rl.begin_scissor_mode(int(nav_rect.x), int(nav_rect.y), int(nav_rect.width), int(nav_rect.height))
+    rl.draw_rectangle_rounded(halo, 1.0, 8, rl.Color(OP.ORBIT_CYAN.r, OP.ORBIT_CYAN.g, OP.ORBIT_CYAN.b, 55))
+    rl.draw_rectangle_rounded(bar, 1.0, 8, OP.ORBIT_CYAN)
+    rl.end_scissor_mode()
+
+  def set_current_panel(self, panel_type):
+    if panel_type != self._current_panel:
+      self._marker_prev = self._current_panel
+      now = time.monotonic()
+      self._marker_t0 = now
+      self._panel_switch_t0 = now
+    super().set_current_panel(panel_type)
+
+  def _draw_current_panel(self, rect: rl.Rectangle):
+    bg = rl.Rectangle(rect.x + 10, rect.y + 10, rect.width - 20, rect.height - 20)
+    rl.draw_rectangle_rounded(bg, 0.04, 30, OP.PANEL_COLOR)
+    content_rect = rl.Rectangle(rect.x + OP.PANEL_MARGIN, rect.y + 25,
+                                rect.width - (OP.PANEL_MARGIN * 2), rect.height - 50)
+    panel = self._panels[self._current_panel]
+    if not panel.instance:
+      return
+    t = fx.clamp01((time.monotonic() - self._panel_switch_t0) / PANEL_ANIM_S)
+    if t >= 1.0:
+      panel.instance.render(content_rect)
+      return
+    e = fx.ease_out_cubic(t)
+    rl.begin_scissor_mode(int(bg.x), int(bg.y), int(bg.width), int(bg.height))
+    panel.instance.render(rl.Rectangle(content_rect.x + (1.0 - e) * PANEL_SLIDE_PX, content_rect.y,
+                                       content_rect.width, content_rect.height))
+    # Fade-from-dark overlay while the panel slides in
+    rl.draw_rectangle_rounded(bg, 0.04, 30,
+                              rl.Color(OP.PANEL_COLOR.r, OP.PANEL_COLOR.g, OP.PANEL_COLOR.b,
+                                       int(150 * (1.0 - e))))
+    rl.end_scissor_mode()
 
   def _handle_mouse_release(self, mouse_pos: MousePos) -> bool:
     # Check close button
