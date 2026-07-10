@@ -39,8 +39,8 @@ A full dark "ground-station" redesign of the driver UI — same sunnypilot funct
 |:---:|:---:|:---:|
 | ![Boot splash](docs/images/ui-splash.png) | ![Home — linked](docs/images/ui-home.png) | ![QR enrollment](docs/images/ui-enroll-qr.png) |
 | **Boot splash** | **Home** — live broker/API status, telemetry pulse, account pill | **QR pairing** — countdown, regenerate, manual code |
-| ![Toggles](docs/images/ui-toggles.png) | ![Device panel](docs/images/ui-device.png) | ![Home — unlinked](docs/images/ui-home-unlinked.png) |
-| **Toggles** — tap-friendly tiles | **Device** — account, unlink, calibration | **Home** — unlinked state |
+| ![ORBIT panel](docs/images/ui-orbit-panel.png) | ![Device panel](docs/images/ui-device.png) | ![Home — unlinked](docs/images/ui-home-unlinked.png) |
+| **ORBIT panel** — live status hero, connection, telemetry, Jetson | **Device** — account, unlink, calibration | **Home** — unlinked state |
 
 ## ✨ What ORBIT adds
 
