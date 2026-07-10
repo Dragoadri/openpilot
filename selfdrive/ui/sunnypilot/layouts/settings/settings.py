@@ -29,14 +29,13 @@ from openpilot.system.ui.lib.application import gui_app, MousePos
 from openpilot.system.ui.lib.multilang import tr_noop
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.wifi_manager import WifiManager
-from openpilot.system.ui.sunnypilot.lib.styles import style
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 
 # from openpilot.selfdrive.ui.sunnypilot.layouts.settings.navigation import NavigationLayout
 
 OP.PANEL_COLOR = rl.Color(13, 20, 34, 255)   # ORBIT dark ground (was near-black)
-ICON_SIZE = 64
+ICON_SIZE = 40               # icono dentro del chip: mas pequeno que el chip para que respire
 NAV_TILE_INSET = 15          # vertical inset per allocated row → top/bottom margin between tiles
 NAV_TILE_H_INSET = 12        # horizontal inset → side margin so tiles float inside the rail
 
@@ -97,14 +96,18 @@ class NavButton(Widget):
     elif hovered and mouse_down:
       rl.draw_rectangle_rounded(tile, 0.24, 12, OP.ORBIT_NAVY)
 
-    # Icon chip: cyan-tinted when selected (rgba .16), muted-tinted otherwise (.10)
-    chip = tile.height * 0.62
+    # Icon chip: el icono (ICON_SIZE) es claramente menor que el chip, de forma
+    # que queda enmarcado con padding. Chip con fondo tintado + borde fino.
+    chip = tile.height * 0.68
     chip_rect = rl.Rectangle(tile.x + 26, tile.y + (tile.height - chip) / 2, chip, chip)
     if is_selected:
-      chip_bg = rl.Color(OP.ORBIT_CYAN.r, OP.ORBIT_CYAN.g, OP.ORBIT_CYAN.b, 41)
+      chip_bg = rl.Color(OP.ORBIT_CYAN.r, OP.ORBIT_CYAN.g, OP.ORBIT_CYAN.b, 45)
+      chip_border = rl.Color(OP.ORBIT_CYAN.r, OP.ORBIT_CYAN.g, OP.ORBIT_CYAN.b, 115)
     else:
-      chip_bg = rl.Color(OP.ORBIT_MUTED.r, OP.ORBIT_MUTED.g, OP.ORBIT_MUTED.b, 26)
-    rl.draw_rectangle_rounded(chip_rect, 0.28, 10, chip_bg)
+      chip_bg = rl.Color(OP.ORBIT_MUTED.r, OP.ORBIT_MUTED.g, OP.ORBIT_MUTED.b, 20)
+      chip_border = rl.Color(OP.ORBIT_HAIRLINE.r, OP.ORBIT_HAIRLINE.g, OP.ORBIT_HAIRLINE.b, 200)
+    rl.draw_rectangle_rounded(chip_rect, 0.32, 10, chip_bg)
+    rl.draw_rectangle_rounded_lines_ex(chip_rect, 0.32, 10, 2, chip_border)
 
     if self.panel_info.icon:
       icon_texture = gui_app.texture(self.panel_info.icon, ICON_SIZE, ICON_SIZE, keep_aspect_ratio=True)

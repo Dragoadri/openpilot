@@ -19,7 +19,9 @@ from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 
-LOGO_PATH = "img_orbit_logo.png"   # resolved under selfdrive/assets/
+LOGO_PATH = "img_orbit_logo_round.png"   # variante circular: dentro del anillo, un
+                                         # logo cuadrado desentona y sus esquinas
+                                         # cruzaban el anillo giratorio
 
 DURATION = 5.5     # seconds on screen before auto-dismiss
 EXIT_FADE = 0.5    # global fade/zoom-out at the very end
@@ -31,6 +33,11 @@ WORDMARK_SPACING_WIDE = 64    # tracking animates in from this
 TAGLINE = "Open Remote Bidirectional IoV Telemetry"
 TAGLINE_SIZE = 40
 RING_SPIN_DPS = 40.0          # continuous ring rotation, deg/s
+
+# Badge "powered by DRAGO" (esquina inferior derecha; tap -> pantalla sobre drago)
+DRAGO_LOGO_H = 64
+DRAGO_ASPECT = 469 / 640
+POWERED_SIZE = 26
 
 
 def _win(t: float, a: float, b: float) -> float:
@@ -46,6 +53,13 @@ class OrbitSplash(Widget):
     self._start: float | None = None
     self._done = False
     self._stars = fx.Starfield(n=90, seed=42)
+    self._badge_rect = rl.Rectangle(0, 0, 0, 0)
+    self._badge_visible = False
+    try:
+      self._drago = gui_app.texture("img_drago_logo.png", int(DRAGO_LOGO_H * DRAGO_ASPECT) + 4, DRAGO_LOGO_H,
+                                    keep_aspect_ratio=True)
+    except Exception:
+      self._drago = None
 
   def _dismiss(self):
     # Pop by identity: never pop another widget if something got pushed on top.
@@ -61,6 +75,11 @@ class OrbitSplash(Widget):
       gui_app.pop_widget(stack.index(self))
 
   def _handle_mouse_release(self, mouse_pos):
+    # El badge powered-by abre la pantalla sobre drago; cualquier otro punto salta el splash.
+    if self._badge_visible and rl.check_collision_point_rec(mouse_pos, self._badge_rect):
+      from openpilot.selfdrive.ui.widgets.about_drago import AboutDragoDialog
+      gui_app.push_widget(AboutDragoDialog())
+      return
     self._dismiss()
 
   def _render(self, rect: rl.Rectangle):
@@ -167,6 +186,27 @@ class OrbitSplash(Widget):
       hw = measure_text_cached(normal, hint, 30).x
       rl.draw_text_ex(normal, hint, rl.Vector2(cx - hw / 2.0, rect.y + rect.height - 96),
                       30, 0, fx.col(fx.MUTED, ha))
+
+    # Badge "powered by DRAGO" (inferior derecha; tap -> pantalla sobre drago)
+    ba = _win(t, 1.5, 2.1) * exit_a
+    self._badge_visible = ba > 0.4
+    if self._drago is not None and ba > 0.0:
+      s1 = measure_text_cached(normal, "powered by ", POWERED_SIZE)
+      s2 = measure_text_cached(bold, "DRAGO", POWERED_SIZE)
+      right = rect.x + rect.width - 56
+      dragon_x = right - self._drago.width
+      dragon_y = rect.y + rect.height - 40 - self._drago.height
+      rl.draw_texture_ex(self._drago, rl.Vector2(int(dragon_x), int(dragon_y)), 0.0, 1.0,
+                         rl.Color(255, 255, 255, int(255 * ba)))
+      text_x = dragon_x - 16 - (s1.x + s2.x)
+      text_y = dragon_y + (self._drago.height - max(s1.y, s2.y)) / 2
+      rl.draw_text_ex(normal, "powered by ", rl.Vector2(int(text_x), int(text_y)),
+                      POWERED_SIZE, 0, fx.col(fx.MUTED, ba))
+      rl.draw_text_ex(bold, "DRAGO", rl.Vector2(int(text_x + s1.x), int(text_y)),
+                      POWERED_SIZE, 0, fx.col(fx.GREEN, ba))
+      pad = 18
+      self._badge_rect = rl.Rectangle(text_x - pad, dragon_y - pad,
+                                      right - text_x + 2 * pad, self._drago.height + 2 * pad)
 
     # Auto-dismiss
     if t >= DURATION:

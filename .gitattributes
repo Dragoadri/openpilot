@@ -16,6 +16,7 @@ system/hardware/tici/updater filter=lfs diff=lfs merge=lfs -text
 # ORBIT: keep the small ORBIT logo as a normal git blob (NOT LFS), so it
 # pushes to our GitHub fork without the sunnypilot GitLab LFS remote.
 selfdrive/assets/img_orbit_logo.png -filter -diff -merge -text
+selfdrive/assets/img_orbit_logo_round.png -filter -diff -merge -text
 
 # ORBIT: dragon credit logo ("powered by drago") on the home screen, non-LFS blob.
 selfdrive/assets/img_drago_logo.png -filter -diff -merge -text

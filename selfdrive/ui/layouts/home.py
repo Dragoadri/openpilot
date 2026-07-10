@@ -139,6 +139,7 @@ class HomeLayout(Widget):
     self._net_ssid = ""
     self._ssid_inflight = False
     self._broker_addr = ""
+    self._drago_rect = rl.Rectangle(0, 0, 0, 0)
 
     # Cached param reads — fast refresh (FAST_REFRESH_INTERVAL)
     self._claimed = False
@@ -249,6 +250,9 @@ class HomeLayout(Widget):
         self._open_enroll()
       elif self.update_available and rl.check_collision_point_rec(mouse_pos, self._card_rects.get("update", empty)):
         self._set_state(HomeLayoutState.UPDATE)
+      elif rl.check_collision_point_rec(mouse_pos, self._drago_rect):
+        from openpilot.selfdrive.ui.widgets.about_drago import AboutDragoDialog
+        gui_app.push_widget(AboutDragoDialog())
 
   # ---------------------------------------------------------------------------
   # Header: brand top-left, link pill + notification buttons top-right
@@ -336,14 +340,15 @@ class HomeLayout(Widget):
     backend_ok = self._server.backend_ok
     dev_val = self._dongle if self._dongle and self._dongle != "UnregisteredDevice" else "sin registrar"
 
+    # Solo ASCII: el "check" unicode no existe en las fuentes bitmap.
     if broker_ok and backend_ok:
-      server_val, server_color = "BROKER ✓ - API ✓", COMMANDS
+      server_val, server_color = "BROKER OK - API OK", COMMANDS
     elif broker_ok:
-      server_val, server_color = "BROKER ✓ - sin API", AMBER
+      server_val, server_color = "BROKER OK - sin API", AMBER
     elif backend_ok:
-      server_val, server_color = "sin BROKER - API ✓", AMBER
+      server_val, server_color = "sin BROKER - API OK", AMBER
     else:
-      server_val, server_color = "Sin conexión", AMBER
+      server_val, server_color = "Sin conexion", AMBER
     server_sub = self._last_publish_text() if (broker_ok or backend_ok) else "toca para configurar la IP"
 
     cards = [
@@ -421,7 +426,12 @@ class HomeLayout(Widget):
     if tappable:
       self._draw_chevron(card.x + card.width - CARD_PAD - 16, card.y + card.height / 2, 20, chevron_color)
 
-    value = self._ellipsize(val_font, value, value_size, max_w - (36 if tappable else 0))
+    # El valor nunca se corta: primero encoge la fuente (hasta 32px) y solo si
+    # aun asi no cabe, elipsa. Los valores son strings estables (no crece la cache).
+    max_w_value = max_w - (36 if tappable else 0)
+    while value_size > 32 and measure_text_cached(val_font, value, value_size).x > max_w_value:
+      value_size -= 2
+    value = self._ellipsize(val_font, value, value_size, max_w_value)
     vy = card.y + value_y
     rl.draw_text_ex(val_font, value, rl.Vector2(int(card.x + CARD_PAD), int(vy)), value_size, 0, color)
 
@@ -555,6 +565,11 @@ class HomeLayout(Widget):
     text_y = dragon_y + (tex.height - max(s1.y, s2.y)) / 2
     rl.draw_text_ex(font, part1, rl.Vector2(int(text_x), int(text_y)), POWERED_SIZE, 0, MUTED)
     rl.draw_text_ex(font, part2, rl.Vector2(int(text_x + s1.x), int(text_y)), POWERED_SIZE, 0, COMMANDS)
+
+    # Zona pulsable del badge (tap -> pantalla sobre drago), con margen extra.
+    pad = 18
+    self._drago_rect = rl.Rectangle(text_x - pad, dragon_y - pad,
+                                    x_right - text_x + 2 * pad, tex.height + 2 * pad)
 
   # ---------------------------------------------------------------------------
   # Cached data refresh
