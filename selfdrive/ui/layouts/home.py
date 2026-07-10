@@ -183,6 +183,7 @@ class HomeLayout(Widget):
     self._stars = fx.Starfield(n=70, seed=1234)
     self._cascade = fx.Cascade(stagger=0.07, duration=0.35, rise=24.0)
     self._shown_at = time.monotonic()
+    self._last_render_t = time.monotonic()
 
     self._setup_callbacks()
 
@@ -210,6 +211,11 @@ class HomeLayout(Widget):
 
   def _render(self, rect: rl.Rectangle):
     current_time = time.monotonic()
+    # If we were occluded (splash/onboarding/settings on top: only the top
+    # widget renders), restart the entrance animation on re-appearance.
+    if current_time - self._last_render_t > 0.5:
+      self._shown_at = current_time
+    self._last_render_t = current_time
     if current_time - self.last_refresh >= REFRESH_INTERVAL:
       self._refresh()
       self.last_refresh = current_time
