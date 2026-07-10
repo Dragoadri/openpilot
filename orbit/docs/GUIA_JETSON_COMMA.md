@@ -26,8 +26,8 @@ Las ultimas 10 imagenes recibidas se guardan en la Jetson en:
 
 | Dispositivo | Ruta del archivo |
 |---|---|
-| Comma | `/data/openpilot/sicuem/orbit/config_jetson.json` |
-| Simulador (PC) | `sicuem/orbit/config_jetson.json` (dentro del repo) |
+| Comma | `/data/openpilot/orbit/config_jetson.json` |
+| Simulador (PC) | `orbit/config_jetson.json` (dentro del repo) |
 | Jetson | `/home/sic/jetson-inference/data/zmq/config_jetson.json` |
 
 ### Formato del config (igual en ambos lados)
@@ -82,7 +82,7 @@ hostname -I
 ### Paso 3: Actualizar config en el COMMA
 
 ```bash
-nano /data/openpilot/sicuem/orbit/config_jetson.json
+nano /data/openpilot/orbit/config_jetson.json
 ```
 
 Poner:
@@ -153,7 +153,7 @@ cd /data/openpilot && ./launch_openpilot.sh
 
 ### Paso 1: Actualizar config del simulador
 
-Archivo: `sicuem/orbit/config_jetson.json` (dentro del repo en el PC)
+Archivo: `orbit/config_jetson.json` (dentro del repo en el PC)
 
 ```json
 {
@@ -188,7 +188,7 @@ cd /ruta/al/repo/openpilot-img && python tools/sim/run_bridge.py
 
 | Que | Donde | Comando/Archivo |
 |---|---|---|
-| Config Comma | SSH al Comma | `/data/openpilot/sicuem/orbit/config_jetson.json` |
+| Config Comma | SSH al Comma | `/data/openpilot/orbit/config_jetson.json` |
 | Config Jetson | SSH a la Jetson | `/home/sic/jetson-inference/data/zmq/config_jetson.json` |
 | Docker Jetson | SSH a la Jetson (root) | `docker start -i PilotNet_Zmq` |
 | Script Jetson | Dentro del Docker | `cd /jetson-inference/data/zmq && python3 jetson_1.py` |

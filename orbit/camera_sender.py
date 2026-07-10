@@ -92,7 +92,7 @@ class CameraSender:
       torque_port = int(config.get("jetson_torque_port", 5556))
       jpeg_quality = int(config.get("jpeg_quality", 80))
 
-      from openpilot.sicuem.orbit.zmq_client import ZMQClient
+      from openpilot.orbit.zmq_client import ZMQClient
       self.zmq_client = ZMQClient(
         jetson_ip=jetson_ip,
         img_port=img_port,

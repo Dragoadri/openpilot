@@ -6,7 +6,7 @@ Publica torques por ZMQ en formato float32, exactamente igual que haria
 PilotNet en la Jetson real. Sirve para probar el selector de torque y la
 UI (CT/AT/JT) en el simulador sin necesidad de tener la Jetson conectada.
 
-ZMQ topology (debe coincidir con sicuem/orbit/zmq_client.py):
+ZMQ topology (debe coincidir con orbit/zmq_client.py):
   - Jetson (este script):   PUSH socket bind('tcp://*:5556')
   - Comma (zmq_client):     PULL socket connect('tcp://<jetson_ip>:5556')
 

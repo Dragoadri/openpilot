@@ -47,7 +47,7 @@ def main() -> int:
   # 2) Import del stack MQTT (identico a manager.py) -----------------------
   print("\n2) IMPORT DEL STACK MQTT (como manager.py)")
   try:
-    from openpilot.sicuem.orbit.mqtt_envio_general import MQTTEnvioGeneral  # noqa: F401
+    from openpilot.orbit.mqtt_envio_general import MQTTEnvioGeneral  # noqa: F401
     ok("import MQTTEnvioGeneral OK  -> el stack MQTT PUEDE arrancar")
   except Exception as e:
     bad(f"import MQTTEnvioGeneral FALLA -> manager NO arranca MQTT: {type(e).__name__}: {e}")

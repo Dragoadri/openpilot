@@ -1,7 +1,0 @@
-{
-  "buttonEnable/enable": "E3",
-  "calibrationIncomplete/permanent": "E1",
-  "laneChange/warning": "E5",
-  "startupMaster/permanent": "E2",
-  "steerSaturated/warning": "E4"
-}

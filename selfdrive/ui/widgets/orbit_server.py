@@ -1,7 +1,7 @@
 """
 ORBIT server reachability helpers.
 
-Reads the Orbit server address from sicuem/orbit/config_mqtt.json and checks
+Reads the Orbit server address from orbit/config_mqtt.json and checks
 whether it is reachable: a plain TCP connect to the MQTT broker (no MQTT
 handshake) plus an HTTP GET to the backend /api/health endpoint.
 Used by the home screen (live status) and the server-IP settings ("test") button.
@@ -14,7 +14,7 @@ import urllib.request
 
 from openpilot.common.basedir import BASEDIR
 
-CONFIG_REL = "sicuem/orbit/config_mqtt.json"
+CONFIG_REL = "orbit/config_mqtt.json"
 DEFAULT_BACKEND_PORT = 8010
 
 

@@ -567,7 +567,7 @@ class SelfdriveD(CruiseHelper):
     # [Orbit] espejo de alertas por MQTT (la creación de alertas vive en selfdrived, no en controlsd;
     # events_mqtt aplica su propio cooldown por evento y usa un cliente MQTT persistente no bloqueante)
     try:
-      from openpilot.sicuem.orbit import events_mqtt
+      from openpilot.orbit import events_mqtt
       for _a in (alerts + alerts_sp):
         if getattr(_a, "alert_type", ""):
           events_mqtt.send_alert(_a)

@@ -8,7 +8,7 @@ TelUemSettings sub-panel (SIC-UEM / Orbit).
 
 Port of the old Qt TelUemSettings (selfdrive/ui/sunnypilot/qt/offroad/settings/
 sunnypilot/teluem_settings.cc). Per-channel telemetry toggles that gate which
-cereal channels the SIC-UEM MQTT sender (sicuem/orbit/mqtt_envio_general.py)
+cereal channels the SIC-UEM MQTT sender (orbit/mqtt_envio_general.py)
 publishes.
 
 Faithful port: the original bool toggles in the original order. The original was a
@@ -35,7 +35,7 @@ from openpilot.system.ui.widgets.list_view import text_item
 from openpilot.system.ui.widgets.network import NavButton
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 
-# Written by sicuem/orbit/camera_sender.py (_save_config); read-only here.
+# Written by orbit/camera_sender.py (_save_config); read-only here.
 CAMERA_CONFIG_FILE = "/data/orbit_camera_config.json"
 
 # (param, title, description) in the original order (teluem_settings.cc:49-101)

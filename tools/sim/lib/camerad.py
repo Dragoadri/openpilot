@@ -13,7 +13,7 @@ from openpilot.tools.sim.lib.common import W, H
 THUMBNAIL_W = W // 4
 THUMBNAIL_H = H // 4
 THUMBNAIL_EVERY_N_FRAMES = 5
-JETSON_CONFIG_FILE = os.path.join(BASEDIR, "sicuem/orbit/config_jetson.json")
+JETSON_CONFIG_FILE = os.path.join(BASEDIR, "orbit/config_jetson.json")
 
 
 def rgb_to_nv12(rgb):
@@ -64,7 +64,7 @@ class Camerad:
 
   def _init_jetson_zmq(self):
     """Inicializa ZMQClient para enviar imágenes a la Jetson si está habilitado en config.
-    Todo va envuelto en try/except: si falta config, PIL, sicuem o la Jetson, el sim
+    Todo va envuelto en try/except: si falta config, PIL, orbit o la Jetson, el sim
     sigue funcionando normalmente sin enviar nada."""
     try:
       if not os.path.exists(JETSON_CONFIG_FILE):
@@ -78,7 +78,7 @@ class Camerad:
         print("Camerad: Jetson ZMQ deshabilitado en config")
         return
 
-      from openpilot.sicuem.orbit.zmq_client import ZMQClient
+      from openpilot.orbit.zmq_client import ZMQClient
       self.zmq_client = ZMQClient(
         jetson_ip=config.get("jetson_ip", "127.0.0.1"),
         img_port=int(config.get("jetson_img_port", 5555)),
@@ -100,7 +100,7 @@ class Camerad:
     # livePose.inputsOK=False -> locationdTemporaryError (noEntry) -> OP nunca engancha.
     self._tick_eof = int(time.monotonic() * 1e9)
     self._send_yuv(yuv, self.frame_road_id, 'roadCameraState', VisionStreamType.VISION_STREAM_ROAD, self._tick_eof)
-    # En el coche real, sicuem/orbit/camera_sender.py se suscribe al canal cereal
+    # En el coche real, orbit/camera_sender.py se suscribe al canal cereal
     # 'jetsonThumbnail' (~5 Hz) y reenvia ese mismo JPEG por ZMQ a la Jetson. Para que
     # el sim se comporte igual, generamos el thumbnail solo cada N frames y reusamos
     # esos bytes tanto para el mensaje cereal como para el envio ZMQ a la Jetson.
@@ -124,7 +124,7 @@ class Camerad:
   def _publish_thumbnail(self, rgb, frame_id, eof):
     """Genera un JPEG thumbnail del frame RGB, lo publica en el canal cereal 'thumbnail'
     y, si la Jetson esta habilitada, envia los MISMOS bytes por ZMQ (igual que hace
-    sicuem/orbit/camera_sender.py en el coche real con 'jetsonThumbnail')."""
+    orbit/camera_sender.py en el coche real con 'jetsonThumbnail')."""
     try:
       from PIL import Image
       img = Image.fromarray(rgb)

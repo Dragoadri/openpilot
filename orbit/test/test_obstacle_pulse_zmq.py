@@ -8,7 +8,7 @@ import unittest
 import zmq
 
 from openpilot.common.params import Params
-from openpilot.sicuem.orbit.zmq_client import ZMQClient
+from openpilot.orbit.zmq_client import ZMQClient
 
 
 def _free_port() -> int:

@@ -1,3 +1,12 @@
+"""MODULO DORMIDO — sin importadores en el arbol actual.
+
+Conservado a proposito como material para el adelantamiento C2 (secuenciador
+completo: ida + retorno al carril + bump de velocidad; ver el catalogo en
+docs/superpowers/specs/2026-07-10-orbit-root-move-and-menu-redesign-design.md).
+Sus params historicos `adelantamiento_vel_diff` / `adelantamiento_distancia` se
+retiraron de common/params_keys.h: si C2 reutiliza esta logica, debe leer los
+params `overtake_*` que ya escribe orbit/mqtt_comandos.py (_apply_overtake).
+"""
 from cereal import log
 from openpilot.common.params import Params
 

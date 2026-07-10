@@ -9,7 +9,7 @@ Modelo "estado continuo" (v3, 2026-05-12):
 import unittest
 from unittest.mock import MagicMock
 
-from openpilot.sicuem.orbit.orbit_obstacle_pulse import (
+from openpilot.orbit.orbit_obstacle_pulse import (
     ObstaclePulseState,
     DEFAULT_MAX_ANGLE,
     DEFAULT_MAX_CURV,

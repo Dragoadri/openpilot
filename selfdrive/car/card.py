@@ -223,7 +223,7 @@ class Car:
     # el proceso manager, así que pasamos sus flags al módulo y los limpiamos tras consumir.
     try:
       if self.params.get_bool("orbit_speed_increase") or self.params.get_bool("orbit_speed_decrease"):
-        import openpilot.sicuem.orbit.orbit_speed_ultra_simple as _adri_spd
+        import openpilot.orbit.orbit_speed_ultra_simple as _adri_spd
         _adri_spd.orbit_speed_increase = self.params.get_bool("orbit_speed_increase")
         _adri_spd.orbit_speed_decrease = self.params.get_bool("orbit_speed_decrease")
         _cc = type("_AdriCC", (), {"longActive": bool(self.sm['carControl'].longActive)})()

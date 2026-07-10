@@ -28,7 +28,7 @@ from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
 
 # [Orbit] Modo 3 (COMMA+JETSON): estado del esquive de obstáculos
 try:
-  from openpilot.sicuem.orbit.orbit_obstacle_pulse import ObstaclePulseState, DEFAULT_MAX_ANGLE, DEFAULT_MAX_CURV
+  from openpilot.orbit.orbit_obstacle_pulse import ObstaclePulseState, DEFAULT_MAX_ANGLE, DEFAULT_MAX_CURV
   _ORBIT_OBSTACLE = True
 except Exception:
   ObstaclePulseState = None
@@ -99,7 +99,7 @@ class Controls(ControlsExt):
 
     # [Orbit] limpiar cualquier pulso de dirección (cruceta MQTT) pendiente al iniciar
     try:
-      from openpilot.sicuem.orbit.orbit_steering_pulse import clear_steering_pulse
+      from openpilot.orbit.orbit_steering_pulse import clear_steering_pulse
       clear_steering_pulse()
     except Exception:
       pass
@@ -346,7 +346,7 @@ class Controls(ControlsExt):
 
     # [Orbit] Pulso temporal de dirección (cruceta MQTT): +/- ángulo y curvatura mientras está activo
     try:
-      from openpilot.sicuem.orbit.orbit_steering_pulse import get_steering_pulse, orbit_steering_pulse_angle
+      from openpilot.orbit.orbit_steering_pulse import get_steering_pulse, orbit_steering_pulse_angle
       pulse_start, original_direction, is_active, phase, effective_direction = get_steering_pulse()
       if is_active and effective_direction in ("right", "left") and CC.latActive:
         if effective_direction == "right":

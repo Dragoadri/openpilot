@@ -8,7 +8,7 @@ Onroad indicator for ORBIT remote commands (SIC-UEM).
 
 Safety requirement: the driver must always know when the companion app is
 issuing remote commands. Watches the Params written by
-sicuem/orbit/mqtt_comandos.py; they are transient triggers that the consumer
+orbit/mqtt_comandos.py; they are transient triggers that the consumer
 (controlsd/card) clears, so rising edges are latched on screen for ~3s.
 Regular commands show as a top-center pill in the ORBIT palette; the remote
 emergency brake shows as a full-width red banner drawn on top of everything.

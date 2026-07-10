@@ -46,10 +46,8 @@ compile_commands.json
 compare_runtime*.html
 selfdrive/modeld/models/tg_input_devices.json
 
-# SICUEM / AdriPilot
-!sicuem/config.json
-sicuem/mqttDebug.txt
-sicuem/**/__pycache__/
+# ORBIT
+orbit/**/__pycache__/
 
 # build artifacts
 docs_site/

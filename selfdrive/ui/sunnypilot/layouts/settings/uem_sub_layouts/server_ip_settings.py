@@ -10,7 +10,7 @@ Port of the old Qt ServerIpSettings (selfdrive/ui/sunnypilot/qt/offroad/settings
 sunnypilot/server_ip_settings.cc).
 
 Edits two server IPs, preserving all other keys in each JSON file:
-  - Orbit MQTT broker: key "broker" in sicuem/orbit/config_mqtt.json
+  - Orbit MQTT broker: key "broker" in orbit/config_mqtt.json
   - SICUEM server:         config.IpServer.value in sicuem/config.json
 
 Paths resolve under BASEDIR/sicuem/... with a /data/openpilot fallback.
@@ -82,7 +82,7 @@ class ServerIpSettingsLayout(Widget):
     self._back_button = NavButton(tr("Back"))
     self._back_button.set_click_callback(back_btn_callback)
 
-    self._orbit_path = _resolve_path("sicuem/orbit/config_mqtt.json")
+    self._orbit_path = _resolve_path("orbit/config_mqtt.json")
     self._sicuem_path = _resolve_path("sicuem/config.json")
     self._test_status = ""
     self._pending_test: str | None = None

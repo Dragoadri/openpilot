@@ -27,7 +27,7 @@ from openpilot.sunnypilot.system.params_migration import run_migration
 # [Start Bemposta] SIC-UEM / Orbit — hilo MQTT (import guardado: nunca debe brickear el arranque)
 # Telemetria legacy retirada; solo Orbit MQTTEnvioGeneral.
 try:
-  from openpilot.sicuem.orbit.mqtt_envio_general import MQTTEnvioGeneral
+  from openpilot.orbit.mqtt_envio_general import MQTTEnvioGeneral
 except Exception:
   cloudlog.exception("[Bemposta] no se pudieron importar los hilos MQTT SIC-UEM")
   MQTTEnvioGeneral = None

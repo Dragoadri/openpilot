@@ -10,7 +10,7 @@ import os
 
 # Importar el módulo de velocidad una sola vez al inicio para evitar problemas de importación
 try:
-  import openpilot.sicuem.orbit.orbit_speed_ultra_simple as speed_module
+  import openpilot.orbit.orbit_speed_ultra_simple as speed_module
   SPEED_MODULE_AVAILABLE = True
 except ImportError:
   SPEED_MODULE_AVAILABLE = False
@@ -388,13 +388,13 @@ class MQTTComandos:
         if data.get("tright"):
           # Activar giro temporal usando el nuevo sistema
           try:
-            from openpilot.sicuem.orbit.orbit_steering_pulse import set_steering_pulse
+            from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
             set_steering_pulse("right")
           except Exception as e:
             pass  # Error silenciado para reducir uso de memoria
           # Mantener compatibilidad con código viejo (opcional)
           try:
-            from openpilot.sicuem.orbit.orbit_control_ultra_simple import orbit_tright
+            from openpilot.orbit.orbit_control_ultra_simple import orbit_tright
             orbit_tright = True
           except ImportError:
             pass
@@ -403,13 +403,13 @@ class MQTTComandos:
         if data.get("tleft"):
           # Activar giro temporal usando el nuevo sistema
           try:
-            from openpilot.sicuem.orbit.orbit_steering_pulse import set_steering_pulse
+            from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
             set_steering_pulse("left")
           except Exception as e:
             pass  # Error silenciado para reducir uso de memoria
           # Mantener compatibilidad con código viejo (opcional)
           try:
-            from openpilot.sicuem.orbit.orbit_control_ultra_simple import orbit_tleft
+            from openpilot.orbit.orbit_control_ultra_simple import orbit_tleft
             orbit_tleft = True
           except ImportError:
             pass
@@ -421,7 +421,7 @@ class MQTTComandos:
         if payload_lower == "tright":
           # Activar giro temporal a la derecha usando variables globales
           try:
-            from openpilot.sicuem.orbit.orbit_steering_pulse import set_steering_pulse
+            from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
             set_steering_pulse("right")
           except Exception as e:
             pass  # Error silenciado para reducir uso de memoria
@@ -429,7 +429,7 @@ class MQTTComandos:
         elif payload_lower == "tleft":
           # Activar giro temporal a la izquierda usando variables globales
           try:
-            from openpilot.sicuem.orbit.orbit_steering_pulse import set_steering_pulse
+            from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
             set_steering_pulse("left")
           except Exception as e:
             pass  # Error silenciado para reducir uso de memoria

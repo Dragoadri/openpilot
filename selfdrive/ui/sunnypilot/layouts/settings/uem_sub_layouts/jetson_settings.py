@@ -14,7 +14,7 @@ Lets the user:
     TEST MAX) with a confirmation dialog before each change. COMMA+JETSON also
     asks how the Jetson should dodge (curvature vs torque).
   - Edit the Jetson connection config (IPs / ports / JPEG quality) stored in
-    sicuem/orbit/config_jetson.json (atomic write, bumps _version, sets
+    orbit/config_jetson.json (atomic write, bumps _version, sets
     JetsonConfigChanged).
   - See a live JetsonObstacleStatus label (throttled param read).
 
@@ -74,8 +74,8 @@ CONFIG_DEFAULTS = {
 def _resolve_config_path() -> str:
   """Resolve config_jetson.json, preferring BASEDIR with a /data/openpilot fallback."""
   candidates = [
-    os.path.join(BASEDIR, "sicuem", "orbit", "config_jetson.json"),
-    "/data/openpilot/sicuem/orbit/config_jetson.json",
+    os.path.join(BASEDIR, "orbit", "config_jetson.json"),
+    "/data/openpilot/orbit/config_jetson.json",
   ]
   for path in candidates:
     if os.path.exists(path):
@@ -230,7 +230,7 @@ class JetsonSettingsLayout(Widget):
     return mapping.get(obs, "")
 
   def _read_live_param(self, key: str) -> str:
-    # New params written by sicuem/orbit/zmq_client.py; tolerate older manifests.
+    # New params written by orbit/zmq_client.py; tolerate older manifests.
     try:
       raw = ui_state.params.get(key)
     except UnknownKeyName:
