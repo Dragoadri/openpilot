@@ -96,6 +96,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"Offroad_IsTakingSnapshot", {CLEAR_ON_MANAGER_START, JSON}},
     {"Offroad_NeosUpdate", {CLEAR_ON_MANAGER_START, JSON}},
     {"Offroad_NoFirmware", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, JSON}},
+    {"Offroad_OrbitInstallIncomplete", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, JSON}},  // ORBIT: submodulos vacios / modelos LFS sin descargar
     {"Offroad_Recalibration", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, JSON}},
     {"Offroad_TemperatureTooHigh", {CLEAR_ON_MANAGER_START, JSON}},
     {"Offroad_UnregisteredHardware", {CLEAR_ON_MANAGER_START, JSON}},
@@ -303,8 +304,11 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"JetsonObstacleMaxCurv", {PERSISTENT, FLOAT, "0.030"}},           // curvatura 1/m de offset para |intensity|=1
     {"JetsonObstacleApplyTarget", {PERSISTENT, STRING, "curvature"}},  // "curvature" | "torque"
     // Cambio de carril por MQTT + overtake
-    {"ForceLaneChangeLeft", {PERSISTENT, BOOL}},
-    {"ForceLaneChangeRight", {PERSISTENT, BOOL}},
+    // ForceLaneChange*: comandos one-shot (se consumen y auto-limpian en desire_helper).
+    // CLEAR_ON_MANAGER_START: un "1" residual de antes de un reinicio NO debe disparar
+    // un cambio de carril inesperado en el siguiente trayecto.
+    {"ForceLaneChangeLeft", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"ForceLaneChangeRight", {CLEAR_ON_MANAGER_START, BOOL}},
     {"c_carril", {PERSISTENT, BOOL}},
     {"cambiar_a_izq", {PERSISTENT, BOOL}},
     {"cambiar_a_der", {PERSISTENT, BOOL}},
@@ -343,7 +347,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"orbit_steering_pulse", {CLEAR_ON_MANAGER_START, STRING}},   // pulso giro cruceta: "direction:expiry_ms" (cruza barrera de proceso a controlsd)
     // Toggles UI / telemetría
     {"modo_debug", {PERSISTENT | BACKUP, BOOL}},
-    {"silenciar_alertas_comm", {PERSISTENT | BACKUP, BOOL}},           // ORBIT: no mostrar commIssue/locationd/paramsd TemporaryError (solo pruebas)
+    {"silenciar_alertas_comm", {CLEAR_ON_MANAGER_START, BOOL}},          // ORBIT: no mostrar commIssue/locationd/paramsd TemporaryError (solo pruebas; no debe sobrevivir a un reinicio ni viajar en backups)
     {"show_blindspot", {PERSISTENT, BOOL}},
     {"carState_toggle", {PERSISTENT, BOOL}},
     {"carControl_toggle", {PERSISTENT, BOOL}},

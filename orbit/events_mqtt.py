@@ -32,7 +32,22 @@ _mqtt_username: Optional[str] = None
 _mqtt_password: Optional[str] = None
 
 
+# Caché de la config del broker: _ensure_mqtt_client (que llama a _load_broker)
+# se ejecuta en el hilo RT de selfdrived a 100 Hz por cada alerta que pasa el
+# filtro, y leer+parsear el JSON en cada llamada metía I/O de disco en el loop
+# de tiempo real (patrón commIssue). Con TTL de 5 s los cambios de config se
+# siguen recogiendo casi en tiempo real sin tocar disco a 100 Hz.
+_BROKER_CFG_TTL_S = 5.0
+_broker_cfg_cache: Optional[tuple[str, int, Optional[str], Optional[str]]] = None
+_broker_cfg_cache_ts = 0.0
+
+
 def _load_broker() -> tuple[str, int, Optional[str], Optional[str]]:
+  global _broker_cfg_cache, _broker_cfg_cache_ts
+  now = time.monotonic()
+  if _broker_cfg_cache is not None and (now - _broker_cfg_cache_ts) < _BROKER_CFG_TTL_S:
+    return _broker_cfg_cache
+
   base_path = os.path.dirname(os.path.abspath(__file__))
   cfg_path = os.path.join(base_path, "config_mqtt.json")
   try:
@@ -43,9 +58,13 @@ def _load_broker() -> tuple[str, int, Optional[str], Optional[str]]:
     # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
     username = (cfg.get("username") or "").strip() or None
     password = cfg.get("password") or None
-    return broker, port, username, password
+    result = (broker, port, username, password)
   except Exception:
-    return "localhost", 1883, None, None
+    result = ("localhost", 1883, None, None)
+
+  _broker_cfg_cache = result
+  _broker_cfg_cache_ts = now
+  return result
 
 
 _dongle_id_cache: Optional[str] = None

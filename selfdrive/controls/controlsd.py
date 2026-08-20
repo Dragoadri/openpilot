@@ -113,6 +113,10 @@ class Controls(ControlsExt):
     self._obstacle_max_angle = DEFAULT_MAX_ANGLE
     self._obstacle_max_curv = DEFAULT_MAX_CURV
     self._obstacle_apply_target = "curvature"  # "curvature" | "torque"
+    # [Orbit] Caché de LECTURAS de Params en el loop 100 Hz (mismo criterio que
+    # _obstacle_config_last_read): Params.get abre+lee el fichero en cada llamada,
+    # y hacerlo a 100 Hz en un proceso SCHED_FIFO es I/O evitable en el core de control.
+    self._param_read_cache: dict[str, tuple[float, object]] = {}  # key -> (monotonic_ts, raw)
     # [Orbit/FIX commIssue] Escrituras de Params DIFERIDAS a un hilo NO-RT.
     # controlsd corre en SCHED_FIFO prio 53 fijado al core 4 (junto a card y selfdrived).
     # Params.put(block=False) encola en putNonBlocking, que lanza un std::async cuyo hilo
@@ -135,6 +139,20 @@ class Controls(ControlsExt):
     nunca toca disco ni lanza fsync a prioridad RT en el core 4."""
     with self._pwrite_lock:
       self._pwrite_pending[key] = ("bool" if is_bool else "str", value)
+
+  def _param_get_cached(self, key: str, ttl: float):
+    """Params.get con caché TTL para el loop 100 Hz: evita abrir+leer el fichero del
+    param en cada ciclo de control. Devuelve el valor crudo de Params.get (o None si
+    la key no existe). Solo para flags/config; NUNCA para datos de control frescos."""
+    now = time.monotonic()
+    ts, val = self._param_read_cache.get(key, (0.0, None))
+    if now - ts >= ttl:
+      try:
+        val = self.params.get(key)
+      except UnknownKeyName:
+        val = None
+      self._param_read_cache[key] = (now, val)
+    return val
 
   def _param_write_worker(self) -> None:
     """Vuelca a Params (a ~10 Hz, solo on-change) las escrituras encoladas por el loop.
@@ -271,10 +289,12 @@ class Controls(ControlsExt):
     # [Orbit] Brutebreak: frenado de emergencia brusco por comando MQTT.
     # Solo tiene efecto si CC.longActive (Comma controla longitudinal). Auto-clear con vEgo<0.5.
     try:
-      if self.params.get_bool("brutebreak_active"):
+      # Lectura cacheada 0.25 s: el comando llega por MQTT (latencia de red >> TTL),
+      # y leer el param a 100 Hz metía I/O de disco en el loop RT.
+      if self._param_get_cached("brutebreak_active", 0.25):
         intensidad_frenado = -3.5
         try:
-          intensidad_raw = self.params.get("brutebreak_intensidad")
+          intensidad_raw = self._param_get_cached("brutebreak_intensidad", 0.25)
           if intensidad_raw:
             intensidad = float(intensidad_raw.decode("utf-8") if isinstance(intensidad_raw, bytes) else intensidad_raw)
             if -10.0 <= intensidad <= -1.0:
@@ -314,11 +334,9 @@ class Controls(ControlsExt):
       # Se ENCOLA cada ciclo (barato); el hilo NO-RT lo vuelca a ~10 Hz y solo si cambia, de
       # modo que el loop de control 100 Hz nunca hace fsync (era la causa del commIssue al activar).
       self._defer_param_put("CommaSteerTorque", f"{float(actuators.torque):.4f}")
-      try:
-        mode_raw = self.params.get("SteerTorqueMode")
-      except UnknownKeyName:
-        cloudlog.error("SteerTorqueMode no registrado en params_keys.h.")
-        mode_raw = None
+      # Lectura cacheada 1 s: el modo se cambia desde UI/MQTT (no es dato de control),
+      # y leer el param a 100 Hz mientras latActive metía I/O de disco en el loop RT.
+      mode_raw = self._param_get_cached("SteerTorqueMode", 1.0)
       try:
         steer_mode = int(mode_raw) if mode_raw else 0
       except (ValueError, TypeError):

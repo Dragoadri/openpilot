@@ -24,7 +24,8 @@ from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.sunnypilot.widgets.list_view import toggle_item_sp, button_item_sp
-from openpilot.system.ui.widgets import Widget
+from openpilot.system.ui.widgets import Widget, DialogResult
+from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
 from openpilot.system.ui.widgets.list_view import text_item
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.orbit_sub_layouts.jetson_settings import (
@@ -227,6 +228,14 @@ class OrbitLayout(Widget):
                              "si aparecen constantemente hay un problema real (ver tools/orbit)."),
     )
 
+    self._safe_reset_button = button_item_sp(
+      title=lambda: tr("Restablecer valores seguros"),
+      button_text=lambda: tr("RESTABLECER"),
+      description=lambda: tr("Devuelve los params ORBIT que afectan a la conduccion a su estado seguro " +
+                             "(volante COMMA, sin comandos remotos pendientes, alertas visibles)."),
+      callback=self._confirm_safe_reset,
+    )
+
     return [
       self._hero,
       SectionHeaderSP(tr("CONEXION")),
@@ -243,7 +252,37 @@ class OrbitLayout(Widget):
       SectionHeaderSP(tr("PRUEBAS")),
       self._modo_debug_toggle,
       self._silenciar_alertas_toggle,
+      SectionHeaderSP(tr("RECUPERACION")),
+      self._safe_reset_button,
     ]
+
+  # -------------------------------------------------- restablecer seguros
+  def _confirm_safe_reset(self):
+    msg = tr("Restablecer los params ORBIT de conduccion a valores seguros?\n\n" +
+             "- Modo de volante: COMMA\n" +
+             "- Frenado de emergencia remoto: OFF\n" +
+             "- Cambios de carril forzados pendientes: borrados\n" +
+             "- Pulso de direccion remoto: borrado\n" +
+             "- Alertas de comunicacion: visibles\n\n" +
+             "No toca la configuracion de servidor, telemetria ni Jetson (IPs/puertos).")
+
+    def on_result(result: DialogResult):
+      if result != DialogResult.CONFIRM:
+        return
+      self._apply_safe_reset()
+
+    gui_app.push_widget(ConfirmDialog(msg, tr("SI, restablecer"), tr("Cancelar"), callback=on_result))
+
+  def _apply_safe_reset(self):
+    params = ui_state.params
+    try:
+      params.put("SteerTorqueMode", 0)
+      for key in ("brutebreak_active", "ForceLaneChangeLeft", "ForceLaneChangeRight", "silenciar_alertas_comm"):
+        params.put_bool(key, False)
+      params.remove("orbit_steering_pulse")
+    except Exception:
+      pass
+    self._last_refresh = 0.0  # repintar el estado vivo de inmediato
 
   # ------------------------------------------------------------ estado vivo
   def _refresh_status(self):

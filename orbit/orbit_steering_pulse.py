@@ -37,6 +37,15 @@ _PARAM_KEY = "orbit_steering_pulse"
 # get_steering_pulse() cada ciclo, así que evitamos recrear Params en cada call.
 _params = None
 
+# Caché de la LECTURA del Param: controlsd llama a get_steering_pulse() a 100 Hz
+# en un proceso SCHED_FIFO y Params.get abre+lee el fichero en cada llamada.
+# TTL de 0.1 s: un pulso dura 1 s y sus fases se calculan desde el timestamp de
+# inicio, así que la forma del pulso no se degrada; solo se retrasa <=0.1 s la
+# detección del disparo (que ya llega por MQTT, con latencia de red mayor).
+_PULSE_PARAM_TTL_S = 0.1
+_pulse_param_cache_ts = 0.0
+_pulse_param_cache_val = None
+
 def _get_params():
   global _params
   if _params is None:
@@ -50,14 +59,18 @@ def set_steering_pulse(direction):
   controlsd (proceso separado) lo vea, y también actualiza los globales del
   módulo como fast-path para el mismo proceso.
   """
-  global orbit_steering_pulse_start, orbit_steering_pulse_direction
+  global orbit_steering_pulse_start, orbit_steering_pulse_direction, _pulse_param_cache_ts
   start = time.time()
   orbit_steering_pulse_start = start
   orbit_steering_pulse_direction = direction
+  _pulse_param_cache_ts = 0.0  # invalida la caché de lectura para ver el pulso al instante
   # Param autoritativo: dirección + timestamp de inicio (ms epoch). La expiración
   # se deriva de start + duration para preservar la semántica de dos fases.
+  # block=True: con el put asíncrono (default) la escritura podía aterrizar DESPUÉS
+  # de un clear_steering_pulse() posterior (remove síncrono) y resucitar un pulso
+  # viejo en controlsd. Este hilo (manager/MQTT) no es RT: el fsync aquí es seguro.
   try:
-    _get_params().put(_PARAM_KEY, f"{direction}:{int(start * 1000)}")
+    _get_params().put(_PARAM_KEY, f"{direction}:{int(start * 1000)}", block=True)
   except Exception:
     pass  # Error silenciado para reducir uso de memoria
 
@@ -76,13 +89,23 @@ def get_steering_pulse():
       - effective_direction: Dirección efectiva a aplicar ("left", "right", o None)
   """
   global orbit_steering_pulse_start, orbit_steering_pulse_direction
+  global _pulse_param_cache_ts, _pulse_param_cache_val
 
   # El Param es autoritativo: refleja lo que escribió mqtt_comandos en el
   # proceso manager. Si existe, sobreescribe los globales locales.
+  # Lectura cacheada (TTL 0.1 s) para no hacer I/O de disco a 100 Hz en el loop RT.
+  now_mono = time.monotonic()
+  if now_mono - _pulse_param_cache_ts >= _PULSE_PARAM_TTL_S:
+    try:
+      _pulse_param_cache_val = _get_params().get(_PARAM_KEY)
+    except Exception:
+      _pulse_param_cache_val = None
+    _pulse_param_cache_ts = now_mono
+
   pulse_start = None
   direction = None
   try:
-    raw = _get_params().get(_PARAM_KEY)
+    raw = _pulse_param_cache_val
     if raw:
       # raw ya es str desde Params.get()
       part_dir, _, part_start = raw.partition(":")
@@ -127,9 +150,11 @@ def get_steering_pulse():
 
 def clear_steering_pulse():
   """Limpia el pulso de giro temporal (globales + Param autoritativo)."""
-  global orbit_steering_pulse_start, orbit_steering_pulse_direction
+  global orbit_steering_pulse_start, orbit_steering_pulse_direction, _pulse_param_cache_ts, _pulse_param_cache_val
   orbit_steering_pulse_start = None
   orbit_steering_pulse_direction = None
+  _pulse_param_cache_ts = 0.0
+  _pulse_param_cache_val = None  # evita releer un valor ya expirado desde la caché
   try:
     _get_params().remove(_PARAM_KEY)
   except Exception:

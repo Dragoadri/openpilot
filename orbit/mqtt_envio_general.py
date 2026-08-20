@@ -315,7 +315,34 @@ class MQTTEnvioGeneral:
     cloudlog.warning(f"[Bemposta] MQTTEnvioGeneral DESCONECTADO del broker {self.broker_address} (rc={rc})")
 
   def start(self):
-    threading.Thread(target=self.loop, daemon=True).start()
+    # Guardar el handle: el supervisor de manager (manager_thread) vigila este
+    # hilo y reinicia la instancia si muere, asi que necesita is_alive()/join().
+    self.thread = threading.Thread(target=self.loop, daemon=True, name="MQTTEnvioGeneral")
+    self.thread.start()
+
+  def is_alive(self) -> bool:
+    """True si el hilo principal (loop de telemetria) sigue vivo."""
+    t = getattr(self, "thread", None)
+    return t is not None and t.is_alive()
+
+  def join(self, timeout=None):
+    t = getattr(self, "thread", None)
+    if t is not None:
+      t.join(timeout)
+
+  def healthy(self) -> bool:
+    """True si los subsistemas internos que deben estar vivos lo estan.
+
+    El supervisor de manager reinicia la instancia entera si esto devuelve
+    False (p.ej. el hilo de camera_sender murio por una excepcion y la app
+    se quedaba sin camara hasta reiniciar el dispositivo).
+    """
+    cam = getattr(self, "camera_sender", None)
+    if cam is not None:
+      cam_t = getattr(cam, "thread", None)
+      if cam_t is not None and not cam_t.is_alive():
+        return False
+    return True
 
   def stop(self):
     """Detiene el sistema MQTT completo."""

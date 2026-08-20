@@ -174,6 +174,11 @@ class SelfdriveD(CruiseHelper):
     self.events_sp = EventsSP()
     self.events_sp_prev = []
 
+    # [Orbit] dedup del espejo MQTT de alertas: solo se reenvia a events_mqtt
+    # cuando CAMBIA el conjunto de alert_types activos (antes se recorrian todas
+    # las alertas en cada frame a 100 Hz: filtros, lock y parseo por ciclo).
+    self._orbit_alert_types_prev: frozenset = frozenset()
+
     self.mads = ModularAssistiveDrivingSystem(self)
     self.icbm = IntelligentCruiseButtonManagement(self.CP, self.CP_SP)
 
@@ -587,10 +592,14 @@ class SelfdriveD(CruiseHelper):
     # [Orbit] espejo de alertas por MQTT (la creación de alertas vive en selfdrived, no en controlsd;
     # events_mqtt aplica su propio cooldown por evento y usa un cliente MQTT persistente no bloqueante)
     try:
-      from openpilot.orbit import events_mqtt
-      for _a in (alerts + alerts_sp):
-        if getattr(_a, "alert_type", ""):
-          events_mqtt.send_alert(_a)
+      _alert_types = frozenset(getattr(_a, "alert_type", "") for _a in (alerts + alerts_sp))
+      _alert_types.discard("")
+      if _alert_types != self._orbit_alert_types_prev:
+        self._orbit_alert_types_prev = _alert_types
+        from openpilot.orbit import events_mqtt
+        for _a in (alerts + alerts_sp):
+          if getattr(_a, "alert_type", ""):
+            events_mqtt.send_alert(_a)
     except Exception:
       pass
 
