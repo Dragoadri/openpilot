@@ -1,5 +1,25 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""Cliente MQTT de MANDO de ORBIT: suscripcion, puente v1->v2 y ACK.
+
+TODO comando -- venga del namespace v2 (orbit/v2/cmd/<dongle>) o de un topic v1 de la
+epoca de telemetry_config/ -- entra por el MISMO sitio: CommandRouter. Este fichero ya no
+escribe ningun Param de actuador desde el callback de paho.
+
+    orbit/v2/cmd/<dongle>  --------------------.
+                                                >-- CommandRouter -- cola -- handler
+    telemetry_config/<dongle>/<v1>  -- puente --'      (gates, modo, TTL, seq, ACK)
+
+El puente v1 (seccion 13 del diseno, migracion) traduce topic+payload a (verbo, args) y
+llama a router.submit_local(), que FABRICA UN SOBRE v2 de verdad. No hay un segundo
+camino con reglas propias: si lo hubiera, el v1 seria el agujero por el que entra lo que
+el contrato v2 rechaza (que es exactamente como el payload 'false' acababa disparando un
+cambio de carril).
+
+Lo que NO pasa por el router, y por que: `jetson_config`, `camera_config`, `enroll_ack` y
+`speed_increment` no son verbos del catalogo de la seccion 6 -- son configuracion e
+identidad, no ordenes de conduccion, y ninguno mueve un actuador. Estan enumerados uno a
+uno en el docstring de on_message con lo que hace cada uno.
+"""
 import json
 import time
 import threading
@@ -8,34 +28,317 @@ from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 import os
 
-# Importar el módulo de velocidad una sola vez al inicio para evitar problemas de importación
-try:
-  import openpilot.orbit.orbit_speed_ultra_simple as speed_module
-  SPEED_MODULE_AVAILABLE = True
-except ImportError:
-  SPEED_MODULE_AVAILABLE = False
+from openpilot.orbit.command_router import CommandRouter
+from openpilot.orbit.command_spec import TOPIC_CAPS, TOPIC_CMD, ahora_epoch_ms, get_spec
+from openpilot.orbit.command_state import get_command_plane
 
 class MQTTComandos:
-  def __init__(self):
+  def __init__(self, plane=None):
     self.base_path = os.path.dirname(os.path.abspath(__file__))
     self.jsonConfig = os.path.join(self.base_path, "config_mqtt.json")
     self.params = Params()
-    self.DongleID = self.params.get("DongleId") if self.params.get("DongleId") else "DongleID"  # Params.get() ya devuelve str
+    self._refrescar_dongle()
+    # Plano de mando (GateMonitor + estado compartido). Se INYECTA por referencia -- el
+    # mismo patron que _link_camera_to_comandos -- y por defecto se coge el singleton del
+    # proceso, que es el que tica en el hilo supervisado del manager. Ver el docstring de
+    # CommandPlane para por que el objeto sobrevive a los reinicios de su hilo.
+    self.plane = plane if plane is not None else get_command_plane()
+    self.router = None
+    # Version del firmware para el descriptor de capacidades. Se lee UNA vez: leerla en
+    # on_connect seria I/O de disco en el hilo de red.
+    try:
+      self._fw = self.params.get("Version") or ""
+    except Exception:
+      self._fw = ""
+    self._caps_huella = None
     self.conectado = False
     self.stop_event = threading.Event()
+    # Hilo UNICO de conexion + su senal de relevo (ver _relanzar_hilo_conexion).
+    # Antes cada llamada a init_mqtt/reload_broker arrancaba un hilo nuevo SIN
+    # avisar al anterior: dos hilos llamando connect() sobre el MISMO cliente
+    # cierran el socket recien abierto y dejan MUDO el canal de mandos.
+    self._conn_thread = None
+    self._conn_stop = threading.Event()
+    # Serializa el connect(): el relevo por join() puede caducar (paho corta el
+    # connect a los 5 s, pero un DNS lento puede pasarse), y aqui NO hay bucle
+    # propio donde reintentar un relevo aplazado, asi que el hilo nuevo se lanza
+    # igualmente y es este lock + la recomprobacion de `stop` DENTRO de el lo que
+    # impide que el hilo viejo pise la conexion del nuevo.
+    self._conn_lock = threading.Lock()
     # Archivo para guardar mensajes MQTT para modo debug
     self.debug_file = "/tmp/mqtt_debug_messages.txt"
     self.max_messages = 30  # Máximo de mensajes a guardar (reducido para ahorrar memoria)
     self.messages_lock = threading.Lock()
     # Inicializar debug_enabled leyendo el parámetro al inicio
     self.debug_enabled = self.params.get_bool("modo_debug")
-    self._last_debug_check = time.time()  # Inicializar timestamp para la primera verificación
+    # Plazo interno de 2 s: monotono, no epoch (ademas time.time esta prohibido en el arbol).
+    self._last_debug_check = time.monotonic()
     self.camera_sender = None  # Referencia al CameraSender (se establece desde MQTTEnvioGeneral)
     self.load_config()
+    # El router se construye ANTES de abrir el socket: on_connect se suscribe a su topic
+    # y publica el descriptor de capacidades, y ese callback puede dispararse en cuanto
+    # init_mqtt arranca el hilo de conexion.
+    self.init_router()
     self.init_mqtt()
 
+  def _refrescar_dongle(self):
+    """Relee DongleId y recalcula si el namespace de mandos es acotable.
+
+    Params.get() ya devuelve str. Sin DongleId real NO se puede acotar el
+    namespace de mandos: el literal "DongleID" es un comodin que comparten
+    TODOS los comma sin registrar, asi que un frenazo dirigido a uno lo
+    ejecutarian todos los que esten sin cobertura de registro. Se marca
+    invalido y on_connect no se suscribe a ningun topic de mando.
+
+    Se relee tambien en on_connect: en el PRIMER arranque el registro con comma
+    tarda segundos, y calcularlo solo en __init__ dejaba el mando mudo PARA
+    SIEMPRE (on_connect hacia return antes de suscribirse) hasta que el manager
+    recreara MQTTEnvioGeneral entero.
+    """
+    try:
+      dongle = self.params.get("DongleId")
+    except Exception:
+      dongle = None
+    dongle = dongle.strip() if isinstance(dongle, str) else ""
+    self.DongleID = dongle if dongle else "DongleID"
+    self.dongle_valido = bool(dongle) and dongle != "DongleID"
+
+  # ------------------------------------------------------------------ router v2
+
+  def init_router(self):
+    """Construye el CommandRouter y registra los verbos que ESTE firmware sabe ejecutar.
+
+    Protegido entero: si el router no se puede construir, `self.router` queda en None y
+    el dispatch descarta TODO mando (fail-closed). Un mando sin router no tiene quien le
+    evalue los gates, y ejecutarlo "por si acaso" es justamente el agujero que este
+    fichero existe para cerrar.
+    """
+    try:
+      self.router = CommandRouter(
+        self.DongleID if self.dongle_valido else "",
+        gates=self.plane.gates,
+        store=self.plane.store,
+        publish=self._publicar_mqtt,
+      )
+      for verbo, fn in self._verbos().items():
+        self.router.register_handler(verbo, fn)
+      self.router.start()
+      # El boton FISICO de desarme de la pantalla acaba en el mismo ejecutor que el verbo
+      # disarm_all: un solo sitio que apaga los actuadores, dos disparadores.
+      self.plane.set_on_disarm(self._desarmar_todo)
+    except Exception:
+      cloudlog.exception("[Orbit] no se pudo construir el CommandRouter: el mando queda MUDO (fail-closed)")
+      self.router = None
+
+  def _verbos(self):
+    """Verbos del catalogo (command_spec.COMMANDS) con ejecutor real en este firmware.
+
+    Los que NO estan aqui se publican como `unsupported: no_handler` en el descriptor de
+    capacidades y responden UNSUPPORTED_VERB: la app no pinta el boton en vez de pintar
+    uno que no hace nada (seccion 3.5).
+    """
+    return {
+      "disarm_all": self._h_disarm_all,
+      "set_mode": self._h_set_mode,
+      "lane_change": self._h_lane_change,
+      "cruise_delta": self._h_cruise_delta,
+      "cruise_button": self._h_cruise_button,
+      "assisted_decel": self._h_assisted_decel,
+      "torque_mode": self._h_torque_mode,
+      "steering_pulse": self._h_steering_pulse,
+      "healthcheck": self._h_healthcheck,
+    }
+
+  def _publicar_mqtt(self, topic, payload, qos=1, retain=False):
+    """Salida del router (ACK y capacidades). paho.publish() es thread-safe, asi que la
+    llaman indistintamente el hilo de red y el worker de comandos."""
+    self.mqttc.publish(topic, payload, qos=qos, retain=retain)
+
+  def maybe_publish_caps(self, forzar: bool = False) -> bool:
+    """Publica orbit/v2/caps/<dongle> RETENIDO y con qos 1 (seccion 3.1).
+
+    Retenido porque la app tiene que saber que sabe hacer este coche NADA MAS
+    suscribirse, sin esperar a que el coche vuelva a hablar; qos 1 porque perderlo deja a
+    la app pintando de memoria.
+
+    Se republica cuando cambia el contenido -- tipicamente al aparecer carParams, que
+    offroad no existe y deja marca y plataforma vacias -- y no en cada tick: un retenido
+    reescrito 1 vez por segundo es 1 escritura por segundo en el broker para siempre.
+    """
+    if self.router is None or not self.conectado or not self.dongle_valido:
+      return False
+    try:
+      payload = self.router.capabilities_payload(fw=self._fw)
+      # La huella ignora ts_ms: si no, cambiaria en cada tick y republicaria siempre.
+      huella = json.dumps({k: v for k, v in payload.items() if k != "ts_ms"}, sort_keys=True)
+      if not forzar and huella == self._caps_huella:
+        return False
+      self._publicar_mqtt(TOPIC_CAPS.format(self.DongleID), json.dumps(payload, separators=(",", ":")),
+                          qos=1, retain=True)
+      self._caps_huella = huella
+      verbos = sorted(payload.get("verbs", {}))
+      cloudlog.warning(f"[Orbit] capacidades publicadas: brand={payload.get('brand')!r} platform={payload.get('platform')!r} verbos={verbos}")
+      return True
+    except Exception:
+      cloudlog.exception("[Orbit] no se pudieron publicar las capacidades")
+      return False
+
+  # ----------------------------------------------------------- ejecutores de verbo
+  # Corren en el hilo worker del router (NUNCA en el de red) y solo despues de que el
+  # router haya validado tipo, rango, modo, gates, TTL, secuencia y ritmo. Aqui ya no se
+  # valida nada de eso: se aplica. Si uno lanza, el router publica FAILED/INTERNAL.
+
+  def _desarmar_todo(self):
+    """Devuelve todos los actuadores remotos a neutro. Lo comparten el verbo disarm_all y
+    el boton fisico de la pantalla del comma."""
+    from openpilot.orbit.orbit_control_ultra_simple import disarm_all_actuators
+    tocados = disarm_all_actuators(self.params)
+    cloudlog.warning(f"[Orbit] disarm_all: actuadores devueltos a neutro {tocados}")
+    return tocados
+
+  def _h_disarm_all(self, cmd):
+    self._desarmar_todo()
+
+  def _h_set_mode(self, cmd):
+    """Cambia el modo de mando (observador / copiloto / maniobra).
+
+    Sin este ejecutor el subsistema entero estaba muerto: NADIE escribia OrbitCommandMode,
+    asi que el modo efectivo era siempre 0 (observador) y todo verbo salvo disarm_all
+    contestaba MODE. El plano lo persiste y el router lo lee en el tick de 10 Hz.
+
+    BANCO NO SE ALCANZA POR AQUI. Ni siquiera hace falta comprobarlo en el handler: el
+    esquema del verbo no lo ofrece como opcion, asi que el router lo rechaza antes con
+    RANGE. El modo fisico solo se arma en la pantalla del comma (seccion 4.1).
+
+    El modo CADUCA: `expira_s` de la tabla (copiloto 900 s, maniobra 120 s). Un modo sin
+    caducidad se queda encendido para siempre y el gate de modo deja de significar nada.
+    """
+    if self.plane is None or getattr(self.plane, "store", None) is None:
+      raise RuntimeError("no hay plano de estado: el modo no se puede cambiar")
+    destino = str(cmd.args.get("target_mode", "")).strip()
+    spec = get_spec(cmd.verb)
+    expira = float((spec.limits.get("expira_s") or {}).get(destino, 0.0)) if spec else 0.0
+    modo = self.plane.store.set_mode(destino, expira_s=expira)
+    cloudlog.warning(f"[Orbit] modo de mando -> {modo.name}"
+                     + (f" (caduca en {expira:.0f} s)" if expira > 0 else ""))
+
+  def _h_lane_change(self, cmd):
+    """Un unico cambio de carril. desire_helper aplica ademas SUS gates en el ciclo en
+    que actua (velocidad minima, latActive, angulo muerto): defensa en profundidad."""
+    izquierda = cmd.args.get("direction") == "left"
+    clave = "ForceLaneChangeLeft" if izquierda else "ForceLaneChangeRight"
+    opuesta = "ForceLaneChangeRight" if izquierda else "ForceLaneChangeLeft"
+    # El opuesto SIEMPRE a False primero: dos sentidos armados a la vez es una maniobra
+    # encadenada, y el verbo declara encadenable=False.
+    # block=True: el consumidor (desire_helper) hace remove() SINCRONO al consumir el
+    # flag. Con la escritura diferida, un remove() que gane la carrera borra un flag que
+    # aun no estaba en disco y la orden se ejecuta DOS veces (reproducido 300/300 con el
+    # consumidor sin margen, 0/500 con block=True). Esto corre en el worker del router,
+    # fuera del hilo RT: esperar al fsync es gratis aqui.
+    self.params.put_bool(opuesta, False, True)
+    self.params.put_bool(clave, True, True)
+
+  # Paso minimo que sabe aplicar este firmware. El consumidor (OrbitSpeedUltraSimple)
+  # acota el incremento a [1, 5] km/h, asi que por debajo de 1 km/h no hay forma de
+  # ejecutar la orden SIN aplicar mas de lo pedido -- y aumentar la autoridad por encima
+  # de lo que se pidio es justo lo que el diseno no permite. Se dice y no se hace.
+  PASO_CRUCERO_MINIMO_KPH = 1.0
+
+  def _h_cruise_delta(self, cmd):
+    """Paso de crucero. El consumidor (OrbitSpeedUltraSimple, en el proceso de card)
+    autoconsume el flag y aplica el incremento acotado a +-5 km/h.
+
+    La magnitud viaja por `orbit_speed_increment` porque es el UNICO canal que el
+    consumidor lee hoy. Sin escribirla, `delta_kph` seria un argumento decorativo: el
+    coche moveria el paso configurado en la pantalla y no el que pidio la orden -- otra
+    vez un control que dice una cosa y hace otra.
+
+    EFECTO LATERAL CONOCIDO: `orbit_speed_increment` es PERSISTENT, asi que una orden
+    remota deja fijado el tamano del paso que muestra la pantalla del comma. Se acepta
+    mientras ese sea el unico canal; la salida limpia es que el consumidor lea la
+    magnitud del propio plano de estado, y eso vive en otro fichero.
+    """
+    delta = float(cmd.args.get("delta_kph", 0.0))
+    magnitud = abs(delta)
+    if magnitud < self.PASO_CRUCERO_MINIMO_KPH:
+      minimo = self.PASO_CRUCERO_MINIMO_KPH
+      raise ValueError(f"delta_kph={delta} por debajo del paso minimo aplicable ({minimo} km/h): no se aplica nada")
+    magnitud = min(5.0, magnitud)
+    try:
+      actual = self.params.get("orbit_speed_increment", return_default=True)
+      if actual is None or abs(float(actual) - magnitud) > 0.01:
+        # Param tipado FLOAT: put() exige float nativo (put(str) = TypeError silencioso).
+        self.params.put("orbit_speed_increment", magnitud)
+    except Exception:
+      cloudlog.exception("[Orbit] no se pudo fijar el incremento de crucero")
+    clave = "orbit_speed_increase" if delta > 0 else "orbit_speed_decrease"
+    # block=True: mismo motivo que en _h_lane_change (el consumidor hace remove()).
+    self.params.put_bool(clave, True, True)
+
+  def _h_cruise_button(self, cmd):
+    """Cancelar crucero: el boton de panico de la app.
+
+    Es el UNICO boton grande que el diseno deja como accion de panico, y no por
+    comodidad: cancelar BAJA autoridad (desengancha) mientras que una frenada remota la
+    aumenta, y esta implementado en las 12 marcas. Una frenada pedida desde el movil llega
+    con segundos de latencia a una situacion que el conductor ya ha visto.
+
+    El esquema del verbo solo acepta 'cancel'; 'resume' y 'set' no estan declarados.
+    """
+    if str(cmd.args.get("button", "")).strip() != "cancel":
+      raise ValueError("cruise_button solo implementa 'cancel'")
+    # block=True: controlsd lo consume y lo limpia; con la escritura en vuelo podria
+    # limpiarlo antes de que llegue a disco y perderse la cancelacion.
+    self.params.put_bool("OrbitCruiseCancel", True, True)
+
+  def _h_assisted_decel(self, cmd):
+    """Deceleracion asistida acotada (sustituye a brutebreak). El rango [-2.5,-1.0] ya lo
+    ha impuesto el router con el esquema del verbo; aqui solo se aplica."""
+    accel = float(cmd.args["accel"])
+    # Param tipado FLOAT.
+    # La intensidad se escribe ANTES y con block=True: si el flag llegase primero,
+    # controlsd leeria el flag activo con la intensidad de la orden ANTERIOR.
+    self.params.put("brutebreak_intensidad", accel, True)
+    self.params.put_bool("brutebreak_active", True, True)
+
+  def _h_torque_mode(self, cmd):
+    """Modo de torque del volante. Solo se llega aqui en modo banco y con armado FISICO:
+    el router lo exige por spec.requiere_armado_banco.
+
+    Volver al modo 0 NO pasa por aqui: baja autoridad y se atiende como disarm_all, que
+    es el unico verbo que no se puede bloquear (seccion 2).
+    """
+    modo = int(cmd.args["mode"])
+    apply_target = cmd.args.get("apply_target")
+    if modo == 3:
+      if apply_target not in ("curvature", "torque"):
+        # Sin saber DONDE se aplica el esquive no se puede aplicar. Lanzar aqui es lo
+        # correcto: el router lo convierte en ACK failed/INTERNAL con el motivo.
+        raise ValueError("mode=3 exige apply_target 'curvature' o 'torque'")
+      self.params.put("JetsonObstacleApplyTarget", apply_target)
+    # SteerTorqueMode es INT: put() exige int nativo.
+    self.params.put("SteerTorqueMode", modo)
+    cloudlog.warning(f"[Orbit] SteerTorqueMode -> {modo} (apply_target={apply_target!r})")
+
+  def _h_steering_pulse(self, cmd):
+    """Pulso de direccion (banco). El modulo aplica su propio tope de duracion y de
+    velocidad; el sentido sale del signo del par pedido."""
+    from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
+    torque = float(cmd.args["torque"])
+    direccion = "right" if torque >= 0 else "left"
+    if not set_steering_pulse(direccion, duration_ms=cmd.args.get("duration_ms", 200),
+                              magnitude=abs(torque)):
+      raise RuntimeError("set_steering_pulse rechazo el pulso")
+
+  def _h_healthcheck(self, cmd):
+    """Diagnostico remoto. No se puede tocar cereal desde este hilo (msgq no es
+    thread-safe): se deja la peticion en un Param y MQTTEnvioGeneral.loop() la contesta
+    en SU hilo con deviceState/pandaStates/managerState."""
+    # Param tipado STRING.
+    self.params.put("OrbitHealthcheckRequest", str(ahora_epoch_ms() // 1000))
+
   def load_config(self):
-    with open(self.jsonConfig, "r") as f:
+    with open(self.jsonConfig) as f:
       config = json.load(f)
       self.broker_address = config.get("broker", "localhost")
       # broker_port antes se ignoraba aqui (1883 a fuego): en un broker con puerto
@@ -54,31 +357,87 @@ class MQTTComandos:
     self.mqttc.on_disconnect = self.on_disconnect
     self.mqttc.on_message = self.on_message
     self.mqttc.reconnect_delay_set(min_delay=1, max_delay=30)
-    threading.Thread(target=self.setup_mqtt, daemon=True).start()
+    self._relanzar_hilo_conexion()
 
-  def setup_mqtt(self):
-    while not self.stop_event.is_set():
+  def _relanzar_hilo_conexion(self):
+    """Arranca el UNICO hilo de conexion, relevando antes al anterior.
+
+    Mismo bug que ya se arreglo en el fichero gemelo (mqtt_envio_general.py):
+    si el broker no responde, el hilo inicial se queda en su bucle de reintento
+    y al cambiar la IP desde Ajustes se lanzaba un SEGUNDO hilo sin avisar al
+    primero. Cuando el nuevo conectaba y el viejo despertaba, el connect() del
+    viejo sobre el MISMO objeto cliente hacia _sock_close() y _out_packet.clear():
+    cerraba el socket recien abierto. Aqui es PEOR que en el gemelo porque lo que
+    queda mudo es el canal de MANDOS (incluida la cancelacion remota).
+
+    Diferencia deliberada con el gemelo: alli, si el join caduca, el relevo se
+    APLAZA (_conn_pendiente) y lo reintenta el loop de 10 Hz. MQTTComandos no
+    tiene loop propio -- reload_broker solo se llama cuando cambia el JSON --, asi
+    que aplazar dejaria el mando mudo hasta el siguiente cambio de configuracion.
+    Se lanza igualmente y la exclusion la garantiza _conn_lock + la recomprobacion
+    de `stop` dentro del lock en setup_mqtt.
+    """
+    viejo = self._conn_thread
+    if viejo is not None and viejo.is_alive():
+      self._conn_stop.set()
+      # 6 s = la espera de 5 s entre reintentos (ya interrumpible) mas el margen
+      # del connect() en curso, que paho corta a los 5 s (_connect_timeout).
+      viejo.join(timeout=6.0)
+      if viejo.is_alive():
+        cloudlog.warning("[Bemposta] MQTTComandos: hilo de conexion anterior aun vivo; el relevo se apoya en _conn_lock")
+    self._conn_stop = threading.Event()
+    self._conn_thread = threading.Thread(target=self.setup_mqtt, args=(self._conn_stop,),
+                                         daemon=True, name="OrbitMQTTComandosConnect")
+    self._conn_thread.start()
+
+  def setup_mqtt(self, stop=None):
+    """Bucle de conexion inicial. Corre en el hilo unico de conexion; `stop` es
+    su senal de relevo (la pone _relanzar_hilo_conexion antes de sustituirlo)."""
+    if stop is None:
+      stop = self._conn_stop
+    while not self.stop_event.is_set() and not stop.is_set():
       try:
         cloudlog.warning(f"[Bemposta] MQTTComandos conectando a broker {self.broker_address}:{self.broker_port}")
-        self.mqttc.connect(self.broker_address, self.broker_port, 60)
-        if not self.conectado:
-          self.mqttc.loop_start()
-          self.conectado = True
+        with self._conn_lock:
+          # Recomprobar DENTRO del lock: si nos relevaron mientras esperabamos,
+          # este connect() cerraria el socket que acaba de abrir el hilo nuevo.
+          if self.stop_event.is_set() or stop.is_set():
+            return
+          self.mqttc.connect(self.broker_address, self.broker_port, 60)
+          if not self.conectado:
+            self.mqttc.loop_start()
+            self.conectado = True
         break
       except Exception as e:
         cloudlog.warning(f"[Bemposta] MQTTComandos NO pudo conectar a {self.broker_address}:{self.broker_port}: {e}. Reintento en 5s")
-        time.sleep(5)
+        # Espera INTERRUMPIBLE: con time.sleep(5) el relevo tardaba hasta 5 s en
+        # notarse, y ese es justo el hueco en el que se solapaban los dos hilos.
+        if stop.wait(5.0):
+          break
 
   def reload_broker(self, new_broker):
-    """Reconecta en caliente cuando cambian el broker o las credenciales en
-    config_mqtt.json (lo llama MQTTEnvioGeneral al detectar el cambio)."""
-    viejo = (self.broker_address, self.mqtt_username, self.mqtt_password)
-    self.load_config()  # re-lee broker y credenciales del JSON
+    """Reconecta en caliente cuando cambian el broker, el puerto o las
+    credenciales en config_mqtt.json (lo llama MQTTEnvioGeneral al detectarlo)."""
+    # broker_port entra en la tupla de comparacion: mqtt_envio_general SI detecta
+    # el cambio de puerto y llama aqui, pero como no lo comparabamos saliamos por
+    # el return de "sin cambios" y los comandos se quedaban colgados del broker
+    # viejo mientras la telemetria ya hablaba con el nuevo.
+    viejo = (self.broker_address, self.broker_port, self.mqtt_username, self.mqtt_password)
+    try:
+      self.load_config()  # re-lee broker, puerto y credenciales del JSON
+    except Exception as e:
+      # Un config_mqtt.json corrupto (escritura a medias desde la UI del comma)
+      # propagaba la excepcion y se llevaba por delante el subsistema de comandos
+      # entero. Restauramos la config anterior y seguimos con el broker que ya
+      # funcionaba en vez de morir.
+      (self.broker_address, self.broker_port, self.mqtt_username, self.mqtt_password) = viejo
+      cloudlog.warning(f"[Bemposta] MQTTComandos config_mqtt.json ilegible ({e}), mantengo la config anterior")
+      return
     if new_broker:
       self.broker_address = new_broker
-    if (self.broker_address, self.mqtt_username, self.mqtt_password) == viejo:
+    if (self.broker_address, self.broker_port, self.mqtt_username, self.mqtt_password) == viejo:
       return
-    cloudlog.warning(f"[Bemposta] MQTTComandos broker/credenciales -> {self.broker_address}, reconectando")
+    cloudlog.warning(f"[Bemposta] MQTTComandos broker/credenciales -> {self.broker_address}:{self.broker_port}, reconectando")
     try:
       self.mqttc.loop_stop()
     except Exception:
@@ -90,17 +449,47 @@ class MQTTComandos:
     self.conectado = False
     # username=None -> vuelve a anonimo.
     self.mqttc.username_pw_set(self.mqtt_username, self.mqtt_password)
-    threading.Thread(target=self.setup_mqtt, daemon=True).start()
+    self._relanzar_hilo_conexion()
 
   def on_connect(self, client, userdata, flags, rc):
+    # Cuerpo COMPLETO en try/except: paho corre las callbacks con
+    # suppress_exceptions=False, asi que una excepcion aqui (p.ej. leer DongleId)
+    # sale hasta _thread_main, cuyo finally pone _thread=None y mata el hilo de
+    # red EN SILENCIO: el mando quedaria mudo marcando 'conectado'.
+    try:
+      self._on_connect(client, userdata, flags, rc)
+    except Exception:
+      cloudlog.exception("[Bemposta] MQTTComandos on_connect fallo (el hilo de red habria muerto en silencio)")
+
+  def _on_connect(self, client, userdata, flags, rc):
     if rc == 0:
       self.conectado = True
-      # Suscribirse a todos los comandos del sistema Orbit
+      # Recalcular AQUI, no solo en __init__: en el primer arranque el registro
+      # con comma puede tardar y el dongle aparece despues de construirnos.
+      self._refrescar_dongle()
+      if not self.dongle_valido:
+        # Ver _refrescar_dongle: sin DongleId real el namespace de mandos es comun
+        # a todos los comma sin registrar. Mejor mudo que obedeciendo ordenes
+        # ajenas. La proxima reconexion vuelve a intentarlo.
+        cloudlog.error("[Bemposta] MQTTComandos SIN DongleId valido: NO me suscribo a ningun topic de mando (namespace comun)")
+        return
+      # --- namespace v2 (contrato congelado, seccion 3.1). qos 1: el mando no se pierde.
+      # El retenido esta PROHIBIDO en este topic y lo rechaza el router incondicionalmente.
+      if self.router is not None:
+        # El router puede haberse construido sin dongle (primer arranque, con el registro
+        # aun en curso). Ahora si lo hay: se le pone, y con el su topic de mando y el de ACK.
+        self.router.dongle_id = self.DongleID
+        client.subscribe(self.router.topic_cmd, qos=1)
+      else:
+        cloudlog.error("[Orbit] sin CommandRouter: NO me suscribo a orbit/v2/cmd (el mando queda mudo)")
+
+      # --- namespace v1 (LEGACY, seccion 13: se apaga por verbo al cerrar la migracion).
+      # Se sigue escuchando, pero ya no ejecuta nada por su cuenta: cada mensaje se
+      # traduce a un sobre v2 y entra por el mismo router (ver _v1_al_router).
       topics = [
         f"telemetry_config/{self.DongleID}/left",           # Cambio carril izquierda
         f"telemetry_config/{self.DongleID}/right",          # Cambio carril derecha
         f"telemetry_config/{self.DongleID}/control",        # Control básico (forward, break, tright, tleft)
-        f"telemetry_config/{self.DongleID}/speed",          # Comandos de velocidad (formato JSON)
         f"telemetry_config/{self.DongleID}/speed_up",       # Comando aumentar velocidad (formato servidor)
         f"telemetry_config/{self.DongleID}/speed_down",     # Comando disminuir velocidad (formato servidor)
         f"telemetry_config/{self.DongleID}/speed_increment", # Configuración del incremento de velocidad (futuro)
@@ -108,16 +497,18 @@ class MQTTComandos:
         f"telemetry_config/{self.DongleID}/brutebreak",      # Frenado de emergencia brusco
         f"telemetry_config/{self.DongleID}/camera_config",   # Configuración de cámara desde app ORBIT
         f"telemetry_config/{self.DongleID}/jetson_config",   # Configuracion de Jetson (por dongle_id)
-        "jetson_config/global",                              # Configuracion de Jetson GLOBAL (desde cualquier app)
         f"telemetry_config/{self.DongleID}/steer_torque_mode", # Modo de torque del volante (por dongle_id)
-        "steer_torque_mode/global",                          # Modo de torque del volante GLOBAL
         f"telemetry_config/{self.DongleID}/enroll_ack",      # Ack de enrolamiento ORBIT (backend → firmware)
         f"telemetry_config/{self.DongleID}/healthcheck"      # Peticion de diagnostico remoto (backend/app → firmware)
       ]
 
       for topic in topics:
         client.subscribe(topic, qos=0)
-      cloudlog.warning(f"[Bemposta] MQTTComandos CONECTADO (rc={rc}), suscrito a comandos para dongle={self.DongleID}")
+      cloudlog.warning(f"[Bemposta] MQTTComandos CONECTADO (rc={rc}), suscrito a comandos v2+v1 para dongle={self.DongleID}")
+
+      # Descriptor de capacidades: forzado en cada conexion porque el retenido vive en EL
+      # BROKER, y este puede ser otro (cambio de IP desde Ajustes) o haberlo perdido.
+      self.maybe_publish_caps(forzar=True)
 
   def on_disconnect(self, client, userdata, rc):
     self.conectado = False
@@ -129,7 +520,7 @@ class MQTTComandos:
     # Solo guardar si el modo debug está activo
     try:
       # Verificar el estado del modo debug (cada 2 segundos para respuesta más rápida)
-      current_time = time.time()
+      current_time = time.monotonic()
       if not hasattr(self, '_last_debug_check') or current_time - self._last_debug_check > 2.0:
         self.debug_enabled = self.params.get_bool("modo_debug")
         self._last_debug_check = current_time
@@ -163,7 +554,7 @@ class MQTTComandos:
                 content = f.read().decode('utf-8', errors='ignore')
                 lines = content.split('\n')
             else:
-              with open(self.debug_file, 'r', encoding='utf-8') as f:
+              with open(self.debug_file, encoding='utf-8') as f:
                 lines = f.readlines()
 
             # Procesar desde el final hacia atrás
@@ -205,338 +596,378 @@ class MQTTComandos:
     except Exception:
       pass  # Silenciar errores para no afectar el flujo principal
 
+  # Topics de ESTADO idempotente cuyo publicador manda retained A PROPOSITO para
+  # el cold-start (la app publica jetson_config con retain:true; el backend publica
+  # enroll_ack con retain=True y tiene un test que lo fija). NINGUNO de estos dos
+  # actua sobre el coche y los dos llevan anti-eco.
+  # Todo lo demas son MANDOS y no puede venir retenido.
+  RETAIN_PERMITIDO = ("/jetson_config", "/enroll_ack")
+
+  # steer_torque_mode SI actua sobre el coche y por eso salio de la lista de
+  # arriba: su ejecutor escribe SteerTorqueMode, y controlsd pone
+  # actuators.torque = -1.0 EN CADA CICLO con modo 2 mientras latActive, mientras
+  # que el modo 1 conmuta la fuente de direccion a la Jetson. Como el param es
+  # PERSISTENT y la app publica con retain:true, el retenido se re-entregaba en
+  # CADA reconexion y en cada reinicio del subsistema: par maximo remoto sin que
+  # nadie mande nada. Se admite el retenido SOLO cuando BAJA autoridad (modo 0),
+  # que es la unica direccion que el diseno (§2) permite siempre. El cold-start
+  # legitimo ya lo cubre el propio comma con _publish_state_snapshot_retained().
+  RETAIN_SOLO_SI_BAJA_AUTORIDAD = ("/steer_torque_mode",)
+
+  # ------------------------------------------------------------------ entrada MQTT
+
   def on_message(self, client, userdata, msg):
-    """Callback que maneja los mensajes MQTT de comandos."""
+    """Callback de paho: HILO DE RED. Aqui no se ejecuta ningun comando.
+
+    Dos caminos, un solo destino:
+
+      * orbit/v2/cmd/<dongle> -> CommandRouter.on_message() tal cual.
+      * topic v1 (telemetry_config/<dongle>/...) -> _v1_al_router(), que lo traduce a
+        (verbo, args) y fabrica un SOBRE v2 con router.submit_local(). A partir de ahi es
+        indistinguible de un mando v2: mismos gates, mismo modo, mismo TTL, mismo ACK.
+
+    Los CUATRO topics v1 que NO son verbos y por tanto no pasan por el router, con lo que
+    hace cada uno (revisado uno a uno; ninguno mueve un actuador):
+
+      /jetson_config    reescribe orbit/config_jetson.json (IP, puertos, calidad JPEG) y
+                        levanta un flag para que el CameraSender recargue.
+                        AVISO, y no es un detalle: esto decide DE QUE MAQUINA viene
+                        JetsonObstaclePulse. En modo 3 (COMMA+JETSON) —que es el modo de
+                        producto del proyecto y que NO exige armado de banco cuando se
+                        selecciona en la pantalla del comma— quien reescriba este topic
+                        apunta el enlace a su propia Jetson y esta inyectando offsets de
+                        direccion. No pasa por el router: sin sesion, sin gates y sin ACK.
+                        Los anti-eco (source=="comma_ui", _version) los controla quien
+                        publica, asi que no son una barrera.
+                        Se mantiene abierto porque D1 acepta el broker sin autenticar y la
+                        seccion 9 conserva el selector local. La salida es F4: jetson_ip
+                        pasa a configuracion firmada por el backend
+                        (orbit/v2/cfg/desired/<dongle>), no a un topic anonimo.
+      /camera_config    enciende/apaga el envio de imagenes y su frecuencia. Es privacidad
+                        y ancho de banda, no conduccion. El interruptor local de la
+                        pantalla lo sigue mandando (seccion 9, innegociable).
+      /enroll_ack       marca el dispositivo como reclamado/liberado (OrbitClaimed,
+                        OrbitOwner, codigo de emparejamiento). Es identidad.
+      /speed_increment  guarda el tamano del paso de crucero (param FLOAT). No mueve el
+                        coche por si mismo, y el consumidor lo acota ademas a [1, 5] km/h,
+                        que es el limite por orden que declara el verbo cruise_delta.
+    """
     try:
       topic = msg.topic
       payload = msg.payload.decode(errors="ignore").strip()
 
-      # Guardar mensaje para modo debug
+      # Guardar mensaje para modo debug (tambien los que se descartan abajo, para
+      # que el panel muestre que el mensaje llego y no parezca perdido)
       self.save_debug_message(topic, payload)
 
-      # Comando de cambio de carril a la izquierda
-      if topic.endswith("/left"):
-        self.handle_lane_change_left(payload)
+      # --- v2: el router hace sus propios filtros (retain, payload vacio, dongle ajeno).
+      if isinstance(topic, str) and topic.startswith(TOPIC_CMD.format("")):
+        if self.router is None:
+          cloudlog.error("[Orbit] llego un mando v2 y no hay router: descartado (fail-closed)")
+          return
+        self.router.on_message(client, userdata, msg)
+        return
 
-      # Comando de cambio de carril a la derecha
-      elif topic.endswith("/right"):
-        self.handle_lane_change_right(payload)
+      # --- v1: los filtros de retenido y de payload vacio son de este lado, porque el
+      # namespace legacy SI tiene topics donde un retenido es legitimo.
+      retenido = bool(msg.retain)
+      if retenido and not topic.endswith(self.RETAIN_PERMITIDO) \
+         and not topic.endswith(self.RETAIN_SOLO_SI_BAJA_AUTORIDAD):
+        cloudlog.warning(f"[Bemposta] MQTTComandos descarta mensaje RETENIDO en {topic} (un mando no se repite)")
+        return
 
-      # Comando de control básico (forward, break, tright, tleft)
-      elif topic.endswith("/control"):
-        self.handle_control_commands(payload)
+      # Payload de longitud cero es el gesto MQTT estandar para BORRAR un
+      # retenido: el broker lo reentrega como mensaje normal y aqui caia en los
+      # except/else que ACTIVAN el comando (speed_up y speed_down activaban
+      # literalmente dentro de su except json.JSONDecodeError, y left/right en su
+      # else final). Borrar un retenido no es una orden de conduccion.
+      if not payload:
+        cloudlog.warning(f"[Bemposta] MQTTComandos descarta payload vacio en {topic} (borrado de retenido)")
+        return
 
-      # Comando de velocidad (increase/decrease) - formato JSON
-      elif topic.endswith("/speed"):
-        self.handle_speed_commands(payload)
-
-      # Comando de aumentar velocidad - formato servidor
-      elif topic.endswith("/speed_up"):
-        self.handle_speed_up_server(payload)
-
-      # Comando de disminuir velocidad - formato servidor
-      elif topic.endswith("/speed_down"):
-        self.handle_speed_down_server(payload)
-
-      # Comando de configuración del incremento de velocidad (para el futuro)
-      elif topic.endswith("/speed_increment"):
-        self.handle_speed_increment_config(payload)
-
-      # Comando de adelantamiento automático (unificado, detecta BSM automáticamente)
-      elif topic.endswith("/overtake"):
-        self.handle_overtake(payload)
-
-      # Comando de frenado de emergencia brusco
-      elif topic.endswith("/brutebreak"):
-        self.handle_brutebreak(payload)
-
-      # Configuración de cámara desde app ORBIT
-      elif topic.endswith("/camera_config"):
-        self.handle_camera_config(payload)
-
-      # Configuracion de Jetson desde app ORBIT
-      elif topic.endswith("/jetson_config") or topic == "jetson_config/global":
-        print(f"[JETSON SYNC] Recibido jetson_config en topic: {topic}")
+      # --- topics v1 de CONFIGURACION (no son verbos: ver el docstring).
+      if topic.endswith("/jetson_config"):
         self.handle_jetson_config(payload)
-
-      # Modo de torque del volante desde app ORBIT
-      elif topic.endswith("/steer_torque_mode") or topic == "steer_torque_mode/global":
-        print(f"[STEER MODE SYNC] Recibido steer_torque_mode en topic: {topic}")
-        self.handle_steer_torque_mode(payload)
-
-      # Ack de enrolamiento ORBIT (backend → firmware)
-      elif topic.endswith("/enroll_ack"):
+        return
+      if topic.endswith("/camera_config"):
+        self.handle_camera_config(payload)
+        return
+      if topic.endswith("/enroll_ack"):
         self.handle_enroll_ack(payload)
-
-      # Peticion de diagnostico remoto (healthcheck)
-      elif topic.endswith("/healthcheck"):
-        self.handle_healthcheck(payload)
-
-    except Exception:
-      pass  # Error silenciado para reducir uso de memoria
-
-  def handle_healthcheck(self, payload):
-    """Peticion de diagnostico remoto.
-
-    No se puede tocar cereal desde este hilo de callback de paho (msgq no es
-    thread-safe). Se deja una peticion en un Param que MQTTEnvioGeneral.loop()
-    recoge en su propio hilo, construye el informe (deviceState/pandaStates/
-    managerState + version) y lo publica en telemetry_mqtt/<dongle>/healthcheck.
-    """
-    self.params.put("OrbitHealthcheckRequest", str(int(time.time())))
-    self.save_debug_message(f"telemetry_config/{self.DongleID}/healthcheck", payload or "request")
-
-  def handle_lane_change_left(self, payload):
-    """Maneja el comando de cambio de carril a la izquierda.
-
-    Acepta JSON {"ForceLaneChangeLeft": true/false} (app) o el string plano
-    "true"/"false" (backend). Un boolean explícito manda: true activa, false
-    cancela (antes la cancelación remota era imposible).
-    """
-    # NOTA: el gate c_carril se ha eliminado a propósito. La seguridad de
-    # conducción (lateral_active, velocidad mínima, blindspot) vive ahora en
-    # desire_helper, que sigue aplicando sus propios gates.
-    try:
-      import json
-
-      # Intentar leer un boolean explícito del JSON de la app
-      explicit = None
-      try:
-        data = json.loads(payload)
-        if isinstance(data, dict) and "ForceLaneChangeLeft" in data:
-          explicit = bool(data["ForceLaneChangeLeft"])
-      except (json.JSONDecodeError, ValueError, TypeError):
-        explicit = None
-
-      if explicit is True:
-        self.params.put_bool("ForceLaneChangeRight", False)
-        self.params.put_bool("ForceLaneChangeLeft", True)
         return
-      if explicit is False:
-        # Cancelación explícita remota
-        self.params.put_bool("ForceLaneChangeLeft", False)
-        self.params.put_bool("ForceLaneChangeRight", False)
+      if topic.endswith("/speed_increment"):
+        self.handle_speed_increment_config(payload)
         return
 
-      # Fallback: string plano del backend
-      if payload == "false":
-        self.params.put_bool("ForceLaneChangeLeft", False)
-        self.params.put_bool("ForceLaneChangeRight", False)
-      elif self.params.get_bool("ForceLaneChangeRight"):
-        self.params.put_bool("ForceLaneChangeLeft", False)
-        self.params.put_bool("ForceLaneChangeRight", False)
-      else:
-        self.params.put_bool("ForceLaneChangeLeft", True)
+      # --- todo lo demas es MANDO: al router, siempre.
+      self._v1_al_router(topic, payload, retenido)
+
     except Exception:
-      pass  # Error silenciado para reducir uso de memoria
+      cloudlog.exception("[Orbit] MQTTComandos.on_message fallo (el hilo de red habria muerto en silencio)")
 
-  def handle_lane_change_right(self, payload):
-    """Maneja el comando de cambio de carril a la derecha.
+  # -------------------------------------------------- puente v1 -> v2 (seccion 13)
 
-    Acepta JSON {"ForceLaneChangeRight": true/false} (app) o el string plano
-    "true"/"false" (backend). Un boolean explícito manda: true activa, false
-    cancela (antes la cancelación remota era imposible).
+  def _v1_al_router(self, topic, payload, retenido=False):
+    """Traduce un mando v1 a (verbo, args) y lo mete por el router.
+
+    Devuelve el Resultado del router, o None si el payload no se reconocio (se descarta
+    sin tocar nada, como ya hacian las listas blancas) o si no hay router.
+
+    Nada de esto escribe un Param: quien lo escribe es el ejecutor del verbo, y solo
+    despues de que el router haya dicho que si.
     """
-    # NOTA: el gate c_carril se ha eliminado a propósito. La seguridad de
-    # conducción (lateral_active, velocidad mínima, blindspot) vive ahora en
-    # desire_helper, que sigue aplicando sus propios gates.
-    try:
-      import json
+    if self.router is None:
+      cloudlog.error(f"[Orbit] mando v1 en {topic} descartado: no hay CommandRouter (fail-closed)")
+      return None
 
-      # Intentar leer un boolean explícito del JSON de la app
-      explicit = None
-      try:
-        data = json.loads(payload)
-        if isinstance(data, dict) and "ForceLaneChangeRight" in data:
-          explicit = bool(data["ForceLaneChangeRight"])
-      except (json.JSONDecodeError, ValueError, TypeError):
-        explicit = None
+    traduccion = None
+    if topic.endswith("/left"):
+      traduccion = self._v1_lane_change(payload, "ForceLaneChangeLeft", "ForceLaneChangeRight", "left")
+    elif topic.endswith("/right"):
+      traduccion = self._v1_lane_change(payload, "ForceLaneChangeRight", "ForceLaneChangeLeft", "right")
+    elif topic.endswith("/speed_up"):
+      traduccion = self._v1_paso_velocidad(payload, "speed_up", self.SPEED_UP_PLANOS, +1)
+    elif topic.endswith("/speed_down"):
+      traduccion = self._v1_paso_velocidad(payload, "speed_down", self.SPEED_DOWN_PLANOS, -1)
+    elif topic.endswith("/control"):
+      traduccion = self._v1_cruceta(payload)
+    elif topic.endswith("/overtake"):
+      traduccion = self._v1_overtake(payload)
+    elif topic.endswith("/brutebreak"):
+      traduccion = self._v1_brutebreak(payload)
+    elif topic.endswith("/steer_torque_mode"):
+      traduccion = self._v1_steer_torque_mode(payload, retenido)
+    elif topic.endswith("/healthcheck"):
+      traduccion = ("healthcheck", {})
+    else:
+      cloudlog.warning(f"[Orbit] topic v1 sin traduccion: {topic}")
+      return None
 
-      if explicit is True:
-        self.params.put_bool("ForceLaneChangeLeft", False)
-        self.params.put_bool("ForceLaneChangeRight", True)
-        return
-      if explicit is False:
-        # Cancelación explícita remota
-        self.params.put_bool("ForceLaneChangeLeft", False)
-        self.params.put_bool("ForceLaneChangeRight", False)
-        return
+    if traduccion is None:
+      cloudlog.warning(f"[Bemposta] MQTTComandos DESCARTA {topic}: payload no reconocido ({payload[:60]!r})")
+      return None
 
-      # Fallback: string plano del backend
-      if payload == "false":
-        self.params.put_bool("ForceLaneChangeLeft", False)
-        self.params.put_bool("ForceLaneChangeRight", False)
-      elif self.params.get_bool("ForceLaneChangeLeft"):
-        self.params.put_bool("ForceLaneChangeLeft", False)
-        self.params.put_bool("ForceLaneChangeRight", False)
-      else:
-        self.params.put_bool("ForceLaneChangeRight", True)
-    except Exception:
-      pass  # Error silenciado para reducir uso de memoria
+    verbo, args = traduccion
+    return self.router.submit_local(verbo, args, actor={"via": "v1", "topic": topic})
 
-  def handle_control_commands(self, payload):
-    """Maneja los comandos de control básico (forward, break, tright, tleft)."""
-    try:
-      import json
+  # Decisiones posibles de un payload de cambio de carril.
+  LC_ACTIVAR = "activar"
+  LC_CANCELAR = "cancelar"
+  LC_TOGGLE = "toggle"
 
-      # Intentar parsear como JSON primero
-      try:
-        data = json.loads(payload)
+  @staticmethod
+  def decidir_lane_change(payload, clave):
+    """Lista BLANCA de payloads de cambio de carril.
 
-        # Comando Forward (Arriba) / Break (Abajo).
-        # forward/break se enrutan al MISMO mecanismo de velocidad (ya probado y
-        # consumido por card.py en otro proceso) en vez de inyectar código nuevo
-        # en el bucle de control. Son empujoncitos suaves de velocidad: el
-        # solape semántico con speed_up/speed_down es intencionado por ahora.
-        if data.get("forward"):
-          self.params.put_bool("orbit_speed_increase", True)
-          if SPEED_MODULE_AVAILABLE:
-            speed_module.orbit_speed_increase = True
+    Devuelve LC_ACTIVAR, LC_CANCELAR, LC_TOGGLE o None (= DESCARTAR).
 
-        if data.get("break"):
-          self.params.put_bool("orbit_speed_decrease", True)
-          if SPEED_MODULE_AVAILABLE:
-            speed_module.orbit_speed_decrease = True
+    Antes solo se descartaba el JSON {clave: <no bool>}: cualquier otro JSON
+    valido (0, [], "x") o un dict sin la clave ({"foo": 1}) dejaba explicit=None,
+    caia al fallback de string plano, no era igual a "false" y terminaba en el
+    else que ACTIVA el giro. Es decir: basura -> cambio de carril.
 
-        # Comando Tright (Derecha) - formato JSON
-        if data.get("tright"):
-          # Activar giro temporal usando el nuevo sistema
-          try:
-            from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
-            set_steering_pulse("right")
-          except Exception:
-            pass  # Error silenciado para reducir uso de memoria
-
-        # Comando Tleft (Izquierda) - formato JSON
-        if data.get("tleft"):
-          # Activar giro temporal usando el nuevo sistema
-          try:
-            from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
-            set_steering_pulse("left")
-          except Exception:
-            pass  # Error silenciado para reducir uso de memoria
-
-      except json.JSONDecodeError:
-        # Si no es JSON, tratar como string simple (formato servidor: "tleft" o "tright")
-        payload_lower = payload.lower().strip()
-
-        if payload_lower == "tright":
-          # Activar giro temporal a la derecha usando variables globales
-          try:
-            from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
-            set_steering_pulse("right")
-          except Exception as e:
-            pass  # Error silenciado para reducir uso de memoria
-
-        elif payload_lower == "tleft":
-          # Activar giro temporal a la izquierda usando variables globales
-          try:
-            from openpilot.orbit.orbit_steering_pulse import set_steering_pulse
-            set_steering_pulse("left")
-          except Exception as e:
-            pass  # Error silenciado para reducir uso de memoria
-
-    except Exception:
-      pass  # Error silenciado para reducir uso de memoria
-
-  def handle_speed_commands(self, payload):
-    """Maneja los comandos de velocidad (increase/decrease) - formato JSON.
-
-    IMPORTANTE: Solo funciona cuando el control longitudinal está activo (crucero activado).
+    Reglas, en este orden:
+      - "true"/"false" (con espacios o mayusculas): formato plano del backend.
+        Se comprueban ANTES del JSON porque tambien son JSON valido y el
+        resultado seria el mismo. "false" CANCELA: bajar autoridad nunca se
+        descarta (diseno §2 y §3.4), aunque llegue con cualquier envoltorio.
+      - dict con la clave y valor bool: formato de la app. bool("false") es True,
+        por eso el valor tiene que ser bool de verdad y no truthy.
+      - todo lo demas: None (descartar).
     """
+    texto = payload.strip().lower()
+    if texto == "false":
+      return MQTTComandos.LC_CANCELAR
+    if texto == "true":
+      # Comportamiento historico del string plano: si el sentido OPUESTO ya esta
+      # armado, cancelar los dos en vez de encadenar maniobras.
+      return MQTTComandos.LC_TOGGLE
+
     try:
-      import json
       data = json.loads(payload)
+    except (json.JSONDecodeError, ValueError, TypeError):
+      return None
 
-      # Aumentar velocidad
-      if data.get("speed_increase"):
-        # card.py corre en OTRO proceso y lee el Param, no el global -> siempre
-        # ponemos el Param. El global se mantiene como fast-path mismo proceso.
-        self.params.put_bool("orbit_speed_increase", True)
-        if SPEED_MODULE_AVAILABLE:
-          speed_module.orbit_speed_increase = True
+    if not isinstance(data, dict) or clave not in data:
+      return None
+    v = data[clave]
+    if not isinstance(v, bool):
+      return None
+    return MQTTComandos.LC_ACTIVAR if v else MQTTComandos.LC_CANCELAR
 
-      # Reducir velocidad
-      if data.get("speed_decrease"):
-        self.params.put_bool("orbit_speed_decrease", True)
-        if SPEED_MODULE_AVAILABLE:
-          speed_module.orbit_speed_decrease = True
+  def _v1_lane_change(self, payload, clave, opuesta, direccion):
+    """/left y /right -> verbo lane_change, o disarm_all si el payload CANCELA.
 
-    except json.JSONDecodeError:
-      pass  # Error silenciado para reducir uso de memoria
-    except Exception:
-      pass  # Error silenciado para reducir uso de memoria
-
-  def handle_speed_up_server(self, payload):
-    """Maneja el comando de aumentar velocidad - formato servidor/app.
-
-    El servidor/app envía el comando cuando el usuario pulsa el botón "Aumentar".
-    Formatos aceptados:
-    - JSON: {'speed_up': true, 'timestamp': ...} (nuevo formato desde app)
-    - String: "1", "+1", o cualquier string (formato antiguo del servidor)
-
-    IMPORTANTE: Solo funciona cuando el control longitudinal está activo (crucero activado).
+    Por que una cancelacion se traduce a disarm_all y no a "lane_change con false": en v2
+    no existe el verbo que cancela otro verbo. Bajar autoridad es UNA cosa y tiene UN
+    verbo, que es el unico que no se puede bloquear por modo, gate ni TTL (seccion 2). Si
+    la cancelacion viajara como lane_change, un gate en rojo la RECHAZARIA -- es decir, no
+    se podria cancelar justo cuando mas falta hace. El efecto es mas amplio que el de v1
+    (apaga todos los actuadores remotos, no solo los dos flags de carril), y eso es
+    aceptable en la unica direccion que siempre lo es: hacia abajo.
     """
+    decision = self.decidir_lane_change(payload, clave)
+    if decision is None:
+      return None
+    if decision == self.LC_CANCELAR:
+      return ("disarm_all", {})
+    if decision == self.LC_ACTIVAR:
+      return ("lane_change", {"direction": direccion})
+    # LC_TOGGLE: string plano "true" del backend. Con el sentido opuesto ya armado, el
+    # comportamiento historico es cancelar los dos en vez de encadenar maniobras.
     try:
-      # Intentar parsear como JSON primero (nuevo formato desde app)
-      try:
-        data = json.loads(payload)
-        if data.get("speed_up") is True:
-          # Formato nuevo: JSON con speed_up: true. card.py corre en OTRO proceso
-          # y lee el Param, no el global -> siempre ponemos el Param.
-          self.params.put_bool("orbit_speed_increase", True)
-          if SPEED_MODULE_AVAILABLE:
-            speed_module.orbit_speed_increase = True
-          return
-      except (json.JSONDecodeError, AttributeError):
-        # No es JSON, tratar como string (formato antiguo del servidor)
-        # Aceptamos cualquier payload como válido para mantener compatibilidad
-        self.params.put_bool("orbit_speed_increase", True)
-        if SPEED_MODULE_AVAILABLE:
-          speed_module.orbit_speed_increase = True
-
+      opuesto_armado = bool(self.params.get_bool(opuesta))
     except Exception:
-      pass  # Error silenciado para reducir uso de memoria
+      opuesto_armado = False
+    if opuesto_armado:
+      return ("disarm_all", {})
+    return ("lane_change", {"direction": direccion})
 
-  def handle_speed_down_server(self, payload):
-    """Maneja el comando de disminuir velocidad - formato servidor/app.
+  # Lista blanca de payloads planos para los pasos de crucero. El "aceptamos
+  # cualquier payload como valido para mantener compatibilidad" de antes convertia
+  # CUALQUIER cosa que llegara al topic (incluido un JSON de otro verbo, un "0" o
+  # basura del broker) en un paso de velocidad, porque el except capturaba el
+  # AttributeError de data.get sobre un no-dict y activaba dentro del propio except.
+  SPEED_UP_PLANOS = ("1", "+1", "true")
+  SPEED_DOWN_PLANOS = ("1", "-1", "true")
 
-    El servidor/app envía el comando cuando el usuario pulsa el botón "Disminuir".
-    Formatos aceptados:
-    - JSON: {'speed_down': true, 'timestamp': ...} (nuevo formato desde app)
-    - String: "1", "-1", o cualquier string (formato antiguo del servidor)
+  @staticmethod
+  def acepta_paso_velocidad(payload, clave, planos):
+    """True solo si el payload esta en la lista blanca del verbo.
 
-    IMPORTANTE: Solo funciona cuando el control longitudinal está activo (crucero activado).
+    - string plano exacto (sin espacios, sin distinguir mayusculas) de `planos`;
+    - o JSON objeto con {clave: true} (formato de la app).
+    Todo lo demas es False = descartar.
     """
+    if payload.strip().lower() in planos:
+      return True
     try:
-      # Intentar parsear como JSON primero (nuevo formato desde app)
-      try:
-        data = json.loads(payload)
-        if data.get("speed_down") is True:
-          # Formato nuevo: JSON con speed_down: true. card.py corre en OTRO proceso
-          # y lee el Param, no el global -> siempre ponemos el Param.
-          self.params.put_bool("orbit_speed_decrease", True)
-          if SPEED_MODULE_AVAILABLE:
-            speed_module.orbit_speed_decrease = True
-          return
-      except (json.JSONDecodeError, AttributeError):
-        # No es JSON, tratar como string (formato antiguo del servidor)
-        # Aceptamos cualquier payload como válido para mantener compatibilidad
-        self.params.put_bool("orbit_speed_decrease", True)
-        if SPEED_MODULE_AVAILABLE:
-          speed_module.orbit_speed_decrease = True
+      data = json.loads(payload)
+    except (json.JSONDecodeError, ValueError, TypeError):
+      return False
+    return isinstance(data, dict) and data.get(clave) is True
 
+  # Paso de crucero por defecto si el param no se puede leer. Es el tope por orden que
+  # declara el verbo cruise_delta (+-5 km/h): no se puede pedir mas desde v1 que desde v2.
+  PASO_CRUCERO_DEFECTO_KPH = 5.0
+
+  def _v1_paso_velocidad(self, payload, clave, planos, signo):
+    """/speed_up y /speed_down -> verbo cruise_delta.
+
+    v1 no manda magnitud: manda "un paso". La magnitud sale del param
+    orbit_speed_increment, acotada a [1, 5] km/h, que es el limite por orden del verbo.
+    El presupuesto de +-20 km/h por minuto lo aplica el router, no esto.
+    """
+    if not self.acepta_paso_velocidad(payload, clave, planos):
+      return None
+    try:
+      paso = self.params.get("orbit_speed_increment", return_default=True)
+      paso = float(paso) if paso is not None else self.PASO_CRUCERO_DEFECTO_KPH
     except Exception:
-      pass  # Error silenciado para reducir uso de memoria
+      paso = self.PASO_CRUCERO_DEFECTO_KPH
+    paso = max(1.0, min(5.0, abs(paso)))
+    return ("cruise_delta", {"delta_kph": signo * paso})
+
+  # Verbos de la cruceta, RETIRADOS por la seccion 6 del diseno ("Se retiran: forward,
+  # break, tright, tleft"). Se siguen traduciendo -- y no ignorando -- para que el emisor
+  # reciba un ACK UNSUPPORTED_VERB con el nombre del verbo en vez de silencio: un boton
+  # que no responde es indistinguible de un coche que no esta.
+  CRUCETA_V1 = ("forward", "break", "tright", "tleft")
+
+  def _v1_cruceta(self, payload):
+    """/control -> el verbo retirado que pidan, para que el router conteste
+    UNSUPPORTED_VERB. Ninguno de los cuatro existe ya en command_spec.COMMANDS."""
+    plano = payload.strip().lower()
+    if plano in self.CRUCETA_V1:
+      return (plano, {})
+    try:
+      data = json.loads(payload)
+    except (json.JSONDecodeError, ValueError, TypeError):
+      return None
+    if not isinstance(data, dict):
+      return None
+    for verbo in self.CRUCETA_V1:
+      if data.get(verbo) is True:
+        return (verbo, {})
+    return None
+
+  def _v1_overtake(self, payload):
+    """/overtake -> verbo `overtake`, que command_spec declara no implementado.
+
+    El adelantamiento v1 armaba un cambio de carril a la izquierda SIN maquina de estados:
+    no volvia al carril, no comprobaba trafico en sentido contrario y ni siquiera si
+    existia carril izquierdo. La seccion 6 lo deja en "o se implementa la maquina de
+    estados o se retira el HUD que miente", asi que aqui se traduce al verbo y el router
+    contesta UNSUPPORTED_VERB. Apagarlo (enabled:false) SI hace algo: baja autoridad, y
+    eso es disarm_all.
+    """
+    plano = payload.strip().lower()
+    if plano == "false":
+      return ("disarm_all", {})
+    if plano == "true":
+      return ("overtake", {})
+    try:
+      data = json.loads(payload)
+    except (json.JSONDecodeError, ValueError, TypeError):
+      return None
+    if not isinstance(data, dict):
+      return None
+    if data.get("enabled") is False:
+      return ("disarm_all", {})
+    if data.get("enabled") is True:
+      return ("overtake", {})
+    return None
+
+  # Tope de deceleracion del verbo assisted_decel (command_spec: accel en [-2.5, -1.0]).
+  DECEL_MIN = -2.5
+  DECEL_MAX = -1.0
+
+  def _v1_brutebreak(self, payload):
+    """/brutebreak -> verbo assisted_decel (o disarm_all al apagar).
+
+    v1 aceptaba [-10, -1] m/s2 sin modo, sin gates y sin TTL. El contrato acota el rango a
+    [-2.5, -1.0] en via publica (decision por defecto de la seccion 0: una frenada que
+    llega con segundos de latencia, ordenada por quien no ve lo que ve el coche, no evita
+    un peligro, lo crea). Una intensidad v1 fuera de rango se ACOTA en vez de rechazarse:
+    el resultado es siempre MENOS autoridad de la pedida, que es la unica direccion que el
+    diseno permite sin preguntar. Lo que si se rechaza es un payload no reconocido.
+    """
+    plano = payload.strip().lower()
+    if plano in ("false", "0", "off"):
+      return ("disarm_all", {})
+    if plano in ("true", "1", "on"):
+      return ("assisted_decel", {"accel": self.DECEL_MIN})
+    try:
+      data = json.loads(payload)
+    except (json.JSONDecodeError, ValueError, TypeError):
+      return None
+    if not isinstance(data, dict):
+      return None
+    if data.get("enabled") is False or data.get("brutebreak") is False:
+      return ("disarm_all", {})
+    if not (data.get("enabled") is True or data.get("brutebreak") is True):
+      return None
+    accel = self.DECEL_MIN
+    if "intensidad_frenado" in data:
+      try:
+        accel = float(data["intensidad_frenado"])
+      except (TypeError, ValueError):
+        return None
+      if accel > 0:
+        # Una deceleracion positiva es una aceleracion: no es este verbo.
+        return None
+      acotado = max(self.DECEL_MIN, min(self.DECEL_MAX, accel))
+      if acotado != accel:
+        cloudlog.warning(f"[Orbit] brutebreak v1 con {accel} m/s2 acotado a {acotado} (contrato assisted_decel)")
+      accel = acotado
+    return ("assisted_decel", {"accel": accel})
 
   def handle_speed_increment_config(self, payload):
-    """Maneja la configuración del incremento de velocidad desde la app.
+    """Configuracion del tamano del paso de crucero (topic v1 /speed_increment).
 
-    La app puede enviar el valor del incremento en km/h (ej: "10", "5", "20").
-    Este valor se guarda en Params y será usado por el sistema de control de velocidad.
-
-    Formato esperado: número como string (ej: "10" para 10 km/h)
-    Rango válido: 1-50 km/h
+    NO es un verbo: no mueve el coche. Solo dice cuanto vale "un paso" cuando llegue un
+    cruise_delta v1, y el consumidor lo acota ademas a [1, 5] km/h, que es el tope por
+    orden del verbo. Rango aceptado 1-50 por compatibilidad con la app vieja.
     """
     try:
       increment = float(payload.strip())
@@ -545,132 +976,8 @@ class MQTTComandos:
         # Param tipado FLOAT: hay que escribir float, no str (put(str) lanza TypeError).
         self.params.put("orbit_speed_increment", increment)
     except (ValueError, Exception):
-      pass  # Error silenciado para reducir uso de memoria
+      pass  # Error silenciado para no afectar al flujo principal
 
-  def _apply_overtake(self, enable):
-    """C1 (aprobado por el usuario, riesgo asumido, VALIDACION EN PISTA CERRADA
-    OBLIGATORIA): 'overtake' == un UNICO cambio de carril a la izquierda, reusando
-    el puente ForceLaneChangeLeft que ejecuta el modelo (desire_helper). Hereda
-    sus gates (engaged+latActive, velocidad minima, leftBlindspot / ALC timer).
-
-    NO es un adelantamiento completo: no vuelve al carril derecho ni sube la
-    velocidad (eso es C2, pendiente). PELIGRO conocido: desire_helper NO comprueba
-    trafico en sentido contrario ni si existe carril izquierdo; en doble sentido
-    puede tirar hacia el trafico que viene de frente."""
-    self.params.put_bool("sic_adelantar", bool(enable))
-    if enable:
-      # Disparo one-shot a la izquierda; card/desire_helper lo autoconsumen.
-      self.params.put_bool("ForceLaneChangeRight", False)
-      self.params.put_bool("ForceLaneChangeLeft", True)
-    else:
-      self.params.put_bool("ForceLaneChangeLeft", False)
-      self.params.put_bool("ForceLaneChangeRight", False)
-
-  def handle_overtake(self, payload):
-    """Maneja el comando de activar/desactivar adelantamiento automático.
-
-    El sistema detecta automáticamente si el coche tiene BSM disponible.
-    Si tiene BSM, lo usa. Si no, funciona sin BSM.
-
-    Formatos aceptados:
-    - JSON completo (nuevo formato desde app v2.0):
-      {
-        "enabled": bool,
-        "distancia_activacion": float,  // Metros (20-100, default 50)
-        "tiempo_carril_izquierdo": float,  // Segundos (5-30, default 15)
-        "incremento_velocidad": float,  // km/h (5-30, default 15)
-        "timestamp": ...
-      }
-    - JSON simple: {'enabled': true, 'timestamp': ...} (formato antiguo)
-    - String: "true" o "false" (formato simple)
-    """
-    try:
-      # Intentar parsear como JSON primero (formato desde app)
-      try:
-        data = json.loads(payload)
-        
-        # Manejar enabled/disabled (C1: dispara cambio de carril izquierda)
-        if data.get("enabled") is True:
-          self._apply_overtake(True)
-        elif data.get("enabled") is False:
-          self._apply_overtake(False)
-        
-        # Guardar parámetros configurables si vienen en el payload.
-        # Params tipados FLOAT: escribir float, no str (put(str) lanzaba TypeError
-        # que además abortaba los campos restantes al saltar al except exterior).
-        # Distancia de activación (20-100 metros)
-        if "distancia_activacion" in data:
-          distancia = float(data["distancia_activacion"])
-          if 20.0 <= distancia <= 100.0:
-            self.params.put("overtake_distancia_activacion", distancia)
-
-        # Tiempo en carril izquierdo (5-30 segundos)
-        if "tiempo_carril_izquierdo" in data:
-          tiempo = float(data["tiempo_carril_izquierdo"])
-          if 5.0 <= tiempo <= 30.0:
-            self.params.put("overtake_tiempo_carril_izq", tiempo)
-
-        # Incremento de velocidad (5-30 km/h)
-        if "incremento_velocidad" in data:
-          incremento = float(data["incremento_velocidad"])
-          if 5.0 <= incremento <= 30.0:
-            self.params.put("overtake_incremento_velocidad", incremento)
-            
-      except (json.JSONDecodeError, AttributeError):
-        # No es JSON, tratar como string simple (compatibilidad)
-        if payload.lower() == "true":
-          self._apply_overtake(True)
-        elif payload.lower() == "false":
-          self._apply_overtake(False)
-    except Exception:
-      pass  # Error silenciado para reducir uso de memoria
-
-  def handle_brutebreak(self, payload):
-    """Maneja el comando de frenado de emergencia brusco.
-
-    Cuando se recibe este comando, el coche frenará con la intensidad configurada.
-    El frenado se mantiene activo durante un tiempo limitado para seguridad.
-
-    Formatos aceptados:
-    - JSON completo (nuevo formato desde app v2.0):
-      {
-        "brutebreak": true,
-        "emergency": true,
-        "intensidad_frenado": float  // Valor NEGATIVO (-1.0 a -10.0, default -3.5 m/s²)
-        "timestamp": ...
-      }
-    - JSON simple: {'enabled': true, 'timestamp': ...} (formato antiguo)
-    - String: "true" o "1" para activar, "false" o "0" para desactivar
-    """
-    try:
-      # Intentar parsear como JSON primero (formato desde app)
-      try:
-        data = json.loads(payload)
-
-        # Manejar activación/desactivación
-        if data.get("enabled") is True or data.get("brutebreak") is True:
-          self.params.put_bool("brutebreak_active", True)
-        elif data.get("enabled") is False or data.get("brutebreak") is False:
-          self.params.put_bool("brutebreak_active", False)
-
-        # Guardar intensidad de frenado si viene en el payload
-        # El valor ya viene negativo desde la app (-1.0 a -10.0 m/s²)
-        if "intensidad_frenado" in data:
-          intensidad = float(data["intensidad_frenado"])
-          # Validar rango (debe ser negativo, entre -10.0 y -1.0)
-          if -10.0 <= intensidad <= -1.0:
-            # Param tipado FLOAT: escribir float, no str (put(str) lanza TypeError).
-            self.params.put("brutebreak_intensidad", intensidad)
-            
-      except (json.JSONDecodeError, AttributeError):
-        # No es JSON, tratar como string simple
-        payload_lower = payload.lower().strip()
-        if payload_lower in ("true", "1", "on"):
-          self.params.put_bool("brutebreak_active", True)
-        elif payload_lower in ("false", "0", "off"):
-          self.params.put_bool("brutebreak_active", False)
-    except Exception:
-      pass  # Error silenciado para reducir uso de memoria
 
   def handle_jetson_config(self, payload):
     """Maneja la configuracion de Jetson recibida desde la app ORBIT.
@@ -705,10 +1012,20 @@ class MQTTComandos:
       data = json_mod.loads(payload)
       print(f"[JETSON SYNC] handle_jetson_config data: {data}")
 
+      # Defensa en profundidad. El docstring promete "por dongle_id" y el codigo
+      # nunca lo comprobo: con el topic jetson_config/global retirado esta es la
+      # segunda barrera, para que un payload dirigido a OTRO comma no reconfigure
+      # la Jetson (IP, puertos) de este si alguien reintroduce un topic comun.
+      dongle_msg = data.get("dongle_id")
+      if dongle_msg and dongle_msg != self.DongleID:
+        cloudlog.warning(f"[Bemposta] jetson_config descartado: dongle_id ajeno {dongle_msg!r} != {self.DongleID!r}")
+        print(f"[JETSON SYNC] Descartado: dongle_id ajeno ({dongle_msg} != {self.DongleID})")
+        return
+
       # Anti-eco 1: el propio Comma publica retained al conectar a MQTT con
       # source="comma_ui". Si recibimos nuestro propio retained, ignorar.
       if data.get("source") == "comma_ui":
-        print(f"[JETSON SYNC] Ignorado eco de comma_ui (propio retained)")
+        print("[JETSON SYNC] Ignorado eco de comma_ui (propio retained)")
         return
 
       # Parsear _version entrante (si existe)
@@ -736,7 +1053,7 @@ class MQTTComandos:
         current_config = {}
         if os.path.exists(config_path):
           try:
-            with open(config_path, 'r') as f:
+            with open(config_path) as f:
               current_config = json_mod.load(f)
           except Exception:
             current_config = {}
@@ -774,7 +1091,8 @@ class MQTTComandos:
         if incoming_version is not None:
           current_config["_version"] = str(incoming_version)
         else:
-          current_config["_version"] = str(int(time.time() * 1000))
+          # epoch ms REAL: es la version que compara la app, no un plazo interno.
+          current_config["_version"] = str(ahora_epoch_ms())
 
         # Escritura atomica: escribimos a .tmp y renombramos. Esto evita que
         # un lector vea el archivo a medio escribir.
@@ -806,93 +1124,78 @@ class MQTTComandos:
     except Exception as e:
       print(f"[JETSON SYNC] ERROR handle_jetson_config: {e}")
 
-  def handle_steer_torque_mode(self, payload):
-    """Maneja el cambio del modo de torque del volante desde la app ORBIT.
+  def _v1_steer_torque_mode(self, payload, retenido=False):
+    """/steer_torque_mode -> verbo torque_mode (o disarm_all si vuelve al modo 0).
 
-    Topics:
-      - telemetry_config/{dongle_id}/steer_torque_mode
-      - steer_torque_mode/global
+    Topic v1:
+      telemetry_config/{dongle_id}/steer_torque_mode
 
-    Payload esperado:
-    {
-      "dongle_id": "xxx",
-      "steer_torque_mode": 0|1|2|3,
-      "apply_target": "curvature"|"torque",   # obligatorio cuando mode == 3
-      "source": "app" | "comma_ui"
-    }
+    Payload:
+      {"dongle_id": "...", "steer_torque_mode": 0|1|2|3,
+       "apply_target": "curvature"|"torque",   # obligatorio con mode == 3
+       "source": "app" | "comma_ui"}
 
-    Modos:
-      0 = MODELO COMMA
-      1 = JETSON
-      2 = TEST MAX
-      3 = COMMA + JETSON (esquive obstaculos)
+    Modos: 0 MODELO COMMA · 1 JETSON · 2 TEST MAX · 3 COMMA+JETSON (esquive).
 
-    Para mode == 3, apply_target indica donde se aplica el esquive:
-      - "curvature": suma offset a desired_curvature (comportamiento histórico).
-      - "torque":    pisa actuators.steer cuando obstacle=true.
-    Si mode == 3 llega sin apply_target válido, el payload se descarta.
+    Que cambia respecto de v1. Antes esto escribia SteerTorqueMode directamente desde el
+    hilo de red, con un unico gate ad-hoc (el modo 2 exigia OrbitBenchArmed) puesto a mano
+    en la fase de contencion. Ahora los modos 1, 2 y 3 son el verbo `torque_mode`, que
+    command_spec declara de modo BANCO: exigen armado FISICO en la pantalla del comma, con
+    caducidad vigente, y ademas ENGAGED. El modo 1 le da el volante a la Jetson y el 3 le
+    deja sumar offsets de esquive: los tres mueven el volante, asi que los tres van por la
+    misma puerta. El modo 0 NO va por ahi: apagarlo BAJA autoridad y se atiende como
+    disarm_all, que es el unico verbo que no se puede bloquear (seccion 2) -- si tambien
+    exigiera banco, un TEST MAX armado por error no se podria apagar en remoto.
+
+    `retenido` = el broker nos lo re-entrego (reconexion o reinicio del subsistema). En
+    ese caso solo se acepta el modo 0: ver RETAIN_SOLO_SI_BAJA_AUTORIDAD.
     """
     try:
-      import json as json_mod
-      data = json_mod.loads(payload)
+      data = json.loads(payload)
+    except (json.JSONDecodeError, ValueError, TypeError):
+      return None
+    if not isinstance(data, dict):
+      return None
 
-      # Evitar eco: si el mensaje viene del propio Comma, ignorarlo
-      if data.get("source") == "comma_ui":
-        print(f"[STEER MODE SYNC] Ignorado eco de comma_ui")
-        return
+    # Defensa en profundidad: el docstring de v1 prometia "por dongle_id" y el codigo
+    # nunca lo comprobaba. Un payload dirigido a OTRO comma no cambia el volante de este.
+    dongle_msg = data.get("dongle_id")
+    if dongle_msg and dongle_msg != self.DongleID:
+      cloudlog.warning(f"[Bemposta] steer_torque_mode descartado: dongle_id ajeno {dongle_msg!r} != {self.DongleID!r}")
+      return None
 
-      if "steer_torque_mode" not in data:
-        print(f"[STEER MODE SYNC] Payload sin 'steer_torque_mode', ignorado")
-        return
+    # Anti-eco: el propio comma publica este topic retenido con source="comma_ui".
+    if data.get("source") == "comma_ui":
+      return None
 
-      try:
-        mode = int(data["steer_torque_mode"])
-      except (ValueError, TypeError):
-        print(f"[STEER MODE SYNC] Valor invalido: {data.get('steer_torque_mode')}")
-        return
+    if "steer_torque_mode" not in data:
+      return None
+    try:
+      mode = int(data["steer_torque_mode"])
+    except (ValueError, TypeError):
+      return None
+    if mode not in (0, 1, 2, 3):
+      return None
 
-      if mode not in (0, 1, 2, 3):
-        print(f"[STEER MODE SYNC] Modo fuera de rango: {mode}")
-        return
+    if retenido and mode != 0:
+      # Un retenido se re-entrega en CADA reconexion: volveria a dar el volante a la
+      # Jetson (o par maximo) sin que nadie mande nada en ese momento.
+      cloudlog.warning(f"[Bemposta] steer_torque_mode RETENIDO con mode={mode} descartado (solo se acepta retenido el modo 0)")
+      return None
 
-      # Para modo 3, exigir apply_target válido. Sin él no podemos
-      # determinar cómo aplicar el esquive -> rechazo limpio.
-      apply_target = None
-      if mode == 3:
-        apply_target = data.get("apply_target")
-        if apply_target not in ("curvature", "torque"):
-          print(f"[STEER MODE SYNC] mode=3 sin apply_target válido (recibido={apply_target!r}), payload ignorado")
-          return
+    if mode == 0:
+      return ("disarm_all", {})
 
-      # Leer el valor actual para detectar cambios reales.
-      # SteerTorqueMode es un param tipado INT: get() devuelve int|None y put()
-      # exige int (put(str) lanzaba TypeError silenciado -> el comando de la app
-      # NUNCA se aplicaba; ademas la comparacion int==str siempre daba False).
-      current = self.params.get("SteerTorqueMode")
-      try:
-        current_mode = int(current) if current is not None else 0
-      except (ValueError, TypeError):
-        current_mode = 0
+    args = {"mode": mode}
+    if mode == 3:
+      apply_target = data.get("apply_target")
+      if apply_target not in ("curvature", "torque"):
+        # Sin apply_target no se sabe DONDE aplicar el esquive: descartar, no adivinar.
+        cloudlog.warning(f"[Bemposta] steer_torque_mode mode=3 sin apply_target valido ({apply_target!r}), descartado")
+        return None
+      args["apply_target"] = apply_target
+    return ("torque_mode", args)
 
-      # Sub-target: detectar también cambios sobre el mismo modo 3.
-      current_target = self.params.get("JetsonObstacleApplyTarget")
-      current_target_str = current_target if current_target else ""
-      target_changed = (mode == 3) and (apply_target != current_target_str)
-
-      if current_mode == mode and not target_changed:
-        print(f"[STEER MODE SYNC] Sin cambios (ya en modo {mode}"
-              + (f", apply_target={apply_target}" if mode == 3 else "") + ")")
-        return
-
-      if mode == 3:
-        self.params.put("JetsonObstacleApplyTarget", apply_target)
-        print(f"[STEER MODE SYNC] JetsonObstacleApplyTarget actualizado: {current_target_str!r} -> {apply_target!r}")
-
-      self.params.put("SteerTorqueMode", mode)
-      print(f"[STEER MODE SYNC] SteerTorqueMode actualizado: {current_mode} -> {mode}")
-
-    except Exception as e:
-      print(f"[STEER MODE SYNC] ERROR handle_steer_torque_mode: {e}")
 
   def handle_enroll_ack(self, payload):
     """Maneja el ack de enrolamiento ORBIT enviado por el backend.
@@ -928,14 +1231,14 @@ class MQTTComandos:
         if owner:
           self.params.put("OrbitOwner", owner)
         cloudlog.warning(f"[ORBIT ENROLL] Dispositivo reclamado (user_id={data.get('user_id')}, owner={owner!r}, ts={data.get('ts')})")
-        print(f"[ORBIT ENROLL] Dispositivo reclamado, OrbitClaimed=True")
+        print("[ORBIT ENROLL] Dispositivo reclamado, OrbitClaimed=True")
       elif claimed is False:
         self.params.put_bool("OrbitClaimed", False)
         self.params.remove("OrbitOwner")
         self.params.remove("OrbitPairingCode")
         self.params.put_bool("OrbitEnrollRegen", True)
         cloudlog.warning(f"[ORBIT ENROLL] Dispositivo liberado (unclaim, ts={data.get('ts')})")
-        print(f"[ORBIT ENROLL] Dispositivo liberado, OrbitClaimed=False")
+        print("[ORBIT ENROLL] Dispositivo liberado, OrbitClaimed=False")
       else:
         print(f"[ORBIT ENROLL] enroll_ack sin claimed valido, ignorado: {data}")
 
@@ -1010,6 +1313,16 @@ class MQTTComandos:
   def stop(self):
     """Detiene el cliente MQTT de comandos."""
     self.stop_event.set()
+    # Despertar tambien al hilo de conexion: si esta dentro de stop.wait(5.0)
+    # solo mira SU senal, y stop_event no lo saca de la espera.
+    self._conn_stop.set()
+    # El worker del router es un hilo aparte: sin esto, el supervisor del manager crearia
+    # una instancia nueva y quedarian DOS workers ejecutando verbos sobre el mismo coche.
+    if getattr(self, "router", None) is not None:
+      try:
+        self.router.stop()
+      except Exception:
+        cloudlog.exception("[Orbit] no se pudo parar el worker del CommandRouter")
     self.mqttc.disconnect()
 
 if __name__ == "__main__":

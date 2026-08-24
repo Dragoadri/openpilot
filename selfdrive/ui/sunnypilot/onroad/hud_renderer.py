@@ -8,13 +8,9 @@ import pyray as rl
 
 from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.mici.onroad.torque_bar import TorqueBar
-from openpilot.selfdrive.ui.sunnypilot.onroad.debug_panel import DebugPanelRenderer
 from openpilot.selfdrive.ui.sunnypilot.onroad.developer_ui import DeveloperUiRenderer, DeveloperUiState, get_bottom_dev_ui_offset
 from openpilot.selfdrive.ui.sunnypilot.onroad.jetson_overlays import JetsonObstacleRenderer
-from openpilot.selfdrive.ui.sunnypilot.onroad.overtake_overlay import OvertakeRenderer
-from openpilot.selfdrive.ui.sunnypilot.onroad.torque_hud import TorqueHudRenderer
 from openpilot.selfdrive.ui.sunnypilot.onroad.blindspot_overlay import BlindspotRenderer
-from openpilot.selfdrive.ui.sunnypilot.onroad.bsm_lane_change_overlay import BsmLaneChangeRenderer
 from openpilot.selfdrive.ui.sunnypilot.onroad.orbit_follow_coach import FollowCoachRenderer
 from openpilot.selfdrive.ui.sunnypilot.onroad.orbit_hardbrake_overlay import HardBrakeOverlay
 from openpilot.selfdrive.ui.sunnypilot.onroad.road_name import RoadNameRenderer
@@ -32,6 +28,23 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 
 SLA_ACTIVE_COLOR = rl.Color(0x91, 0x9b, 0x95, 0xff)
 
+# BORRADOS en la limpieza de la seccion 9 del diseno del mando v2 (verificado con grep
+# quien escribe cada param antes de tocar nada):
+#   * debug_panel.py     -> tapaba media pantalla de carretera y lo gobernaba
+#                           `modo_debug`, un param PERSISTENT|BACKUP que sobrevivia a
+#                           reinicios Y a copias de seguridad.
+#   * torque_hud.py      -> CT/AT/JT es diagnostico, no conduccion. Sus params
+#                           (CommaSteerTorque/AppliedSteerTorque) los sigue escribiendo
+#                           controlsd; solo se retira el HUD.
+#   * overtake_overlay.py-> `overtakeStatus` NO TIENE ESCRITOR en todo el arbol (solo
+#                           params_keys.h y el propio overlay), asi que el badge describia
+#                           una maquina de estados inexistente durante la conduccion.
+#   * bsm_lane_change_overlay.py -> `bsmLaneChangeStatus` tampoco tiene escritor: nunca
+#                           llegaba a dibujar. El aviso de ANGULO MUERTO que el diseno
+#                           manda conservar es blindspot_renderer, que lee
+#                           carState.leftBlindspot/rightBlindspot (dato real), mas el
+#                           evento direccional de selfdrived gobernado por `c_carril`.
+
 
 class HudRendererSP(HudRenderer):
   def __init__(self):
@@ -46,11 +59,7 @@ class HudRendererSP(HudRenderer):
     self.speed_renderer = SpeedRenderer()
     self._torque_bar = TorqueBar(scale=3.0, always=True)
     self.jetson_obstacle_renderer = JetsonObstacleRenderer()
-    self.debug_panel_renderer = DebugPanelRenderer()
-    self.overtake_renderer = OvertakeRenderer()
-    self.torque_hud_renderer = TorqueHudRenderer()
     self.blindspot_renderer = BlindspotRenderer()
-    self.bsm_lane_change_renderer = BsmLaneChangeRenderer()
     self.follow_coach_renderer = FollowCoachRenderer()
     self.hardbrake_overlay = HardBrakeOverlay()
 
@@ -77,11 +86,7 @@ class HudRendererSP(HudRenderer):
     self.circular_alerts_renderer.update()
     self.speed_renderer.update()
     self.jetson_obstacle_renderer.update()
-    self.debug_panel_renderer.update()
-    self.overtake_renderer.update()
-    self.torque_hud_renderer.update()
     self.blindspot_renderer.update()
-    self.bsm_lane_change_renderer.update()
     self.follow_coach_renderer.update()
     self.hardbrake_overlay.update()
 
@@ -168,11 +173,7 @@ class HudRendererSP(HudRenderer):
     self.turn_signal_controller.render(rect)
     self.circular_alerts_renderer.render(rect)
     self.rocket_fuel.render(rect, ui_state.sm)
-    self.torque_hud_renderer.render(rect)
     self.blindspot_renderer.render(rect)
-    self.overtake_renderer.render(rect)
-    self.bsm_lane_change_renderer.render(rect)
     self.jetson_obstacle_renderer.render(rect)
     self.follow_coach_renderer.render(rect)
     self.hardbrake_overlay.render(rect)
-    self.debug_panel_renderer.render(rect)

@@ -118,7 +118,8 @@ class TripsLayout(Widget):
 
       # Value
       val_size = measure_text_cached(number_font, value, number_base_size)
-      rl.draw_text_ex(number_font, value, rl.Vector2(center_x - val_size.x / 1.65, content_y + 145 * FONT_SCALE), number_size, 0, rl.Color(226, 236, 255, 255))  # ORBIT INK
+      rl.draw_text_ex(number_font, value, rl.Vector2(center_x - val_size.x / 1.65, content_y + 145 * FONT_SCALE),
+                      number_size, 0, rl.Color(226, 236, 255, 255))  # ORBIT INK
 
       # Unit
       unit_size_vec = measure_text_cached(unit_font, unit, unit_base_size)

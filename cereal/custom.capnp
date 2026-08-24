@@ -458,7 +458,58 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   }
 }
 
-struct CustomReserved10 @0xcb9fd56c7057593a {
+# ORBIT: plano de estado del mando remoto. Vive en cereal y NO en Params porque
+# Params.put es mkstemp+fsync sobre eMMC y a 2-10 Hz ya provoco commIssue en este
+# arbol (por eso existe _defer_param_put en controlsd). Lo publica el hilo ORBIT
+# del manager; lo consumen controlsd, card y desire_helper para reevaluar su
+# propio gate en el ciclo en que actuan.
+struct OrbitCommandState @0xcb9fd56c7057593a {
+  mode @0 :Mode;                  # modo vigente (nunca persistente entre arranques)
+  activeVerb @1 :Text;            # verbo en ejecucion, vacio si ninguno
+  cmdId @2 :Text;                 # uuid del comando en ejecucion (idempotencia)
+  seq @3 :UInt32;                 # ultimo seq aplicado
+  deadlineMono @4 :Float64;       # reloj MONOTONO de expiracion del actuador (s)
+  linkDeadlineMono @5 :Float64;   # reloj monotono de expiracion del enlace (s)
+  gates @6 :UInt32;               # mascara de gates en verde (ver Gate)
+  lastAckPhase @7 :AckPhase;
+  lastReason @8 :Text;            # codigo de motivo del ultimo ACK
+  benchArmed @9 :Bool;            # armado FISICAMENTE desde la pantalla del comma
+  benchExpiryMono @10 :Float64;   # expiracion del armado de banco (s, monotono)
+  clockSynced @11 :Bool;          # sin esto no se acepta ningun mando
+
+  enum Mode {
+    observer @0;
+    copilot @1;
+    maneuver @2;
+    bench @3;
+  }
+
+  enum AckPhase {
+    none @0;
+    received @1;
+    accepted @2;
+    rejected @3;
+    executing @4;
+    applied @5;
+    failed @6;
+    expired @7;
+    superseded @8;
+  }
+
+  # Bits de `gates`. El GateMonitor los publica a 10 Hz; cada consumidor
+  # reevalua ademas el suyo en el ciclo en que actua (defensa en profundidad).
+  enum Gate {
+    engaged @0;
+    latActive @1;
+    longActive @2;
+    speedRange @3;
+    driverIdle @4;
+    driverPresent @5;
+    calibrated @6;
+    notDegraded @7;
+    linkFresh @8;
+    clockSynced @9;
+  }
 }
 
 struct CustomReserved11 @0xc2243c65e0340384 {

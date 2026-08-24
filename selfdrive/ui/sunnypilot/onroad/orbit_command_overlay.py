@@ -13,9 +13,12 @@ orbit/mqtt_comandos.py; they are transient triggers that the consumer
 Regular commands show as a top-center pill in the ORBIT palette; the remote
 emergency brake shows as a full-width red banner drawn on top of everything.
 
-The overtake command ("sic_adelantar") is intentionally not handled here: it
-already has its own badge in overtake_overlay.py. Param reads are throttled
-(~4 Hz).
+El comando de adelantamiento ("sic_adelantar") no se pinta aqui: su badge
+(overtake_overlay.py) se retiro porque el estado que mostraba, `overtakeStatus`,
+no tiene NINGUN escritor en el arbol -- era una maquina de estados inexistente
+descrita en pantalla durante la conduccion. Lo unico real de ese comando es un
+cambio de carril one-shot, que si aparece aqui como pildora. Las lecturas de
+Params van limitadas a ~4 Hz.
 """
 import time
 

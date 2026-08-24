@@ -61,7 +61,7 @@ class DeviceLayout(Widget):
     self._orbit_account_row.set_visible(self._orbit_claimed)
 
     self._orbit_unlink_btn = button_item(lambda: tr("Desvincular ORBIT"), lambda: tr("QUITAR"),
-                                         lambda: tr("Reinicia el enlace ORBIT en este dispositivo. Si la cuenta sigue vinculada en el servidor, "
+                                         lambda: tr("Reinicia el enlace ORBIT en este dispositivo. Si la cuenta sigue vinculada en el servidor, " +
                                                     "se volverá a vincular sola; para desvincularla del todo usa la app ORBIT."),
                                          callback=self._orbit_unlink_prompt, button_style=ButtonStyle.DANGER)
     self._orbit_unlink_btn.set_visible(self._orbit_claimed)

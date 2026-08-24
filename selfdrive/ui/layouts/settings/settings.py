@@ -252,7 +252,7 @@ class SettingsLayout(Widget):
     elif panel_type == PanelType.NETWORK:
       # Wifi arcs radiating from a dot
       origin = rl.Vector2(cx, gy + gh * 0.92)
-      for i, r in enumerate((gw * 0.5, gw * 0.34, gw * 0.18)):
+      for r in (gw * 0.5, gw * 0.34, gw * 0.18):
         rl.draw_ring(origin, r - th, r, 235, 305, 24, color)
       rl.draw_circle(int(cx), int(origin.y), th * 0.85, color)
 

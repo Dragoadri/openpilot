@@ -20,6 +20,33 @@ from openpilot.common.params import Params, UnknownKeyName
 from openpilot.common.swaglog import cloudlog
 
 
+# [Orbit/FIX clamp] Log del recorte de torque, limitado a ~1/s: si la Jetson manda una
+# escala equivocada lo hace en TODOS los mensajes (hasta 30 Hz), y un cloudlog por mensaje
+# publica por ZMQ a logmessaged y suma I/O en el mismo camino que ya throttleamos abajo.
+_TORQUE_CLAMP_LOG_DT = 1.0
+_last_torque_clamp_log = 0.0
+
+
+def _clamp_torque(v: float) -> float:
+  """Recorta el torque al contrato de cereal/car.capnp (actuators.torque en [-1,1]).
+
+  El filtro de formato de _parse_torque acepta hasta |v| < 100 SOLO para poder
+  descartar denormals al adivinar endianness/precision; ese valor no puede salir
+  tal cual del parser. Sintoma que evita: la Jetson manda grados (37.5) o un torque
+  sin normalizar y ese 37.5 llegaba entero al carcontroller como si fuera |1| x37.
+  """
+  global _last_torque_clamp_log
+  if -1.0 <= v <= 1.0:
+    return v
+  clamped = 1.0 if v > 1.0 else -1.0
+  # monotonic: esto es un intervalo, no una marca de tiempo que cruce procesos.
+  now = time.monotonic()
+  if now - _last_torque_clamp_log >= _TORQUE_CLAMP_LOG_DT:
+    cloudlog.error(f"ZMQClient: torque fuera del contrato [-1,1] recortado: {v} -> {clamped}")
+    _last_torque_clamp_log = now
+  return clamped
+
+
 def _parse_torque(data: bytes):
   """Convierte el payload de la Jetson en un float, sea cual sea su formato.
 
@@ -31,6 +58,9 @@ def _parse_torque(data: bytes):
   que caiga en el rango fisicamente posible para nuestro torque normalizado
   [-1, 1] (con holgura). Los denormals quedan filtrados por |v| < 1e-30.
   Devuelve None si nada cuadra.
+
+  El valor elegido sale SIEMPRE recortado a [-1,1] (_clamp_torque): la holgura
+  del filtro es para adivinar el formato, no un rango valido de salida.
   """
   candidates: list[float] = []
   n = len(data)
@@ -42,15 +72,18 @@ def _parse_torque(data: bytes):
     candidates.append(struct.unpack(">d", data)[0])
   else:
     try:
-      return float(data.decode().strip())
+      v = float(data.decode().strip())
     except Exception:
       return None
+    if not math.isfinite(v):
+      return None
+    return _clamp_torque(v)
 
   for v in candidates:
     if not math.isfinite(v):
       continue
     if v == 0.0 or 1e-30 < abs(v) < 100.0:
-      return v
+      return _clamp_torque(v)
   return None
 
 
@@ -179,12 +212,13 @@ class ZMQClient:
 
     Modelo "estado continuo" (v3): el formato esperado es
       {"obstacle": bool, "intensity": float [-1,+1]}
-    El Comma se queda con el último mensaje recibido indefinidamente:
-    obstacle=true → esquive activo con esa intensity hasta que llegue
-    otro mensaje, obstacle=false → idle.
-    Ya no existe `duration_ms` ni watchdog: si la Jetson se calla, el
-    último estado se mantiene. Las únicas cancelaciones automáticas son
-    volante / freno (CANCELED_DRIVER) y latActive=false.
+    El Comma se queda con el último mensaje recibido: obstacle=true →
+    esquive activo con esa intensity hasta que llegue otro mensaje,
+    obstacle=false → idle. Ya no existe `duration_ms`.
+    SÍ hay watchdog (controlsd, JETSON_TORQUE_TIMEOUT_S): por eso cada
+    mensaje refresca JetsonObstacleTimestamp — si la Jetson se calla, el
+    esquive caduca y vuelve a neutro. Las otras cancelaciones son volante /
+    freno (CANCELED_DRIVER) y latActive=false.
 
     Si el JSON está mal formado o le faltan campos clave, se loguea y se
     descarta. NO se escribe en JetsonObstaclePulse para que el lado de

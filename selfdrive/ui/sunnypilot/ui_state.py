@@ -9,6 +9,7 @@ from enum import Enum
 from cereal import messaging, log, car, custom
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.display import OnroadBrightness
+from openpilot.selfdrive.ui.widgets.orbit_mando import BenchGuard as OrbitBenchGuard, CommandStateView as OrbitCommandStateView
 from openpilot.sunnypilot.sunnylink.sunnylink_state import SunnylinkState
 from openpilot.system.ui.lib.application import gui_app
 
@@ -30,9 +31,13 @@ class UIStateSP:
     self.CP_SP: custom.CarParamsSP | None = None
     self.has_icbm: bool = False
     self.is_sp_release: bool = self.params.get_bool("IsReleaseSpBranch")
+    # orbitCommandState: PLANO DE ESTADO del mando remoto ORBIT (10 Hz, seccion 5 del
+    # diseno). La UI lo lee de cereal y NUNCA de Params: el plano cambia diez veces por
+    # segundo y Params.put en este arbol es mkstemp+fsync.
     self.sm_services_ext = [
       "modelManagerSP", "selfdriveStateSP", "longitudinalPlanSP", "backupManagerSP",
-      "gpsLocation", "liveTorqueParameters", "carStateSP", "liveMapDataSP", "carParamsSP", "liveDelay"
+      "gpsLocation", "liveTorqueParameters", "carStateSP", "liveMapDataSP", "carParamsSP", "liveDelay",
+      "orbitCommandState",
     ]
 
     self.sunnylink_state = SunnylinkState()
@@ -58,11 +63,29 @@ class UIStateSP:
     self.torque_override_enabled: bool = False
     self._sp_initialized: bool = False
 
+    # Mando remoto ORBIT. La vista del plano de estado y el vigilante del armado de
+    # banco viven aqui, no en el panel de ajustes: un armado que solo caduca mientras
+    # el usuario mira la pantalla de ajustes no caduca.
+    self.orbit_command = OrbitCommandStateView()
+    self.orbit_bench_guard = OrbitBenchGuard()
+
   def update(self) -> None:
     if self.sunnylink_enabled:
       self.sunnylink_state.start()
     else:
       self.sunnylink_state.stop()
+
+    # getattr: sm/started los define UIState, que es quien llama a este update. Si
+    # alguna vez se instancia UIStateSP suelto, el mando se queda mudo en vez de tirar
+    # el bucle de la UI entero.
+    sm = getattr(self, "sm", None)
+    if sm is not None:
+      self.orbit_command.update(sm)
+      try:
+        v_ego = float(sm['carState'].vEgo)
+      except (KeyError, AttributeError, TypeError, ValueError):
+        v_ego = 0.0
+      self.orbit_bench_guard.update(bool(getattr(self, "started", False)), v_ego)
 
   def onroad_brightness_handle_alerts(self, _ui_state, alert):
     if _ui_state.sm.recv_frame["carState"] < _ui_state.started_frame:

@@ -31,6 +31,14 @@ try:
 except Exception:
   cloudlog.exception("[Bemposta] no se pudieron importar los hilos MQTT SIC-UEM")
   MQTTEnvioGeneral = None
+# Plano de mando remoto v2: GateMonitor + estado + publicador de orbitCommandState a
+# 10 Hz. Import guardado aparte del de MQTT a proposito: si el mando no se puede
+# importar, la telemetria tiene que seguir arrancando (y al reves).
+try:
+  from openpilot.orbit.command_state import get_command_plane
+except Exception:
+  cloudlog.exception("[Orbit] no se pudo importar el plano de mando remoto")
+  get_command_plane = None
 # [End Bemposta]
 
 
@@ -203,6 +211,18 @@ def manager_thread() -> None:
   # backoff (30 s) para no hacer restart-flapping si el fallo es permanente.
   ORBIT_THREAD_RESTART_S = 30.0
   orbit_threads: dict[str, dict] = {}  # name -> {"cls", "inst", "next_retry"}
+  # El plano de mando va PRIMERO: es quien publica los gates y el deadman que leen
+  # controlsd, card y desire_helper, y quien atiende el boton fisico de desarme. Tiene
+  # que estar ticando antes de que el enlace MQTT acepte el primer comando.
+  #
+  # OJO con "cls": es la FABRICA DEL SINGLETON, no la clase. El supervisor hace
+  # stop() + cls() + start() al resucitar, y si esto construyera un objeto nuevo, el
+  # CommandRouter seguiria consultando el GateMonitor viejo -- una mascara que ya nadie
+  # refresca. Con el singleton se releva el HILO y el objeto sigue siendo el mismo; y
+  # mientras no tique, su mascara se declara rancia y todos los gates valen ROJO (ver
+  # GateMonitor.stale y CommandPlane.healthy).
+  if get_command_plane is not None:
+    orbit_threads["OrbitCommandPlane"] = {"cls": get_command_plane, "inst": None, "next_retry": 0.0}
   if MQTTEnvioGeneral is not None:
     orbit_threads["MQTTEnvioGeneral"] = {"cls": MQTTEnvioGeneral, "inst": None, "next_retry": 0.0}
   # [End Bemposta]

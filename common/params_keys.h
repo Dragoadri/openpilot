@@ -344,7 +344,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"orbit_tleft", {CLEAR_ON_MANAGER_START, BOOL}},
     {"orbit_speed_increase", {CLEAR_ON_MANAGER_START, BOOL}},
     {"orbit_speed_decrease", {CLEAR_ON_MANAGER_START, BOOL}},
-    {"orbit_steering_pulse", {CLEAR_ON_MANAGER_START, STRING}},   // pulso giro cruceta: "direction:expiry_ms" (cruza barrera de proceso a controlsd)
+    {"orbit_steering_pulse", {CLEAR_ON_MANAGER_START, STRING}},   // pulso giro cruceta, 5 campos: "direction:start_ms_pared:start_mono:dur_inicial_ms:magnitud". La expiracion se deriva de start_mono + duracion (reloj MONOTONO: un salto del reloj de pared no puede alargar el pulso). Cruza barrera de proceso a controlsd.
     // Toggles UI / telemetría
     {"modo_debug", {PERSISTENT | BACKUP, BOOL}},
     {"silenciar_alertas_comm", {CLEAR_ON_MANAGER_START, BOOL}},          // ORBIT: no mostrar commIssue/locationd/paramsd TemporaryError (solo pruebas; no debe sobrevivir a un reinicio ni viajar en backups)
@@ -377,4 +377,29 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"OrbitOwner", {PERSISTENT, STRING}},                                // nombre/email del usuario que reclamó el dispositivo
     {"OrbitEnrollRegen", {CLEAR_ON_MANAGER_START, BOOL}},                // trigger: la UI pide rotar el código/QR ya
     {"OrbitHealthcheckRequest", {CLEAR_ON_MANAGER_START, STRING}},       // trigger: comando MQTT de diagnóstico remoto pendiente de responder
+    {"OrbitCmdResult", {CLEAR_ON_MANAGER_START, STRING}},
+    {"OrbitSteerModeLocal", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},   // Seleccion PRESENCIAL del modo de volante en la pantalla del comma. NO es OrbitBenchArmed: armar el banco habilita los verbos FISICOS por MQTT a cualquiera que publique en el broker, y elegir "Jetson" delante del coche no puede significar eso. Lo escribe solo la UI; lo lee controlsd para permitir los modos 1 y 2 sin armado remoto. Se limpia al arrancar el manager y al pasar a offroad.                // RESULTADO real de un verbo, escrito por el CONSUMIDOR que decide (desire_helper, controlsd, card) y leido por command_router para cerrar el ACK. JSON: {v,verb,id,phase,reason,detail,ts_ms,mono_ms}. El router NO puede saber si una maniobra se aplico: solo escribe un Param, y el consumidor puede rechazarla por sus propios gates.
+    {"OrbitCruiseCancel", {CLEAR_ON_MANAGER_START, BOOL}},               // Disparo one-shot del verbo cruise_button {button:"cancel"}: el BOTON DE PANICO. Lo consume controlsd, que sostiene CC.cruiseControl.cancel durante ~0.5 s (un solo ciclo no llega a salir por CAN) y lo limpia. BAJA autoridad: desengancha, no engancha.
+    {"OrbitPrivacyMute", {PERSISTENT, BOOL}},                            // Interruptor maestro LOCAL de privacidad (pantalla del comma). PERSISTENT a proposito: si el conductor silencio el coche, un reinicio no puede volver a encender la camara ni la posicion. Lo escribe solo la UI; lo leen camera_sender (envio de imagenes) y mqtt_envio_general (canales de posicion).
+    // Mando remoto v2 (contrato orbit/v2/*)
+    // Ver docs/superpowers/specs/2026-08-23-orbit-mando-remoto-v2-design.md, §4-§6.
+    // El PLANO DE ESTADO del mando (modo vivo, verbo activo, gates, deadman) NO vive
+    // aquí: va en el struct cereal OrbitCommandState (§5). Params.put es mkstemp+fsync
+    // y a 10 Hz ya provocó commIssue en este árbol (por eso existe _defer_param_put en
+    // controlsd). Aquí solo están los ajustes/armados que escribe la PANTALLA FÍSICA
+    // del comma y los disparos que deben sobrevivir a la muerte del publicador cereal.
+    // NINGUNA clave de modo/mando es PERSISTENT a propósito: el precedente de
+    // SteerTorqueMode persistente es exactamente por lo que manager.py:91-100 tuvo que
+    // añadir un fail-safe de arranque (un modo peligroso guardado en disco revive solo
+    // tras un reinicio, sin que nadie lo pida). La única PERSISTENT de aquí abajo es
+    // OrbitGlobalRetainPurged, que no manda sobre el coche: es la marca de una limpieza
+    // hecha en el broker.
+    // OJO al leer/escribir: put() exige el tipo NATIVO del param (put("1") sobre un
+    // INT lanza TypeError) y get() devuelve None si la clave no está escrita — el
+    // default de abajo solo sale con get(key, return_default=True).
+    {"OrbitCommandMode", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, INT, "0"}},   // 0=observador 1=copiloto 2=maniobra 3=banco (§4.1). put() exige int NATIVO
+    {"OrbitBenchArmed", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},        // armado del modo banco: SOLO desde la pantalla física del comma (§4.1)
+    {"OrbitBenchExpiry", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, STRING}},     // caducidad del armado de banco: epoch ms como TEXTO (no INT: 1.7e12 no cabe en el std::stoi de 32 bits del lado C++), igual que OrbitEnrollExpiry
+    {"OrbitDisarmAll", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},         // verbo disarm_all (§6): único sin modo ni gate. Redundante con cereal A PROPÓSITO: bajar autoridad no puede depender de que el publicador de cereal siga vivo
+    {"OrbitGlobalRetainPurged", {PERSISTENT, STRING}},                                        // "host:puerto" del broker donde ya se borraron los retenidos rancios de */global (lo escribe mqtt_envio_general; PERSISTENT para no repetirlo en cada arranque, con el broker dentro para rehacerlo si cambia)
 };

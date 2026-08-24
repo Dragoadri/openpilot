@@ -41,7 +41,7 @@ class CameraSender:
     """
     self.mqtt_client = mqtt_client
     self.dongle_id = dongle_id
-    self.camera_type = camera_type
+    self.camera_type = self._normalize_camera_type(camera_type) or "road"
     self.interval_seconds = interval_seconds
 
     self.stop_event = threading.Event()
@@ -57,14 +57,22 @@ class CameraSender:
     self._last_debug_check = 0
 
     # Mapeo de camera_type a canal cereal para thumbnails.
-    # 'road' y 'wide' usan 'jetsonThumbnail' (~5 Hz, canal dedicado, NO logueado):
+    # 'road' usa 'jetsonThumbnail' (~5 Hz, canal dedicado, NO logueado):
     # asi NO saturamos el 'thumbnail' original de comma (0.2 Hz, logueado en qlog),
     # que si se publica a 5 Hz rompe la subida de rutas a la plataforma comma.
+    # 'wide' NO esta en el mapa a proposito (ver _normalize_camera_type).
+    # 'driver' queda mapeado como documentacion del canal, pero HOY ES INALCANZABLE:
+    # _normalize_camera_type rechaza 'driver' y es el unico camino por el que
+    # self.camera_type toma valor (__init__, _load_config y apply_config lo llaman
+    # los tres). Ver el comentario de privacidad en _normalize_camera_type.
     self._thumbnail_channels = {
       'road': 'jetsonThumbnail',
       'driver': 'driverThumbnail',
-      'wide': 'jetsonThumbnail',
     }
+
+    # Canal al que esta suscrito el loop ahora mismo. Se usa para detectar cambios
+    # en caliente de camera_type y recrear el SubMaster (ver run()).
+    self._active_channel = None
 
     # ZMQ client para envío a Jetson (se inicializa si está habilitado en config)
     self.zmq_client = None
@@ -105,6 +113,57 @@ class CameraSender:
       cloudlog.error(f"CameraSender: error iniciando Jetson ZMQ: {e}")
       self.zmq_client = None
 
+  def _normalize_camera_type(self, camera_type):
+    """Devuelve el camera_type efectivo, o None si no es valido.
+
+    'wide' se normaliza a 'road': loggerd solo publica el thumbnail rapido desde la
+    road cam (main_road_encoder_info.fast_thumbnail_name), la wide no publica ningun
+    thumbnail. Aceptar 'wide' tal cual hacia que publicasemos imagenes de la ROAD en
+    el topic .../camera/wide, es decir la etiqueta mentia sobre la camara real.
+
+    PRIVACIDAD: 'driver' se RECHAZA (mismo trato que 'wide'), no se acepta.
+    Al conmutar el canal cereal en caliente, el chip 'Conductor' de la app se
+    convirtio en un interruptor REMOTO que enciende el habitaculo EN VIVO, lo
+    persiste en /data/orbit_camera_config.json y lo sube al backend, sin
+    consentimiento de quien va dentro y SIN NINGUN INDICADOR en la pantalla del
+    comma. Antes de eso, el mismo chip solo cambiaba la etiqueta hasta el
+    siguiente reinicio. Se reabre cuando exista confirmacion FISICA en la pantalla
+    del comma (diseno §15: la monitorizacion del conductor solo se usa como gate,
+    publicarla es un tratamiento con base juridica propia).
+    """
+    ct = str(camera_type)
+    if ct == "wide":
+      cloudlog.warning("CameraSender: 'wide' no tiene thumbnail propio, se usa 'road'")
+      return "road"
+    if ct == "driver":
+      cloudlog.warning("CameraSender: 'driver' rechazado: la cabina no se enciende en remoto sin confirmacion fisica en el comma")
+      return None
+    if ct == "road":
+      return ct
+    return None
+
+  _PRIVACY_TTL_S = 1.0
+
+  def _privacidad_silenciada(self) -> bool:
+    """Interruptor maestro LOCAL de privacidad (OrbitPrivacyMute).
+
+    Se relee con cache de 1 s: tiene que hacer efecto EN CALIENTE (si hubiera que
+    reiniciar, el interruptor no serviria de nada en el momento en que hace falta), pero
+    sin abrir el param en cada frame.
+    """
+    ahora = time.monotonic()
+    if ahora - getattr(self, "_privacy_ts", 0.0) >= self._PRIVACY_TTL_S:
+      self._privacy_ts = ahora
+      try:
+        self._privacy_cache = bool(self.params.get_bool("OrbitPrivacyMute"))
+      except Exception:
+        # Clave no registrada o disco: NO se silencia por error, pero se avisa una vez.
+        if not getattr(self, "_privacy_avisado", False):
+          self._privacy_avisado = True
+          cloudlog.exception("CameraSender: no se pudo leer OrbitPrivacyMute")
+        self._privacy_cache = False
+    return getattr(self, "_privacy_cache", False)
+
   def _load_config(self):
     """Carga configuracion de camara desde archivo persistido."""
     try:
@@ -118,8 +177,8 @@ class CameraSender:
           if freq in VALID_FREQUENCIES:
             self.interval_seconds = float(freq)
         if "camera_type" in config:
-          ct = config["camera_type"]
-          if ct in ("road", "driver", "wide"):
+          ct = self._normalize_camera_type(config["camera_type"])
+          if ct is not None:
             self.camera_type = ct
         cloudlog.info(f"CameraSender: config loaded - enabled={self.sending_enabled}, freq={self.interval_seconds}s, type={self.camera_type}")
     except Exception as e:
@@ -165,26 +224,43 @@ class CameraSender:
     """
     changed = False
     if "image_sending_enabled" in config_data:
-      self.sending_enabled = bool(config_data["image_sending_enabled"])
+      # El interruptor LOCAL de privacidad gana siempre: es la unica garantia real que
+      # tiene quien va dentro del coche, y una orden remota no puede anularla. Antes esta
+      # linea encendia el envio en caliente y dejaba el interruptor de la pantalla
+      # prometiendo un silencio que no existia.
+      if bool(config_data["image_sending_enabled"]) and self._privacidad_silenciada():
+        cloudlog.warning("CameraSender: peticion remota de encender la camara IGNORADA: privacidad local activa")
+      else:
+        self.sending_enabled = bool(config_data["image_sending_enabled"])
       changed = True
     if "send_frequency_seconds" in config_data:
-      freq = int(config_data["send_frequency_seconds"])
+      # int() de un valor raro ("5s", None) lanzaba y abortaba el resto de apply_config:
+      # el enabled ya aplicado se quedaba sin _save_config y volvia atras al reiniciar.
+      try:
+        freq = int(config_data["send_frequency_seconds"])
+      except (TypeError, ValueError):
+        freq = None
       if freq in VALID_FREQUENCIES:
         self.interval_seconds = float(freq)
         changed = True
+      else:
+        cloudlog.warning(f"CameraSender: frecuencia invalida {config_data['send_frequency_seconds']!r}, ignorada")
     if "camera_type" in config_data:
-      ct = config_data["camera_type"]
-      if ct in ("road", "driver", "wide"):
+      ct = self._normalize_camera_type(config_data["camera_type"])
+      if ct is not None:
         self.camera_type = ct
         changed = True
+      else:
+        cloudlog.warning(f"CameraSender: camera_type invalido {config_data['camera_type']!r}, ignorado")
     if changed:
       self._save_config()
       cloudlog.info(f"CameraSender: config updated - enabled={self.sending_enabled}, freq={self.interval_seconds}s, type={self.camera_type}")
 
-  def _log_debug(self, message):
+  def _log_debug(self, message, camera_type=None):
     """Escribe/actualiza un mensaje de cámara en el fichero de debug si modo_debug está activo.
     En lugar de añadir una nueva línea cada vez, actualiza la entrada existente de cámara."""
     try:
+      camera_type = camera_type or self.camera_type
       now = time.time()
       if now - self._last_debug_check > 2.0:
         self.debug_enabled = self.params.get_bool("modo_debug")
@@ -192,12 +268,12 @@ class CameraSender:
       if not self.debug_enabled:
         return
       ts = time.strftime("%H:%M:%S", time.localtime())
-      topic = f"telemetry_mqtt/{self.dongle_id}/camera/{self.camera_type}"
+      topic = f"telemetry_mqtt/{self.dongle_id}/camera/{camera_type}"
       new_entry = f"[{ts}] {topic}\n{message}"
 
       # Leer contenido existente y reemplazar la entrada de cámara si ya existe
       entries = []
-      camera_marker = f"/camera/{self.camera_type}"
+      camera_marker = f"/camera/{camera_type}"
       found = False
       if os.path.exists(DEBUG_FILE):
         try:
@@ -224,21 +300,28 @@ class CameraSender:
     except Exception:
       pass
 
-  def send_image(self, jpeg_data, frame_id, timestamp):
-    """Envía imagen por MQTT usando el cliente compartido."""
+  def send_image(self, jpeg_data, frame_id, timestamp, camera_type=None):
+    """Envía imagen por MQTT usando el cliente compartido.
+
+    camera_type es el tipo de la camara de la que salio ESTA imagen; el loop lo pasa
+    explicito. Leer self.camera_type aqui era fuga de privacidad: apply_config lo
+    cambia desde el hilo de paho, asi que un frame de cabina ya leido podia acabar
+    publicado en .../camera/road (y al reves).
+    """
     try:
+      camera_type = camera_type or self.camera_type
       jpeg_base64 = base64.b64encode(jpeg_data).decode('utf-8')
 
       payload = {
         "dongle_id": self.dongle_id,
-        "camera_type": self.camera_type,
+        "camera_type": camera_type,
         "frame_id": frame_id,
         "timestamp": timestamp,
         "image": jpeg_base64,
         "size_bytes": len(jpeg_data),
       }
 
-      topic = f"telemetry_mqtt/{self.dongle_id}/camera/{self.camera_type}"
+      topic = f"telemetry_mqtt/{self.dongle_id}/camera/{camera_type}"
 
       result = self.mqtt_client.publish(topic, json.dumps(payload), qos=0)
       if result.rc != 0:
@@ -249,7 +332,7 @@ class CameraSender:
 
       self.frame_count += 1
       self.consecutive_errors = 0
-      self._log_debug(f"Imagen enviada frame={frame_id} size={len(jpeg_data)}B")
+      self._log_debug(f"Imagen enviada frame={frame_id} size={len(jpeg_data)}B", camera_type)
       cloudlog.debug(f"CameraSender: sent frame {frame_id} ({len(jpeg_data)} bytes)")
       return True
     except Exception as e:
@@ -260,12 +343,41 @@ class CameraSender:
 
   def run(self):
     """Loop principal: lee thumbnail nativo de camerad y envía por MQTT."""
-    channel = self._thumbnail_channels.get(self.camera_type, 'thumbnail')
-    sm = messaging.SubMaster([channel])
-
-    cloudlog.info(f"CameraSender: started on channel '{channel}' (camera_type={self.camera_type})")
+    sm = None
 
     while not self.stop_event.is_set():
+      # camera_type puede cambiar en caliente: apply_config corre en el hilo de paho.
+      # Lo copiamos a una local y recreamos el SubMaster cuando cambia el canal, igual
+      # que ya se hace con JetsonConfigChanged. Antes el canal se resolvia UNA sola vez
+      # al arrancar el hilo, asi que pedir 'driver' desde la app seguia leyendo la road
+      # cam y publicandola como cabina, y al reves: imagenes del habitaculo etiquetadas
+      # como carretera (fuga de privacidad). Solo cambiaba la etiqueta, no la camara.
+      camera_type = self.camera_type
+      channel = self._thumbnail_channels.get(camera_type)
+      if channel is None:
+        # No deberia pasar (apply_config/_load_config normalizan), pero si llega un tipo
+        # desconocido caemos a road y etiquetamos como road: la etiqueta no debe mentir.
+        camera_type = 'road'
+        channel = self._thumbnail_channels['road']
+
+      # `or sm is None` NO es redundante: si messaging.SubMaster() lanza, sm se queda
+      # en None y _active_channel conserva el canal ANTERIOR (solo se actualiza tras
+      # el exito). Al volver a ese canal anterior la condicion era falsa, se saltaba
+      # la creacion y el sm.update() de abajo -- que esta FUERA del try -- moria con
+      # AttributeError: 'NoneType'. Y ese AttributeError se lleva por delante el hilo
+      # entero, es decir camara + mandos + telemetria, no solo la camara.
+      if channel != self._active_channel or sm is None:
+        try:
+          sm = None  # soltar los sockets del canal anterior antes de abrir el nuevo
+          sm = messaging.SubMaster([channel])
+          self._active_channel = channel
+          cloudlog.info(f"CameraSender: suscrito a '{channel}' (camera_type={camera_type})")
+        except Exception as e:
+          # Sin la espera, un fallo repetido al suscribir dejaria el hilo girando al 100%
+          cloudlog.error(f"CameraSender: no se pudo suscribir a '{channel}': {e}")
+          self.stop_event.wait(1.0)
+          continue
+
       sm.update(timeout=1000)
 
       # IMPORTANTE: comprobamos JetsonConfigChanged ANTES del `continue` de abajo.
@@ -292,13 +404,18 @@ class CameraSender:
           cloudlog.warning("CameraSender: received empty thumbnail")
           continue
 
-        # Enviar siempre por ZMQ a la Jetson (cada frame, independiente del MQTT)
-        if self.zmq_client is not None:
-          self.zmq_client.send_image(bytes(jpeg_data))
-
-        # MQTT: respetar sending_enabled e intervalo
-        if not self.sending_enabled:
+        # Respetar sending_enabled ANTES de cualquier envio. El send_image por ZMQ
+        # estaba por encima de este guard: desactivar la camara desde la app no cortaba
+        # el streaming de video hacia la IP de la Jetson (fuga de privacidad).
+        if not self.sending_enabled or self._privacidad_silenciada():
           continue
+
+        # A la Jetson solo van frames de la road cam (cada frame, independiente del
+        # intervalo MQTT). Ahora que el canal si cambia con camera_type, sin este filtro
+        # seleccionar 'driver' empezaria a mandar el habitaculo a esa IP externa, que
+        # nunca ha recibido imagenes de cabina.
+        if self.zmq_client is not None and channel == 'jetsonThumbnail':
+          self.zmq_client.send_image(bytes(jpeg_data))
 
         current_time = time.time()
 
@@ -314,7 +431,7 @@ class CameraSender:
           continue
 
         timestamp_ms = int(current_time * 1000)
-        self.send_image(jpeg_data, frame_id, timestamp_ms)
+        self.send_image(jpeg_data, frame_id, timestamp_ms, camera_type)
         self.last_sent = current_time
 
       except Exception as e:

@@ -24,6 +24,16 @@ from openpilot.selfdrive.car.helpers import convert_carControlSP, convert_to_cap
 from openpilot.sunnypilot.mads.helpers import set_alternative_experience, set_car_specific_params
 from openpilot.sunnypilot.selfdrive.car import interfaces as sunnypilot_interfaces
 
+# [Orbit] Mando remoto v2: plano de estado (cereal orbitCommandState, seccion 5 del diseno).
+# card es el consumidor del verbo `cruise_delta` porque VCruiseHelper vive aqui. Import
+# defensivo: sin orbit/ el coche funciona igual, simplemente no hay mando remoto.
+try:
+  from openpilot.orbit.orbit_control_ultra_simple import OrbitCommandLink
+  _ORBIT_MANDO = True
+except Exception:
+  OrbitCommandLink = None
+  _ORBIT_MANDO = False
+
 REPLAY = "REPLAY" in os.environ
 
 EventName = log.OnroadEvent.EventName
@@ -182,11 +192,73 @@ class Car:
     self.is_metric = self.params.get_bool("IsMetric")
     self.experimental_mode = self.params.get_bool("ExperimentalMode")
 
+    # [Orbit] Mando remoto v2. El lector del plano de estado crea su propio SubMaster de un
+    # solo servicio de forma perezosa, en el primer poll: msgq NO es thread-safe y el poll
+    # tiene que ocurrir en el hilo de card (state_update), no en params_thread.
+    self._orbit_link = OrbitCommandLink(etiqueta="card") if _ORBIT_MANDO else None
+    self._orbit_auth = None
+    self._orbit_now_mono = 0.0
+    self._orbit_speed_mod = None      # modulo orbit_speed_ultra_simple, cacheado
+    self._orbit_speed_roto = False    # el import fallo: no reintentarlo en cada ciclo
+    self._orbit_ultimo_error_mono = 0.0
+
     # card is driven by can recv, expected at 100Hz
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
     # log fingerprint in sentry
     sunnypilot_interfaces.log_fingerprint(self.CP)
+
+  def _orbit_poll(self) -> None:
+    """Lee el plano de estado del mando UNA vez por ciclo. Nunca lanza.
+
+    Se llama desde state_update, es decir desde el hilo de card: msgq no es thread-safe y
+    este SubMaster se crea perezosamente en el primer poll, en el hilo que lo usa.
+    """
+    self._orbit_now_mono = time.monotonic()
+    if self._orbit_link is None:
+      self._orbit_auth = None
+      return
+    try:
+      self._orbit_auth = self._orbit_link.poll()
+    except Exception:
+      self._orbit_auth = None
+
+  def _orbit_speed_module(self):
+    """Modulo orbit_speed_ultra_simple, importado una sola vez.
+
+    Si el import falla se marca roto y no se reintenta: hacerlo en cada ciclo de 100 Hz
+    seria recorrer sys.path cien veces por segundo desde el core de tiempo real.
+    """
+    if self._orbit_speed_mod is None and not self._orbit_speed_roto:
+      try:
+        import openpilot.orbit.orbit_speed_ultra_simple as mod
+        self._orbit_speed_mod = mod
+      except Exception:
+        self._orbit_speed_roto = True
+    return self._orbit_speed_mod
+
+  def _orbit_leer_flags_velocidad(self) -> None:
+    """Consume los flags one-shot de `cruise_delta` desde el hilo de params (10 Hz, NO-RT).
+
+    Se limpian SIEMPRE, se ejecute la orden o no: un flag que sobrevive a un rechazo es una
+    orden que se ejecuta sola en cuanto los gates se ponen verdes un rato despues, que es
+    justo lo que el TTL existe para impedir.
+    """
+    subir = self.params.get_bool("orbit_speed_increase")
+    bajar = self.params.get_bool("orbit_speed_decrease")
+    if not (subir or bajar):
+      return
+    # SE BORRA la clave en vez de escribir False. put_bool(block=False) encola en un hilo
+    # async y la escritura puede aterrizar DESPUES de que el router arme la siguiente orden:
+    # ese False tardio se comeria un cruise_delta que el router ya dio por aceptado.
+    # Params.remove es sincrono y get_bool sobre una clave inexistente devuelve False.
+    self.params.remove("orbit_speed_increase")
+    self.params.remove("orbit_speed_decrease")
+    mod = self._orbit_speed_module()
+    if mod is None:
+      return
+    mod.orbit_speed_increase = bool(subir)
+    mod.orbit_speed_decrease = bool(bajar)
 
   def state_update(self) -> tuple[car.CarState, custom.CarStateSP, structs.RadarDataT | None]:
     """carState update loop, driven by can"""
@@ -218,20 +290,34 @@ class Car:
       # Use CarState w/ buttons from the step selfdrived enables on
       self.v_cruise_helper.initialize_v_cruise(self.CS_prev, self.experimental_mode, self.dynamic_experimental_control)
 
-    # [Orbit] override de velocidad de crucero por comando MQTT (en SOURCE vivía en controlsd,
-    # aquí porque VCruiseHelper se movió a card.py). Puenteamos por params: mqtt_comandos corre en
-    # el proceso manager, así que pasamos sus flags al módulo y los limpiamos tras consumir.
+    # [Orbit] VERBO `cruise_delta` (seccion 6): sube o baja la consigna de crucero por orden
+    # remota. Vive aqui porque VCruiseHelper se movio a card.py.
+    #
+    # QUE CAMBIA RESPECTO A LO ANTERIOR
+    #  * Los flags ya no se leen ni se limpian AQUI: eran cuatro accesos a /data/params por
+    #    ciclo (dos get_bool + dos put_bool) dentro de un bucle a 100 Hz en SCHED_FIFO sobre
+    #    el core 4. Ahora los atiende params_thread, que corre a 10 Hz y a SCHED_OTHER.
+    #  * Se pasa el carControl REAL en vez de un objeto falso con solo `longActive`. El
+    #    consumidor v2 tambien mira `enabled`, y un objeto sin ese atributo lo daba por
+    #    False: el verbo habria quedado rechazado SIEMPRE con GATE_ENGAGED.
+    #  * Hace falta autoridad viva del plano de estado (modo copiloto, gates ENGAGED y
+    #    LONG_ACTIVE y deadman sin vencer). El propio modulo reevalua los gates con este
+    #    carControl y este carState, en el ciclo en que actua.
     try:
-      if self.params.get_bool("orbit_speed_increase") or self.params.get_bool("orbit_speed_decrease"):
-        import openpilot.orbit.orbit_speed_ultra_simple as _adri_spd
-        _adri_spd.orbit_speed_increase = self.params.get_bool("orbit_speed_increase")
-        _adri_spd.orbit_speed_decrease = self.params.get_bool("orbit_speed_decrease")
-        _cc = type("_AdriCC", (), {"longActive": bool(self.sm['carControl'].longActive)})()
-        _adri_spd.orbit_speed_ultra_simple.process_speed_commands(_cc, CS, self.v_cruise_helper)
-        self.params.put_bool("orbit_speed_increase", False)
-        self.params.put_bool("orbit_speed_decrease", False)
+      self._orbit_poll()
+      mod = self._orbit_speed_module()
+      if mod is not None and (mod.orbit_speed_increase or mod.orbit_speed_decrease):
+        motivo = mod.orbit_speed_ultra_simple.process_speed_commands(
+          self.sm['carControl'], CS, self.v_cruise_helper,
+          autoridad=self._orbit_auth, now_mono=self._orbit_now_mono)
+        if motivo not in ("", "OK"):
+          cloudlog.warning(f"card: [Orbit] cruise_delta rechazado: {motivo}")
     except Exception:
-      pass
+      # Acotado en el tiempo: esto corre a 100 Hz y una excepcion que se repita cada ciclo
+      # convertiria el hilo de card en un generador de swaglog.
+      if (self._orbit_now_mono - self._orbit_ultimo_error_mono) > 5.0:
+        self._orbit_ultimo_error_mono = self._orbit_now_mono
+        cloudlog.exception("card: [Orbit] excepcion en cruise_delta (ignorada: no puede tocar el control)")
 
     # TODO: mirror the carState.cruiseState struct?
     CS.vCruise = float(self.v_cruise_helper.v_cruise_kph)
@@ -321,6 +407,17 @@ class Car:
       # sunnypilot
       self.dynamic_experimental_control = self.params.get_bool("DynamicExperimentalControl")
       self.v_cruise_helper.read_custom_set_speed_params()
+
+      # [Orbit] Flags one-shot de `cruise_delta`. Se leen y se limpian AQUI (SCHED_OTHER,
+      # 10 Hz) y no en el bucle de 100 Hz: hacerlo alli eran dos open()+read() de
+      # /data/params por cada trama CAN, mas dos put_bool cuyo hilo async hereda la
+      # prioridad FIFO del core 4 y mete fsync en el camino de tiempo real. Este hilo
+      # tampoco puede tocar cereal (msgq no es thread-safe): solo pone el flag en RAM y
+      # quien decide y actua es state_update, en el hilo de card.
+      try:
+        self._orbit_leer_flags_velocidad()
+      except Exception:
+        pass
 
       time.sleep(0.1)
 
