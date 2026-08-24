@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import json
-import math
 import time
 import secrets
 import threading
@@ -13,6 +12,9 @@ import os
 from .mqtt_comandos import MQTTComandos
 from .camera_sender import CameraSender
 from .command_state import get_command_plane
+from . import telemetria_v1 as tel2
+from . import spool as spool_mod
+from . import config_v2 as cfg2
 
 
 # Namespaces MQTT de presencia. v1 (telemetry_mqtt/...) es LEGACY: es el que
@@ -30,6 +32,13 @@ TOPICS_GLOBAL_LEGACY = (
   "jetson_obstacle_status/global",
 )
 
+# Canales LEGACY v1 que publican POSICION EN CRUDO (latitude/longitude en el payload de
+# telemetry_mqtt/<dongle>/<canal>). El interruptor maestro de privacidad los silencia
+# igual que silencia el canal v2 `pos` y la camara: el camino v1 sigue vivo durante la
+# migracion y sin este filtro OrbitPrivacyMute dejaba de tapar justamente lo que dice
+# donde esta el coche.
+CANALES_V1_POSICION = frozenset({"gpsLocation", "gpsLocationExternal"})
+
 
 def _epoch_ms() -> int:
   """Instante de PARED en epoch milisegundos enteros (seccion 3.2 del diseno v2).
@@ -42,28 +51,33 @@ def _epoch_ms() -> int:
   return time.time_ns() // 1_000_000
 
 
-def _sanea_no_finitos(obj):
-  """Sustituye recursivamente los float no finitos (NaN/inf) por None.
-
-  json.dumps() emite por defecto los literales NaN/Infinity, que NO son JSON
-  valido (RFC 8259): el parser del backend revienta y se pierde el mensaje
-  ENTERO, de forma intermitente y sin ningun rastro porque el publish sale con
-  rc=0. Que en este arbol hay no finitos esta confirmado por las defensas que
-  ya existen aguas arriba (controlsd.py filtra la curvatura con math.isfinite,
-  calibrationd.py comprueba np.isnan).
-  """
-  if isinstance(obj, float):
-    return obj if math.isfinite(obj) else None
-  if isinstance(obj, dict):
-    return {k: _sanea_no_finitos(v) for k, v in obj.items()}
-  if isinstance(obj, (list, tuple)):
-    return [_sanea_no_finitos(v) for v in obj]
-  return obj
+# Saneado de no finitos. La IMPLEMENTACION vive en telemetria_v1 (modulo puro) para que
+# el camino v1 y el v2 no puedan divergir: json.dumps() emite por defecto los literales
+# NaN/Infinity, que NO son JSON valido (RFC 8259), el parser del backend revienta y se
+# pierde el mensaje ENTERO, de forma intermitente y sin ningun rastro porque el publish
+# sale con rc=0. Que en este arbol hay no finitos esta confirmado por las defensas que ya
+# existen aguas arriba (controlsd.py filtra la curvatura con math.isfinite, calibrationd.py
+# comprueba np.isnan). El alias se mantiene porque es el nombre por el que lo importan los
+# tests y el script de medida.
+_sanea_no_finitos = tel2.sanea_no_finitos
 
 
 class MQTTEnvioGeneral:
   def __init__(self):
+    # Cadencia del camino LEGACY v1 (telemetry_mqtt/<dongle>/<canal>). NO es el ritmo del
+    # bucle: el bucle pasa a TICK_SECS para poder sostener los canales de 2 Hz del
+    # contrato v2 (seccion 7), y todo el camino v1 sigue corriendo detras de una compuerta
+    # de 1 Hz. Subir v1 a 4 Hz habria multiplicado por cuatro justo el trafico que este
+    # trabajo viene a bajar.
     self.velocidadActualizacion = 1
+    # Tick base del bucle. 0,25 s da los 2 Hz de `vehicle` y `perception` con margen y
+    # deja el ritmo del bucle en manos del sleep y no del poll del SubMaster.
+    self.TICK_SECS = 0.25
+    self._last_v1 = 0.0
+    # Ultimo recv_frame del SubMaster publicado por cada canal v1: con el tick a 4 Hz y la
+    # publicacion v1 a 1 Hz, `sm.updated` (que solo mira el tick actual) dejaria mudos los
+    # canales cuyo mensaje llego en un tick que no publica.
+    self._v1_frame = {}
     self.base_path = os.path.dirname(os.path.abspath(__file__))
     self.jsonConfig = os.path.join(self.base_path, "config_mqtt.json")
     self.jsonCanales = os.path.join(self.base_path, "canales.json")
@@ -118,6 +132,49 @@ class MQTTEnvioGeneral:
     self.ENROLL_TTL_S = 600
     # Diagnostico remoto (healthcheck): SubMaster propio de este hilo, perezoso.
     self._diag_sm = None
+    # Motor de la telemetria v2 (seccion 7). Es puro: decide QUE canal toca y con que
+    # campos, y devuelve mensajes; publicar es cosa de este fichero.
+    self.motor_v2 = tel2.MotorTelemetria(tel2.PERFIL_NORMAL, time.monotonic())
+    self._last_perfil_check = 0.0
+    self.PERFIL_RELOAD_SECS = 5.0
+    self._perfil_avisado = False
+    # Interruptor maestro LOCAL de privacidad: cache de 1 s, mismo patron que
+    # CameraSender._privacidad_silenciada. Tiene que hacer efecto EN CALIENTE.
+    self._privacy_ts = 0.0
+    self._privacy_cache = False
+    self._privacy_avisado = False
+    # Cola persistente de telemetria diferida (orbit/spool.py). Se abre PEREZOSAMENTE, en
+    # el hilo del loop: crea /data/orbit_spool y una base SQLite, y el constructor de esta
+    # clase corre en el hilo del manager. Si no se puede abrir, el propio Spool se
+    # desactiva y guardar() pasa a ser un no-op: la telemetria viva no depende de el.
+    self._spool_obj = None
+    self._spool_roto = False
+    self._last_spool = 0.0
+    self.SPOOL_SECS = 1.0
+    # Configuracion deseada/reportada (seccion 8, orbit/config_v2.py). El sobre `desired`
+    # lo deja mqtt_comandos en el buzon desde el hilo de RED; aplicarlo y publicar
+    # `reported` es de ESTE hilo, porque toca Params, un JSON con flock y el CameraSender.
+    self._cfg_deseado = None
+    self._cfg_reportado = None
+    # ...y si ese `reported` llego a SALIR por el cable. Son dos preguntas distintas y
+    # confundirlas costaba la garantia de la seccion 8: `_cfg_reportado` es lo que el coche
+    # SABE de si mismo (avanza al APLICAR, tambien sin cobertura, y es con lo que
+    # gana_a_todos defiende un cambio local del `desired` retenido); esto de aqui es solo
+    # la deuda con el broker, y lo unico que decide es si hay que reintentar el publish.
+    # Arranca en False a proposito: tras un reinicio el retenido del broker puede ser de
+    # otro arranque, o no estar, asi que el primer ciclo republica lo que se releyo.
+    self._cfg_reportado_publicado = False
+    # Rechazos del ultimo `desired` aceptado. Son ESTADO, no un subproducto del tick que
+    # aplica: si se vaciaran en el tick siguiente, el `reported` saldria limpio, el backend
+    # (con version por encima de la deseada) adoptaria el documento entero y el ajuste
+    # pedido desapareceria del deseado sin haberse aplicado jamas, con la app pintando
+    # "Al dia" encima. Viven mientras viva su causa (_cfg_rechazos_vivos).
+    self._cfg_rechazos = {}
+    self._cfg_cargado = False
+    self._last_cfg = 0.0
+    # 5 s y no 1: reconstruir `reported` son ~14 lecturas de Params mas un JSON, y esto
+    # solo tiene que reconciliar ajustes, no seguir un actuador.
+    self.CFG_SECS = 5.0
     self.load_config()
     self.cargar_canales()
     self.init_submaster()
@@ -218,11 +275,23 @@ class MQTTEnvioGeneral:
       except Exception:
         return True  # clave no registrada / error -> habilitado
     self.enabled_items = [item for item in self.enabled_items if _canal_habilitado(item["canal"])]
-    self.lista_suscripciones = [item["canal"] for item in self.enabled_items]
     self.keys_importantes_por_canal = {
       item["canal"]: item.get("keys_importantes", [])
       for item in self.enabled_items
     }
+    # Suscripciones = canales v1 habilitados + servicios que alimentan la telemetria v2.
+    # Los toggles `<canal>_toggle` del panel ORBIT siguen gobernando SOLO el camino v1
+    # (son toggles de topic v1, y el diseno los manda a la app en F4): un canal v2 no
+    # desaparece porque se apague su homonimo v1, y `vehicle` no depende de que
+    # `carState_toggle` este puesto. Se filtra por SERVICE_LIST porque no todos los
+    # servicios existen en todos los builds de sunnypilot.
+    v2 = [s for s in tel2.SERVICIOS if s in SERVICE_LIST]
+    self.servicios_v2 = v2
+    vistos = set()
+    self.lista_suscripciones = [
+      c for c in ([item["canal"] for item in self.enabled_items] + v2)
+      if not (c in vistos or vistos.add(c))
+    ]
 
   def _maybe_reload_canales(self):
     """Re-evalua en caliente los toggles de canal del panel ORBIT
@@ -521,27 +590,37 @@ class MQTTEnvioGeneral:
     El aviso de muerte (Last Will) solo puede vivir en UNO de los dos porque
     MQTT admite un will por conexion, y se queda en v1 para no romper la app ya
     instalada; por eso el payload v2 publica "lwt_topic" apuntando a el.
+
+    Se llama en cada conexion Y como LATIDO cada HEARTBEAT_SECS (ver _ciclo_v1): esto es
+    lo que sustituye a republicar el carState entero para decir "sigo vivo". Devuelve True
+    si el 'online' v1 -- el que consume la app de hoy -- salio de verdad (rc==0).
     """
     if not self.dongle_valido:
-      return
+      return False
     # epoch ms ENTERO: el contrato v2 (seccion 3.2) prohibe ISO-8601 en el cable
     # y exige que el instante sea siempre epoch en milisegundos.
     ts_ms = _epoch_ms()   # epoch de PARED: lo fecha la app
     v1_topic = TOPIC_PRESENCE_V1.format(self.DongleID)
+    ok = False
     try:
-      self.mqttc.publish(v1_topic,
-                         json.dumps({"online": True, "dongle_id": self.DongleID,
-                                     "timestamp": ts_ms, "schema_version": 1}),
-                         qos=0, retain=True)
+      info = self.mqttc.publish(v1_topic,
+                                json.dumps({"online": True, "dongle_id": self.DongleID,
+                                            "timestamp": ts_ms, "schema_version": 1}),
+                                qos=0, retain=True)
+      ok = info.rc == mqtt.MQTT_ERR_SUCCESS
+      if not ok:
+        self._log_publish_rc("presencia v1", v1_topic, info.rc)
     except Exception as e:
       cloudlog.warning(f"[Bemposta] presence v1 (online) fallo: {e}")
     try:
+      # Sin dongle_id en el payload: el contrato v2 lo toma del topic (seccion 7).
       self.mqttc.publish(TOPIC_PRESENCE_V2.format(self.DongleID),
                          json.dumps({"v": 2, "schema_version": 2, "online": True,
                                      "ts_ms": ts_ms, "lwt_topic": v1_topic}),
                          qos=0, retain=True)
     except Exception as e:
       cloudlog.warning(f"[Bemposta] presence v2 (online) fallo: {e}")
+    return ok
 
   def _purge_retenidos_legacy(self):
     """Borra del broker los retenidos rancios de los topics */global.
@@ -749,6 +828,16 @@ class MQTTEnvioGeneral:
       self.comandos_mqtt.stop()
     if hasattr(self, 'camera_sender') and self.camera_sender is not None:
       self.camera_sender.stop()
+    # Volcar a disco lo que quede en RAM del spool: son muestras que no salieron y el
+    # manager recrea esta instancia sin avisar. Se hace flush() y NO cerrar(): el spool es
+    # un singleton de PROCESO (spool.get_spool()) y la instancia siguiente lo reutiliza;
+    # cerrarlo lo dejaria con activo=False para siempre y guardar() seria un no-op el
+    # resto de la vida del proceso.
+    if getattr(self, '_spool_obj', None) is not None:
+      try:
+        self._spool_obj.flush()
+      except Exception:
+        cloudlog.exception("[Bemposta] flush de cierre del spool fallo")
     self.mqttc.disconnect()
     # print("🛑 Sistema MQTT detenido")  # Comentado para reducir uso de memoria
 
@@ -891,8 +980,25 @@ class MQTTEnvioGeneral:
         time.sleep(self.velocidadActualizacion)
 
   def _loop_once(self):
-      self.sm.update()
+    """Un tick del bucle. DOS RITMOS: el camino v2 corre a TICK_SECS (4 Hz) y todo el
+    camino LEGACY v1 detras de una compuerta de velocidadActualizacion (1 Hz).
 
+    El poll del SubMaster pasa a NO bloquear (timeout 0). Antes el bucle lo usaba de
+    metronomo (hasta 100 ms) ademas del sleep de 1 s, lo que daba los ~0,9 Hz que midio la
+    auditoria; con dos ritmos el metronomo tiene que ser el sleep, o el tick corto se
+    convierte en uno largo cada vez que no hay nada que recibir. Los sockets son
+    conflate=True, asi que un poll no bloqueante siempre devuelve el ULTIMO mensaje de
+    cada servicio: no se pierde nada por no esperar.
+    """
+    self.sm.update(0)
+    ahora = time.monotonic()
+    if (ahora - self._last_v1) >= self.velocidadActualizacion:
+      self._last_v1 = ahora
+      self._ciclo_v1()
+    self._ciclo_v2(ahora)
+    time.sleep(self.TICK_SECS)
+
+  def _ciclo_v1(self):
       # Recoger en caliente un cambio de IP del broker hecho desde la UI.
       self._maybe_reload_broker()
 
@@ -934,7 +1040,6 @@ class MQTTEnvioGeneral:
 
         # Log eliminado para reducir uso de memoria
 
-        time.sleep(self.velocidadActualizacion)
         return
 
       # Resetear contador si hay conexión
@@ -953,7 +1058,6 @@ class MQTTEnvioGeneral:
         if (ahora_mono - self._last_sin_dongle_log) >= self.SIN_DONGLE_LOG_SECS:
           self._last_sin_dongle_log = ahora_mono
           cloudlog.error("[Bemposta] sin DongleId valido: telemetria y camara silenciadas, solo anuncio de enrolamiento")
-        time.sleep(self.velocidadActualizacion)
         return
 
       # Responder a una peticion de diagnostico remoto (healthcheck), si la hay.
@@ -968,6 +1072,13 @@ class MQTTEnvioGeneral:
           self.comandos_mqtt.maybe_publish_caps()
         except Exception:
           cloudlog.exception("[Bemposta] maybe_publish_caps fallo")
+
+      # Configuracion deseada/reportada (seccion 8). Best-effort como todo lo de aqui: la
+      # reconciliacion de ajustes no puede tumbar el bucle de telemetria.
+      try:
+        self._mantener_config(time.monotonic())
+      except Exception:
+        cloudlog.exception("[Bemposta] mantenimiento de configuracion fallo")
 
       # Publicar Jetson config si fue cambiada desde la UI del Comma
       try:
@@ -1085,11 +1196,26 @@ class MQTTEnvioGeneral:
       except Exception as e:
         print(f"[OBSTACLE STATUS SYNC] ERROR leyendo param: {e}")
 
+      privacidad = self._privacidad_silenciada()
+
       for canal in self.enabled_items:
         nombre = canal["canal"]
+        # El interruptor maestro de privacidad tapa tambien el camino LEGACY: estos dos
+        # canales llevan latitude/longitude en el payload y hasta ahora salian igual con
+        # OrbitPrivacyMute puesto, con lo que apagar la posicion en el panel apagaba el
+        # canal v2 `pos` y la camara pero no el v1. El resto de canales v1 sigue saliendo.
+        if privacidad and nombre in CANALES_V1_POSICION:
+          continue
         topic = canal["topic"].format(self.DongleID)
 
-        if nombre in self.sm.data and self.sm.updated[nombre]:
+        # `sm.updated` solo dice si el mensaje llego EN ESTE tick. Con el tick base a 4 Hz
+        # y la publicacion v1 a 1 Hz, la mayoria de las llegadas caen en ticks que no
+        # publican y el canal se habria quedado mudo. `recv_frame` responde la pregunta
+        # que de verdad importa: ha llegado algo NUEVO desde la ultima vez que publique
+        # ESTE canal.
+        frame = self.sm.recv_frame.get(nombre, 0)
+        if nombre in self.sm.data and frame > self._v1_frame.get(nombre, -1):
+          self._v1_frame[nombre] = frame
           datos = self.sm[nombre].to_dict()
           datos_filtrados = self.enviar_datos_importantes(nombre, datos)
           if datos_filtrados:
@@ -1103,7 +1229,11 @@ class MQTTEnvioGeneral:
                 # literal NaN, que NO es JSON valido (RFC 8259), asi que un
                 # solo desiredCurvature NaN corrompia el mensaje ENTERO de
                 # forma intermitente y sin rastro (el publish salia con rc=0).
-                cuerpo = json.dumps(_sanea_no_finitos(datos_filtrados), allow_nan=False)
+                # compacta_floats recorta la expansion DOBLE que json.dumps escribe de
+                # cada Float32 ("-3.4567890167236328" por un angulo de volante) a las 9
+                # cifras significativas con las que un binary32 va y vuelve exacto: el
+                # consumidor v1 no puede notar la diferencia y el mensaje encoge ~40 %.
+                cuerpo = json.dumps(tel2.compacta_floats(_sanea_no_finitos(datos_filtrados)), allow_nan=False)
               except (ValueError, TypeError):
                 malos = self._campos_no_serializables(datos_filtrados)
                 cloudlog.warning(f"[Bemposta] canal {nombre}: campos no serializables {malos}; mensaje descartado")
@@ -1124,43 +1254,36 @@ class MQTTEnvioGeneral:
                 cloudlog.warning(f"[Bemposta] fallo publicando canal {nombre} en {topic}: {e}")
             # Si no hay conexión, simplemente no enviar (no encolar)
 
-      # Heartbeat de PRESENCIA. La app marca "conectado" solo si le llega
-      # telemetria en <10 s. Onroad carState ya fluye; pero PARADO/OFFROAD ningun
-      # canal se actualiza (sm.updated=False) y no se publica nada -> el dispositivo
-      # aparece desconectado aunque el MQTT este perfectamente conectado. Republicamos
-      # el ultimo carState conocido a ritmo bajo para que salga "conectado" tambien en
-      # banco (como hacia el sender antiguo, que publicaba cada ciclo sin condicion).
+      # LATIDO DE PRESENCIA. Antes esto republicaba el `carState` ENTERO cada 3 s en
+      # telemetry_mqtt/<dongle>/carState -- el topic de un canal de DATOS -- solo para que
+      # la app, que deduce "conectado" de que le llegue telemetria en <10 s, no pintara el
+      # coche desconectado con el vehiculo parado (offroad ningun canal se actualiza).
+      # Costaba 1454 B x 1200 mensajes/h = 1,74 MB/h por decir "sigo vivo", y ademas
+      # mentia: con carState_toggle desactivado publicaba {"dongle_id": ...} a secas en un
+      # topic que la app modela como un carState, y pintaba el coche parado y sano.
+      # Ahora el latido es la PRESENCIA de verdad (~180 B: 0,22 MB/h), retenida y en los
+      # dos namespaces, y va al MISMO topic v1 que el Last Will, asi que un 'online' vivo
+      # sobreescribe el 'offline' que dejo el broker al morir la conexion anterior.
       now = time.monotonic()
       if self.conectado and (now - self._last_heartbeat) >= self.HEARTBEAT_SECS:
         self._last_heartbeat = now
         if not (hasattr(self.mqttc, 'is_connected') and not self.mqttc.is_connected()):
           try:
-            if "carState" in self.sm.data:
-              hb = self.sm["carState"].to_dict()
-            else:
-              hb = {}
-            hb["dongle_id"] = self.DongleID
-            topic_hb = f"telemetry_mqtt/{self.DongleID}/carState"
-            # Mismo saneado que en el bucle de canales: un solo float NaN de
-            # carState invalidaba el JSON y la app perdia la PRESENCIA entera.
-            info = self.mqttc.publish(topic_hb, json.dumps(_sanea_no_finitos(hb), allow_nan=False), qos=0)
-            # Marca de vida para la UI: epoch (s) del ultimo ciclo de publicacion.
-            # Ligada a la cadencia del heartbeat (3 s) para no anadir mas
-            # frecuencia de escritura en Params. Va DENTRO del try y solo si el
-            # publish salio de verdad (rc==0): antes estaba fuera, asi que
-            # orbit_panel.py y home.py pintaban el enlace vivo aunque todos los
-            # publishes reventaran.
-            if info.rc == mqtt.MQTT_ERR_SUCCESS:
+            if self._publish_presence_online():
+              # Marca de vida para la UI: epoch (s) del ultimo ciclo de publicacion.
+              # Ligada a la cadencia del latido (3 s) para no anadir mas frecuencia de
+              # escritura en Params. Va DENTRO del try y solo si el publish salio de
+              # verdad (rc==0): antes estaba fuera, asi que orbit_panel.py y home.py
+              # pintaban el enlace vivo aunque todos los publishes reventaran.
+              #
               # OJO: epoch de PARED, NO `now` (que es monotonic y solo sirve para el
-              # intervalo del heartbeat). Este valor CRUZA PROCESOS: lo leen
+              # intervalo del latido). Este valor CRUZA PROCESOS: lo leen
               # orbit_panel.py:50 y home.py:664 restando contra time.time(). Escribir
               # monotonic aqui hacia que la UI calculase ~57 anos de antiguedad y
               # dejaba el chip de enlace permanentemente en rojo.
               self.params.put("OrbitLastPublish", str(_epoch_ms() // 1000))
-            else:
-              self._log_publish_rc("heartbeat", topic_hb, info.rc)
           except Exception as e:
-            cloudlog.warning(f"[Bemposta] heartbeat fallo: {e}")
+            cloudlog.warning(f"[Bemposta] latido de presencia fallo: {e}")
 
           # sicuem_torque a cadencia baja (unida al heartbeat). El backend/app
           # consumen sicuem_torque/<dongle> de forma CONTINUA, pero antes solo se
@@ -1193,7 +1316,653 @@ class MQTTEnvioGeneral:
           except Exception as e:
             cloudlog.warning(f"[Bemposta] sicuem_torque (heartbeat) fallo: {e}")
 
-      time.sleep(self.velocidadActualizacion)
+  # ------------------------------------------------------------------ telemetria v2
+
+  _PRIVACY_TTL_S = 1.0
+  PARAM_PERFIL = "OrbitTelemetryProfile"
+
+  def _privacidad_silenciada(self) -> bool:
+    """Interruptor maestro LOCAL de privacidad (OrbitPrivacyMute).
+
+    Mismo patron y mismo TTL que CameraSender._privacidad_silenciada: tiene que hacer
+    efecto EN CALIENTE (si hubiera que reiniciar, el interruptor no serviria de nada justo
+    cuando hace falta) sin abrir el param en cada tick. El diseno (seccion 9) declara
+    innegociable que "dejar de emitir" cubra posicion Y camara, y hasta ahora la camara lo
+    respetaba y la telemetria de posicion solo a medias.
+
+    QUE TAPA, todo lo que dice DONDE ESTA el coche y nada mas:
+      - el canal v2 `pos` (gpsLocation / gpsLocationExternal), en _fuentes_v2;
+      - el canal v2 `road`, que se alimenta de liveMapDataSP y publica el NOMBRE DE LA
+        VIA -- posicion derivada, pero posicion -- tambien en _fuentes_v2;
+      - los canales LEGACY v1 gpsLocation y gpsLocationExternal (CANALES_V1_POSICION), que
+        llevan latitude/longitude crudas y hasta ahora salian igual con el mute puesto.
+    El resto de la telemetria sigue: esto no es un interruptor de "apagar el coche".
+    """
+    ahora = time.monotonic()
+    if ahora - self._privacy_ts >= self._PRIVACY_TTL_S:
+      self._privacy_ts = ahora
+      try:
+        self._privacy_cache = bool(self.params.get_bool("OrbitPrivacyMute"))
+      except Exception:
+        # Clave no registrada o disco: NO se silencia por error, pero se avisa una vez.
+        if not self._privacy_avisado:
+          self._privacy_avisado = True
+          cloudlog.exception("[Bemposta] no se pudo leer OrbitPrivacyMute")
+        self._privacy_cache = False
+    return self._privacy_cache
+
+  def _maybe_reload_perfil(self, ahora):
+    """Relee el perfil de telemetria pedido (AHORRO / NORMAL / DIAGNOSTICO, seccion 7).
+
+    La clave `OrbitTelemetryProfile` TODAVIA NO ESTA REGISTRADA en common/params_keys.h
+    (fichero de otro agente en esta ronda), asi que hoy la lectura levanta UnknownKeyName y
+    se cae al defecto NORMAL. La plomeria queda escrita y funciona el dia que se registre,
+    igual que se hizo con OrbitPrivacyMute. El aviso sale UNA vez, no a 0,2 Hz.
+
+    La degradacion por red de pago y la caducidad de los 15 minutos del diagnostico NO
+    dependen de este param: viven dentro del motor, que es quien tiene el reloj.
+    """
+    if (ahora - self._last_perfil_check) < self.PERFIL_RELOAD_SECS:
+      return
+    self._last_perfil_check = ahora
+    try:
+      pedido = self.params.get(self.PARAM_PERFIL)
+    except Exception:
+      if not self._perfil_avisado:
+        self._perfil_avisado = True
+        cloudlog.warning(f"[Bemposta] {self.PARAM_PERFIL} no disponible; perfil de telemetria = normal")
+      pedido = None
+    if pedido and tel2.perfil_valido(pedido) and pedido != self.motor_v2.perfil_pedido:
+      cloudlog.warning(f"[Bemposta] perfil de telemetria {self.motor_v2.perfil_pedido} -> {pedido}")
+      self.motor_v2.pedir_perfil(pedido, ahora)
+    if self.motor_v2.diag_expirado:
+      # El motor ya volvio a NORMAL por su cuenta; aqui solo se refleja en Params para que
+      # la UI no siga diciendo "diagnostico". put() exige tipo NATIVO: la clave es STRING.
+      self.motor_v2.diag_expirado = False
+      cloudlog.warning("[Bemposta] perfil diagnostico caducado a los 15 min, vuelta a normal")
+      try:
+        self.params.put(self.PARAM_PERFIL, tel2.PERFIL_NORMAL)
+      except Exception:
+        pass
+
+  def _fuentes_v2(self) -> dict:
+    """Lectores cereal VIVOS para el motor de telemetria.
+
+    Un servicio que aun no ha llegado no se pasa: el SubMaster entrega en su lugar el
+    mensaje CERO que construyo al arrancar (todo a valor por defecto), y publicarlo seria
+    inventar un coche parado, frio y sano que no existe. `alive` es exactamente esa
+    pregunta (recibido dentro de 10 periodos) y arranca en False porque recv_time es 0.
+    """
+    fuentes = {}
+    for nombre in self.servicios_v2:
+      try:
+        if not self.sm.alive.get(nombre, False):
+          continue
+        fuentes[nombre] = self.sm[nombre]
+      except Exception:
+        continue
+    if self._privacidad_silenciada():
+      # Interruptor de privacidad: fuera TODA fuente que diga donde esta el coche. El
+      # resto de la telemetria sigue (no es un interruptor de "apagar el coche", es de
+      # "no emitir donde estoy") y los canales afectados se quedan sin fuente:
+      #
+      #   - gpsLocation / gpsLocationExternal alimentan el canal `pos` (lat/lon crudas);
+      #   - liveMapDataSP alimenta el canal `road`, que NO es menos posicion por ser
+      #     derivada: publica `road_name` -- el nombre de la calle por la que se va -- y
+      #     el limite vigente, el proximo y la distancia a el. Ese canal es on-change, asi
+      #     que la secuencia de nombres de via reconstruye el recorrido igual de bien que
+      #     la traza. Antes solo se retiraban las dos fuentes GPS y el coche seguia
+      #     diciendo por donde iba con el interruptor puesto.
+      #
+      # `pos` se queda ademas sin red de reenvio a proposito: el spool excluye ese canal
+      # (spool.CANALES_NO_SPOOLEADOS), asi que una posicion no publicada no queda escrita
+      # en disco esperando a que vuelva la cobertura.
+      #
+      # `road` SI se spoolea mientras el interruptor esta quitado, que es lo correcto (es
+      # telemetria util) y por eso este filtro NO basta: lo encolado ANTES de pulsar el
+      # interruptor sigue en la cola. De eso se encarga _mantener_spool, que pasa el mute
+      # al drenaje y purga lo encolado que revele posicion.
+      fuentes.pop("gpsLocationExternal", None)
+      fuentes.pop("gpsLocation", None)
+      fuentes.pop("liveMapDataSP", None)
+    return fuentes
+
+  # -------------------------------------------------------- configuracion deseada v2
+
+  def _cfg_ruta_jetson(self) -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_jetson.json")
+
+  def _cfg_cargar_persistido(self) -> None:
+    """Relee de Params los dos ultimos sobres. Una sola vez, en el hilo del loop.
+
+    Sirve para que nada RETROCEDA tras un reinicio: ni la version -- un `desired` viejo
+    retenido, que el broker re-entrega en cada reconexion, no puede ganarle al estado
+    actual -- ni los rechazos, que si se perdieran dejarian al backend adoptando un
+    `reported` limpio sobre un ajuste que nunca se aplico. Los VALORES ya estan donde
+    tienen que estar (Params, config_jetson.json): aqui solo se recupera el veredicto.
+    """
+    if self._cfg_cargado:
+      return
+    self._cfg_cargado = True
+    for clave, destino in (("OrbitConfigDesired", "_cfg_deseado"), ("OrbitConfigReported", "_cfg_reportado")):
+      try:
+        crudo = self.params.get(clave)
+      except Exception:
+        # Clave todavia no registrada en common/params_keys.h del binario instalado.
+        crudo = None
+      if crudo:
+        # remoto=False: este sobre lo escribio este proceso, y el `reported` lleva
+        # source=comma_ui, que parse_sobre rechaza cuando viene del cable.
+        sobre = cfg2.parse_sobre(crudo, remoto=False)
+        if sobre is not None:
+          setattr(self, destino, sobre)
+
+    # Los del CONTRATO se recalculan del propio `desired`: son funcion pura de el, asi que
+    # no hace falta creerselos de nadie. Los de APLICACION no se pueden recalcular (la
+    # causa estaba en el destino, no en el sobre) y por eso se recuperan del ultimo
+    # `reported`, que es donde quedaron escritos.
+    rechazos = {}
+    if self._cfg_deseado is not None:
+      contrato = cfg2.valida(self._cfg_deseado.values)[1]
+      if self._cfg_reportado is not None and self._cfg_reportado.version >= self._cfg_deseado.version:
+        # PERO no resucitan los que ya se podaron. Un `reported` con version >= la del
+        # `desired` es POSTERIOR a el (_mantener_config nunca construye uno por debajo),
+        # asi que sus rechazos son el veredicto ya podado. Sin este filtro, un rechazo de
+        # rango que un cambio local mato volvia a la vida en el siguiente arranque y dejaba
+        # esa clave otra vez vetada para el backend, que no adopta lo que sale rechazado.
+        contrato = {n: m for n, m in contrato.items() if n in self._cfg_reportado.rechazos}
+      rechazos.update(contrato)
+    if self._cfg_reportado is not None:
+      rechazos.update({n: m for n, m in self._cfg_reportado.rechazos.items()
+                       if m in cfg2.MOTIVOS_DE_APLICACION})
+    self._cfg_rechazos = rechazos
+
+  def _cfg_guardar(self, clave: str, sobre) -> None:
+    try:
+      self.params.put(clave, sobre.a_json())
+    except Exception:
+      cloudlog.exception(f"[Bemposta] no se pudo persistir {clave}")
+
+  def _cfg_valores_actuales(self) -> dict:
+    """(valores, invalidos): estado REAL de cada clave, leido de su destino. TOCA DISCO.
+
+    Es lo que hace que esto sea una reconciliacion y no otro buzon: `reported` no repite lo
+    que se mando, dice lo que hay. Una clave cuyo destino no se puede leer NO sale en el
+    sobre -- ausente es "no lo se", que es distinto de un valor inventado.
+    """
+    jetson = cfg2.leer_config_jetson(self._cfg_ruta_jetson())
+    cam = getattr(self, "camera_sender", None)
+    valores = {}
+    for nombre, clave in cfg2.CLAVES.items():
+      try:
+        if clave.destino == cfg2.DEST_JETSON:
+          if clave.dest_nombre in jetson:
+            valores[nombre] = jetson[clave.dest_nombre]
+        elif clave.destino == cfg2.DEST_PARAM:
+          valor = self.params.get(clave.dest_nombre)
+          if valor is not None:
+            valores[nombre] = valor
+        elif clave.destino == cfg2.DEST_CAMARA and cam is not None:
+          if clave.dest_nombre == "image_sending_enabled":
+            valores[nombre] = bool(cam.sending_enabled)
+          elif clave.dest_nombre == "send_frequency_seconds":
+            valores[nombre] = int(cam.interval_seconds)
+          elif clave.dest_nombre == "camera_type":
+            valores[nombre] = str(cam.camera_type)
+      except Exception:
+        continue   # clave no registrada, disco, o un CameraSender a medio arrancar
+    # Se pasa por el validador para que `reported` no publique un valor que el propio
+    # contrato rechazaria: un jetson_ip publico escrito por la UI o heredado de una version
+    # anterior tiene que verse como lo que es, no colarse por la puerta de atras.
+    limpios, sucios = cfg2.valida({k: v for k, v in valores.items() if k in cfg2.CLAVES_ESCRIBIBLES})
+    for nombre in cfg2.CLAVES_SOLO_REPORTE:
+      if nombre in valores:
+        limpios[nombre] = valores[nombre]
+    return limpios, sucios
+
+  def _cfg_aplicar(self, sobre) -> dict:
+    """Aplica un sobre `desired` YA GANADOR. Devuelve {clave: motivo} de lo no aplicado.
+
+    Las claves del resultado son SIEMPRE las del CONTRATO, nunca las del destino: el plan
+    esta indexado por destino (`OrbitTelemetryProfile`, `image_sending_enabled`) y un
+    rechazo con ese nombre no lo reconoce ni la app -- que resuelve cada clave contra el
+    vocabulario del contrato y tira lo que no reconoce -- ni el backend, que lo cruza
+    contra `desired.values`. De ahi cfg2.clave_de_destino.
+
+    TOCA DISCO (Params, config_jetson.json con flock, CameraSender): hilo del loop.
+    """
+    aceptados, rechazos = cfg2.valida(sobre.values)
+    plan = cfg2.plan_aplicacion(aceptados)
+
+    for clave_param, valor in plan.params.items():
+      try:
+        # put() EXIGE el tipo nativo del param: plan_aplicacion ya lo convierte.
+        self.params.put(clave_param, valor)
+      except Exception:
+        cloudlog.exception(f"[Bemposta] cfg: no se pudo escribir el param {clave_param}")
+        rechazos[cfg2.clave_de_destino(cfg2.DEST_PARAM, clave_param)] = cfg2.MOT_NO_APLICADO
+
+    if plan.jetson:
+      try:
+        cambio, _final = cfg2.escribir_config_jetson(self._cfg_ruta_jetson(), plan.jetson)
+        if cambio:
+          # Mismo mecanismo que usaba el topic viejo: el CameraSender corre en su propio
+          # hilo y recarga solo en su siguiente vuelta. Recargarlo desde aqui cerraria un
+          # socket ZMQ que otro hilo puede estar usando.
+          self.params.put_bool("JetsonConfigChanged", True)
+      except Exception:
+        cloudlog.exception("[Bemposta] cfg: no se pudo escribir config_jetson.json")
+        for nombre in plan.jetson:
+          rechazos[cfg2.clave_de_destino(cfg2.DEST_JETSON, nombre)] = cfg2.MOT_NO_APLICADO
+
+    if plan.camara:
+      cam = getattr(self, "camera_sender", None)
+      if cam is None:
+        for nombre in plan.camara:
+          rechazos[cfg2.clave_de_destino(cfg2.DEST_CAMARA, nombre)] = cfg2.MOT_SIN_CAMARA
+      else:
+        try:
+          # apply_config tiene sus propios filtros y el interruptor LOCAL de privacidad
+          # gana siempre dentro de el: una peticion remota de encender la camara con el
+          # mute puesto se ignora ahi, no aqui.
+          cam.apply_config(plan.camara)
+        except Exception:
+          cloudlog.exception("[Bemposta] cfg: apply_config de camara fallo")
+          for nombre in plan.camara:
+            rechazos[cfg2.clave_de_destino(cfg2.DEST_CAMARA, nombre)] = cfg2.MOT_NO_APLICADO
+    return rechazos
+
+  def _cfg_rechazos_vivos(self, valores: dict) -> dict:
+    """Los rechazos del ultimo `desired` cuya causa SIGUE en pie. RAM pura.
+
+    Un rechazo que se borra solo es peor que no tenerlo: el `reported` siguiente sale
+    limpio, el backend -- que adopta el documento entero en cuanto la version sube por
+    encima de la deseada -- se queda sin el ajuste que pidio, y la app pinta "Al dia"
+    sobre algo que no se aplico nunca. Asi que no se reconstruyen en cada tick, se PODAN:
+
+      - los de APLICACION (no_aplicado, sin_camera_sender) tienen la causa en el DESTINO,
+        y esa puede morir sola: si el valor pedido acaba puesto -- porque aparecio el
+        CameraSender, porque la eMMC dejo de fallar, porque alguien lo puso a mano en la
+        pantalla -- el rechazo desaparece o la app se queda pintando un error que ya no
+        existe.
+      - los de VALOR (tipo, rango, valor) tienen la causa dentro del sobre `desired`, pero
+        NO por eso son eternos: "8.8.8.8 esta fuera de rango" es un veredicto sobre esa
+        clave, y deja de ser la ultima palabra del coche en cuanto alguien la corrige EN
+        LOCAL. Sin esta mitad el rechazo salia VIVO en el mismo `reported` que ya llevaba
+        el valor bueno, y como el backend no adopta las claves rechazadas, la correccion
+        hecha delante del coche no llegaba nunca -- que es justo lo que la regla del empate
+        de la seccion 8 existe para garantizar.
+      - los de CLAVE (solo_reporte, clave_desconocida) no hablan del valor: no hay cambio
+        local que los pueda corregir (`steer_mode` no se escribe por aqui aunque se pida
+        con el valor perfecto) y viven hasta que llegue otro `desired`.
+
+    La poda es DEFINITIVA -- se sacan de `_cfg_rechazos`, no se filtran al vuelo -- porque
+    si no reviven: en cuanto el `reported` nuevo lleva el valor corregido, la comparacion
+    contra el `reported` anterior vuelve a dar "igual" y el rechazo reaparecia en el tick
+    siguiente. Un rechazo intermitente es peor que no tenerlo.
+
+    Se comparan los valores ya NORMALIZADOS por el contrato contra `valores`, que es lo
+    que `_cfg_valores_actuales` acaba de leer del destino: un `jetson_ip` con espacios o un
+    `speed_increment_kph` que llego como int no pueden contar como divergencia.
+    """
+    if not self._cfg_rechazos:
+      return {}
+    pedidos = cfg2.valida(self._cfg_deseado.values)[0] if self._cfg_deseado is not None else {}
+    # Lo ULTIMO que el coche dijo de cada clave. Es la referencia de "no ha cambiado desde
+    # que rechace": el rechazo se emitio junto a ese valor.
+    ultimo = self._cfg_reportado.values if self._cfg_reportado is not None else None
+    muertos = []
+    for nombre, motivo in self._cfg_rechazos.items():
+      if motivo in cfg2.MOTIVOS_DE_APLICACION:
+        if nombre in pedidos and nombre in valores and valores[nombre] == pedidos[nombre]:
+          muertos.append(nombre)
+      elif motivo in cfg2.MOTIVOS_DE_VALOR:
+        if ultimo is not None and nombre in ultimo and nombre in valores \
+           and valores[nombre] != ultimo[nombre]:
+          muertos.append(nombre)
+    for nombre in muertos:
+      self._cfg_rechazos.pop(nombre, None)
+    return dict(self._cfg_rechazos)
+
+  def _cfg_publicar(self, sobre) -> bool:
+    """Publica `reported` retenido con qos 1. Devuelve si salio."""
+    topic = cfg2.TOPIC_CFG_REPORTED.format(self.DongleID)
+    try:
+      info = self.mqttc.publish(topic, sobre.a_json(), qos=1, retain=True)
+    except Exception as e:
+      cloudlog.warning(f"[Bemposta] cfg/reported en {topic} fallo: {e}")
+      return False
+    if info.rc != mqtt.MQTT_ERR_SUCCESS:
+      self._log_publish_rc("cfg/reported", topic, info.rc)
+      return False
+    return True
+
+  def _mantener_config(self, ahora):
+    """Reconciliacion de configuracion deseada/reportada (seccion 8). A CFG_SECS.
+
+    El problema que cierra: hoy la misma configuracion vive en Params, en las tablas del
+    backend y en las SharedPreferences del movil, sin reconciliacion ninguna. Aqui hay un
+    solo contrato: gana la version mas alta y el empate lo gana `comma_ui`, para que quien
+    esta delante del coche pueda corregir sin pedirle permiso a una red que puede no
+    existir.
+
+    `reported` lleva SIEMPRE source=comma_ui porque es la palabra del coche sobre lo que
+    hay, no un acuse del backend. Un `desired` que llegue con la misma version ya no vuelve
+    a aplicarse (gana() lo dice) y por eso el retenido re-entregado en cada reconexion no
+    hace nada.
+
+    TOCA DISCO. Va en el hilo del loop, nunca en el callback de paho.
+    """
+    if not self.dongle_valido:
+      return
+    self._cfg_cargar_persistido()
+
+    # 1) lo que haya dejado el hilo de red. Se atiende SIEMPRE, aunque no toque
+    #    reconstruir `reported`: un ajuste pedido no puede esperar 5 s por el reloj.
+    entrante = cfg2.get_bus().tomar()
+    aplicado = False
+    if entrante is not None:
+      # Contra LOS DOS sobres locales, no solo contra el `desired`. El `desired` es siempre
+      # source backend, asi que compararlo solo contra el dejaba la regla del empate sin
+      # efecto ninguno: quien lleva el comma_ui es el `reported`, y es el que representa lo
+      # que hay AHORA en el coche. Ver cfg2.gana_a_todos.
+      if cfg2.gana_a_todos(entrante, self._cfg_deseado, self._cfg_reportado):
+        self._cfg_rechazos = self._cfg_aplicar(entrante)
+        self._cfg_deseado = entrante
+        self._cfg_guardar("OrbitConfigDesired", entrante)
+        aplicado = True
+        cloudlog.warning(f"[Bemposta] cfg/desired v{entrante.version} de {entrante.source} aplicado; rechazos={self._cfg_rechazos}")
+      else:
+        cloudlog.warning(f"[Bemposta] cfg/desired v{entrante.version} ignorado: no gana al estado local")
+
+    if not aplicado and (ahora - self._last_cfg) < self.CFG_SECS:
+      return
+    self._last_cfg = ahora
+
+    # 2) que hay AHORA de verdad. Un cambio hecho en la pantalla del comma se ve aqui como
+    #    diferencia y sube de version con source comma_ui, que es lo que sustituye a los
+    #    params-buzon: la UI escribe su param y esto lo reporta, sin un JSON a mano.
+    valores, invalidos = self._cfg_valores_actuales()
+    # Los del ultimo `desired` que siguen siendo verdad, no los del tick que aplico: un
+    # ajuste rechazado no puede desaparecer del `reported` sin que su causa haya muerto.
+    rechazos = self._cfg_rechazos_vivos(valores)
+    rechazos.update(invalidos)
+
+    previo = self._cfg_reportado
+    if previo is None or previo.values != valores or previo.rechazos != rechazos:
+      version = entrante.version if (aplicado and entrante is not None) else None
+      if version is None or (previo is not None and version <= previo.version):
+        # Cambio local, o un `desired` cuya version no supera a la ultima reportada: sube.
+        version = cfg2.siguiente_version(previo, self._cfg_deseado)
+      sobre = cfg2.sobre_local(valores, rechazos, version=version)
+
+      # EL REPORTED AVANZA AL APLICARSE, NO AL PUBLICARSE. Son dos cosas distintas y
+      # atarlas rompia la seccion 8 justo cuando mas hace falta: sin cobertura el sobre no
+      # salia, `_cfg_reportado` se quedaba como estaba, y al volver la red el `desired`
+      # retenido -- que el broker re-entrega en CADA reconexion -- empataba contra un
+      # reported viejo y deshacia el ajuste hecho en la pantalla. `gana_a_todos` no tenia
+      # con que defenderlo. Y el empate a favor de comma_ui existe precisamente para el
+      # coche SIN RED, que es el unico lado que puede tener a alguien delante.
+      #
+      # Se persiste tambien sin enlace, por lo mismo: la palabra del coche sobre lo que HAY
+      # tiene que sobrevivir a un reinicio, no a un publish.
+      self._cfg_reportado = sobre
+      self._cfg_reportado_publicado = False
+      self._cfg_guardar("OrbitConfigReported", sobre)
+    elif self._cfg_reportado_publicado:
+      return           # ni cambio ni deuda: no se republica un retenido identico
+
+    # Lo que si depende del publish es la DEUDA con el broker: mientras el retenido no
+    # tenga el ultimo `reported`, se reintenta cada CFG_SECS con el MISMO sobre (misma
+    # version, mismo contenido), que es lo que el retenido tiene que acabar teniendo.
+    if self.conectado and self._cfg_publicar(self._cfg_reportado):
+      self._cfg_reportado_publicado = True
+
+  # ------------------------------------------------------------------ spool diferido
+
+  def _spool(self):
+    """Instancia unica del spool, abierta en el PRIMER uso desde el hilo del loop.
+
+    Devuelve None si no se pudo abrir. get_spool() no deberia lanzar (Spool se desactiva
+    solo ante disco lleno o base corrupta), pero si lanzara, el fallo se recuerda para no
+    reintentar la apertura a 4 Hz.
+    """
+    if self._spool_obj is None and not self._spool_roto:
+      try:
+        self._spool_obj = spool_mod.get_spool()
+      except Exception:
+        self._spool_roto = True
+        cloudlog.exception("[Bemposta] no se pudo abrir el spool de telemetria")
+    return self._spool_obj
+
+  def _diferir(self, canal, payload):
+    """La muestra NO salio por el cable: se guarda para reenviarla, o se deshace el sello.
+
+    Dos redes, en este orden:
+
+      1. el SPOOL (orbit/spool.py). Guarda en RAM (no toca disco, no bloquea) y el
+         mantenimiento de 1 Hz lo vuelca y lo reenvia marcado como backfill. Es la unica
+         red que tienen `event` y `trip`, que son mensajes UNICOS: un rc!=0 los borraba de
+         la historia (el resumen de viaje entero incluido).
+      2. si el spool no la acepta -- desactivado, canal excluido (`pos`), o lleno de
+         criticos -- se REVIERTE el sello del canal on-change para que el motor vuelva a
+         proponer el estado en su siguiente periodo. Sin esto un cambio de estado perdido
+         no se reintentaba hasta el keepalive.
+
+    Que el spool la acepte NO garantiza que salga: la fila puede morir despues (eviccion
+    de RAM, lote rechazado con el disco al tope, poda, apagado en caliente). Esos caminos
+    NO se ven desde aqui -- guardar() ya dijo True -- y los cierra _revertir_perdidas
+    desde el mantenimiento, con lo que el spool anota en canales_perdidos().
+    """
+    guardada = False
+    s = self._spool()
+    if s is not None:
+      try:
+        guardada = bool(s.guardar(canal, payload, dongle=self.DongleID))
+      except Exception:
+        cloudlog.exception(f"[Bemposta] spool.guardar({canal}) fallo")
+    if not guardada:
+      self.motor_v2.revertir(canal)
+
+  def _revertir_perdidas(self, s) -> None:
+    """Deshace los sellos de lo que el spool ACEPTO y luego no pudo conservar.
+
+    `guardar()` devolviendo True solo dice que la fila entro en la cola, no que vaya a
+    salir por el cable, y _diferir la trata como si lo fuera: solo revierte cuando el
+    spool la rechaza EN EL ACTO. Despues hay cuatro caminos que tiran una fila ya aceptada
+    -- eviccion de RAM, rechazo del lote con el disco al tope, poda del disco y apagado en
+    caliente del spool -- y por todos ellos el sello se quedaba puesto: el canal daba el
+    estado por entregado y se callaba hasta el keepalive (`openpilot` 60 s en NORMAL
+    pintando "actuando" un coche ya desenganchado; `road` NUNCA en AHORRO, que no tiene
+    keepalive). El spool anota esas perdidas por canal y aqui se vacian.
+
+    Se hace en el mantenimiento y no en el tick a proposito: la perdida se descubre cuando
+    se vuelca o se poda, que es despues del tick que sello. Por eso no vale `revertir`
+    (solo deshace lo sellado en el tick en curso) sino `invalidar_sello`.
+    """
+    try:
+      perdidos = s.canales_perdidos()
+    except Exception:
+      cloudlog.exception("[Bemposta] no se pudo leer las perdidas del spool")
+      return
+    for canal, cuantas in perdidos.items():
+      if self.motor_v2.invalidar_sello(canal):
+        cloudlog.warning(f"[Bemposta] {cuantas} muestra(s) de {canal} perdidas: sello invalidado")
+      elif canal in spool_mod.CANALES_CRITICOS:
+        # `event` y `trip` son mensajes UNICOS: no hay sello que deshacer ni forma de
+        # recuperarlos. Lo unico que se puede hacer es que no sea silencioso.
+        cloudlog.error(f"[Bemposta] {cuantas} muestra(s) criticas de {canal} perdidas sin publicar")
+
+  def _publicar_diferida(self, muestra) -> bool:
+    """Republica UNA muestra del spool. Devuelve si SALIO de verdad (rc == 0).
+
+    AQUI NO SE TOCA LA PRESENCIA: ni self.conectado, ni self._last_heartbeat, ni
+    OrbitLastPublish. Un backfill es de hace un rato y no dice que el coche este conectado
+    AHORA. El cuerpo ya lleva dentro "backfill": true y el ts_ms de CAPTURA (lo pone
+    Spool._muestra), y el reenvio sale por orbit/v2/tel/, nunca por el namespace legacy.
+
+    LO QUE ESTE LADO NO PUEDE ARREGLAR: la app de hoy marca contacto por la LLEGADA del
+    mensaje, y lo hace tambien en el camino v2 (mqtt_service.dart, _registrarActividad()
+    justo detras de ingerirCanal()), sin mirar el cuerpo. Mientras eso siga asi, drenar el
+    spool pintara "visto ahora" un coche que puede llevar un rato apagado. Saltarse la
+    presencia cuando backfill == true es cosa del backend y de la app; desde el firmware lo
+    unico que se puede hacer es marcarlo en el cuerpo, que es lo que se hace.
+    """
+    topic = tel2.topic_telemetria(self.DongleID, muestra.canal)
+    try:
+      info = self.mqttc.publish(topic, muestra.cuerpo, qos=0)
+    except Exception as e:
+      cloudlog.warning(f"[Bemposta] reenvio diferido de {muestra.canal} en {topic} fallo: {e}")
+      return False
+    return info.rc == mqtt.MQTT_ERR_SUCCESS
+
+  def _mantener_spool(self, ahora, enlace, drenar_ok=True):
+    """Vuelca a disco lo encolado y, con enlace vivo, reenvia una tanda. A 1 Hz.
+
+    TOCA DISCO: corre en el hilo del loop ORBIT y NUNCA en el callback de paho (que es el
+    hilo de RED: un handler lento se come el PINGRESP y con el la conexion).
+
+    EL INTERRUPTOR DE PRIVACIDAD TAMBIEN MANDA AQUI. Retirar las fuentes en la captura
+    (_fuentes_v2) solo tapa lo que se captura DESPUES de pulsarlo; lo que ya estaba en la
+    cola sigue en disco. La secuencia real es: el coche circula sin cobertura y encola N
+    mensajes `road` con el nombre de la via, el conductor pulsa el interruptor, vuelve la
+    cobertura y se publica la secuencia entera de nombres de calle -- la traza, por el
+    mismo argumento que justifica retirar liveMapDataSP. Por eso el mute se pasa al drenar
+    (lo de posicion se descarta en vez de publicarse) y ademas se purga lo encolado, que es
+    lo unico que sirve cuando el mute se pulsa en mitad del corte de red: sin enlace no se
+    drena, y esperar dejaria la traza en disco lista para salir en cuanto se quite el mute.
+
+    TRES COSAS QUE ANTES DEJABAN EL INTERRUPTOR A MEDIAS:
+
+      1. La purga estaba DENTRO del `if s.activo`. Un spool desactivado (disco lleno, base
+         corrupta) cierra su conexion pero deja spool.db en la eMMC, y ni purgaba ni
+         drenaba: las filas `road` ya escritas se quedaban ahi con el mute puesto hasta que
+         reiniciara el proceso -- y si para entonces el conductor lo habia quitado, el
+         arranque siguiente las publicaba enteras. Ahora la purga va PRIMERO y fuera del
+         `if`; purgar_posicion() sabe abrir la base desactivada y, si ni eso, borrarla.
+      2. El mute se leia UNA vez y se pasaba como bool, pero una tanda son hasta 200
+         publicaciones seguidas: pulsarlo dentro de la tanda no la cortaba. Ahora se pasa
+         el TESTIGO (el metodo, no su valor) y el spool lo vuelve a preguntar fila a fila.
+         Se puede llamar 200 veces por tanda porque es un bool cacheado a 1 Hz.
+      3. Esto se llamaba solo al final de _ciclo_v2, que retornaba antes por DOS caminos
+         (sin identidad y con el tick del motor lanzando). Ahora va en un `finally` y el
+         camino sin identidad lo llama aparte. Ver _ciclo_v2.
+
+    `drenar_ok` False = se mantiene la cola pero NO se reenvia: es el caso sin identidad,
+    donde publicar bajo el literal "DongleID" atribuiria la telemetria al vehiculo fantasma
+    que comparten todos los comma sin registrar.
+    """
+    s = self._spool()
+    if s is None:
+      return
+    if (ahora - self._last_spool) < self.SPOOL_SECS:
+      return
+    self._last_spool = ahora
+    try:
+      # Fuera del `if s.activo`: con el spool apagado el fichero sigue en el disco y esta
+      # es la unica via que queda para que el interruptor llegue a el.
+      if self._privacidad_silenciada():
+        s.purgar_posicion()
+      if s.activo:
+        s.flush()
+        if drenar_ok and enlace and s.hay_pendientes():
+          # El testigo, no su valor: ver el punto 2 de arriba.
+          s.drenar(self._publicar_diferida, dongle=self.DongleID,
+                   privacidad=self._privacidad_silenciada)
+    except Exception:
+      cloudlog.exception("[Bemposta] mantenimiento del spool fallo")
+    # Fuera del try: un spool que se acaba de desactivar (disco lleno, base corrupta) tira
+    # su cola de RAM, y esas perdidas tambien hay que recogerlas.
+    self._revertir_perdidas(s)
+
+  def _ciclo_v2(self, ahora):
+    """Publica la telemetria v2 del tick. Best-effort: NUNCA rompe el bucle.
+
+    El motor tickea SIEMPRE que haya identidad, tambien sin enlace. Antes se salia antes
+    de tickear y con eso un corte de cobertura se llevaba por delante tres cosas que no
+    son "un dato perdido": el `dt` del viaje (el tope de 5 s por tick del motor recorta el
+    hueco entero, asi que dur_s contaba de menos), los flancos de evento ocurridos durante
+    el corte, y un viaje que empezara y acabara dentro del corte, que no dejaba rastro.
+    Ahora lo que no sale por el cable va al spool y se reenvia marcado cuando vuelve.
+
+    SIN IDENTIDAD no se publica NI SE GUARDA nada (ver __init__): una muestra grabada bajo
+    el literal "DongleID" se atribuiria al vehiculo fantasma que comparten todos los comma
+    sin registrar.
+
+    EL MANTENIMIENTO DEL SPOOL VA EN UN `finally`. Este metodo tiene DOS salidas
+    anticipadas -- sin identidad, y con el tick del motor lanzando -- y hasta ahora las dos
+    se llevaban por delante _mantener_spool, que es quien purga la posicion encolada con el
+    mute puesto. La segunda no estaba declarada en ninguna parte: un motor que falle
+    siempre (una fuente cereal con un campo que ya no existe tras un rebase, por ejemplo)
+    dejaba el interruptor de privacidad sin efecto sobre la cola, en silencio y para
+    siempre. Con el `finally` la purga corre aunque el tick se caiga en cada ciclo.
+    """
+    if not self.dongle_valido:
+      # Sin identidad no se publica ni se guarda nada nuevo, pero si este proceso llego a
+      # abrir el spool antes de perderla, lo encolado sigue en disco y el interruptor tiene
+      # que alcanzarlo. No se ABRE el spool aqui a proposito (self._spool_obj y no
+      # self._spool()): crear /data/orbit_spool y una base SQLite para un dispositivo que
+      # nunca ha tenido identidad no purga nada, solo escribe en la eMMC.
+      if self._spool_obj is not None:
+        self._mantener_spool(ahora, False, drenar_ok=False)
+      return
+    enlace = self.conectado
+    if enlace and hasattr(self.mqttc, 'is_connected') and not self.mqttc.is_connected():
+      enlace = False
+    try:
+      self._publicar_v2(ahora, enlace)
+    finally:
+      self._mantener_spool(ahora, enlace)
+
+  def _publicar_v2(self, ahora, enlace):
+    """Tick del motor y publicacion de sus mensajes. Lo llama _ciclo_v2 dentro del try."""
+    try:
+      self._maybe_reload_perfil(ahora)
+      mensajes = self.motor_v2.tick(ahora, self._fuentes_v2())
+    except Exception:
+      cloudlog.exception("[Bemposta] motor de telemetria v2 fallo")
+      return
+    if self._privacidad_silenciada():
+      # Segunda mitad del interruptor en la CAPTURA. _fuentes_v2 ya deja sin fuente a `pos`
+      # y a `road`; `trip` no tiene fuente que quitar porque se alimenta de carState, asi
+      # que se filtra aqui. No es posicion -- el resumen lleva dist_km, v_max_kph y
+      # v_med_kph, ni una coordenada -- pero "43,2 km entre las 22:15 y las 22:47" leido
+      # junto al sitio donde el coche duerme reconstruye el trayecto, y repetido a diario
+      # dibuja la rutina. La seccion 9 pide "posicion y camara COMO MINIMO": ampliar cabe.
+      # Se descarta, no se difiere: encolarlo dejaria el resumen en disco esperando a que
+      # se quite el mute, que es exactamente lo que la purga del spool existe para evitar.
+      antes = len(mensajes)
+      mensajes = [(c, cuerpo) for c, cuerpo in mensajes if c not in spool_mod.CANALES_SILENCIADOS]
+      if len(mensajes) != antes:
+        cloudlog.warning(f"[Bemposta] privacidad: {antes - len(mensajes)} mensaje(s) de canal silenciado descartados en captura")
+    for canal, cuerpo in mensajes:
+      topic = tel2.topic_telemetria(self.DongleID, canal)
+      try:
+        # Mismo saneado + allow_nan=False que el camino v1: un solo float no finito
+        # convierte el mensaje en algo que el parser del backend no puede leer, y el
+        # publish sale con rc=0 igualmente (fallo intermitente y sin rastro).
+        payload = json.dumps(tel2.sanea_no_finitos(cuerpo), allow_nan=False, separators=(",", ":"))
+      except (ValueError, TypeError):
+        # Irrecuperable: reintentarlo daria exactamente el mismo error, asi que NO se
+        # difiere ni se revierte el sello (seria un bucle). Se pierde y queda en el log.
+        cloudlog.warning(f"[Bemposta] canal v2 {canal}: payload no serializable, descartado")
+        continue
+      if not enlace:
+        # Sin enlace ni se intenta el publish: directo al spool.
+        self._diferir(canal, payload)
+        continue
+      salio = False
+      try:
+        info = self.mqttc.publish(topic, payload, qos=0)
+        salio = info.rc == mqtt.MQTT_ERR_SUCCESS
+        if not salio:
+          self._log_publish_rc(f"canal v2 {canal}", topic, info.rc)
+      except Exception as e:
+        # NO tocar self.conectado aqui (ver el mismo razonamiento en el bucle v1): un
+        # fallo puntual de un canal no significa que el socket MQTT este caido.
+        cloudlog.warning(f"[Bemposta] fallo publicando canal v2 {canal} en {topic}: {e}")
+      if not salio:
+        self._diferir(canal, payload)
 
   def _maybe_announce_enroll(self):
     """Anuncia el codigo de enrolamiento ORBIT (QR) por MQTT mientras el

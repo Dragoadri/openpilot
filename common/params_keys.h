@@ -293,6 +293,13 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"AppliedSteerTorque", {CLEAR_ON_MANAGER_START, STRING}},          // torque final aplicado (diagnóstico UI)
     {"SteerTorqueModeMqttPayload", {CLEAR_ON_MANAGER_START, STRING}},  // sync modo torque vía MQTT (JSON serializado: se escribe con json.dumps)
     {"JetsonConfigChanged", {CLEAR_ON_MANAGER_START, BOOL}},           // flag recarga config_jetson.json
+    // Los cuatro *MqttPayload de aqui son params-BUZON: la UI (o controlsd) escribe un JSON
+    // y mqtt_envio_general lo republica tal cual. Su mitad de ENTRADA ya murio: el topic
+    // telemetry_config/<dongle>/jetson_config no se escucha (aceptaba retenido, no pasaba
+    // por el CommandRouter y reescribia jetson_ip sin validar). La configuracion entra
+    // ahora por orbit/v2/cfg/desired/<dongle> y sale por cfg/reported (§8), y esta reserva
+    // el estado real leyendo los DESTINOS, no estos buzones. La publicacion legacy se
+    // mantiene mientras dure la migracion (§13, publicacion dual v1+v2).
     {"JetsonConfigMqttPayload", {CLEAR_ON_MANAGER_START, STRING}},     // sync config jetson vía MQTT (JSON serializado)
     // Modo 3 (COMMA+JETSON, esquive de obstáculos)
     {"JetsonObstaclePulse", {CLEAR_ON_MANAGER_START, STRING}},         // JSON crudo (serializado) del último pulso de la Jetson
@@ -402,4 +409,18 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"OrbitBenchExpiry", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, STRING}},     // caducidad del armado de banco: epoch ms como TEXTO (no INT: 1.7e12 no cabe en el std::stoi de 32 bits del lado C++), igual que OrbitEnrollExpiry
     {"OrbitDisarmAll", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},         // verbo disarm_all (§6): único sin modo ni gate. Redundante con cereal A PROPÓSITO: bajar autoridad no puede depender de que el publicador de cereal siga vivo
     {"OrbitGlobalRetainPurged", {PERSISTENT, STRING}},                                        // "host:puerto" del broker donde ya se borraron los retenidos rancios de */global (lo escribe mqtt_envio_general; PERSISTENT para no repetirlo en cada arranque, con el broker dentro para rehacerlo si cambia)
+    // Configuracion deseada vs reportada (contrato orbit/v2/cfg/*, §8 del diseno).
+    // Tres fuentes de verdad divergentes (Params aqui, tablas en el backend,
+    // SharedPreferences en el movil) se reconcilian con un sobre versionado:
+    // {version, ts_ms, source, values}. Gana la version mas alta y el EMPATE lo gana
+    // `comma_ui`, porque el coche es el unico lado que puede tener a alguien delante sin
+    // red. Las dos claves de abajo son PERSISTENT y NO son mando: no arman nada ni mueven
+    // ningun actuador (el vocabulario de config_v2.py excluye a proposito SteerTorqueMode
+    // y JetsonObstacleApplyTarget, que son SOLO REPORTE porque cambiarlos mueve el
+    // volante y eso es el verbo torque_mode). Guardan el CONTADOR, no la autoridad: sin
+    // ellas la version se reiniciaria en cada arranque y un `desired` retenido viejo del
+    // broker le ganaria al estado real del coche.
+    {"OrbitConfigDesired", {PERSISTENT, STRING}},                                             // ultimo sobre cfg/desired ACEPTADO (JSON serializado). Solo para que la version no retroceda tras un reinicio
+    {"OrbitConfigReported", {PERSISTENT, STRING}},                                            // ultimo sobre cfg/reported PUBLICADO (JSON serializado). Lo escribe mqtt_envio_general tras aplicar y publicar
+    {"OrbitTelemetryProfile", {PERSISTENT, STRING, "normal"}},                                // perfil de telemetria v2: "ahorro" | "normal" | "diagnostico" (§7). Lo lee mqtt_envio_general._maybe_reload_perfil, que hasta ahora se caia a normal porque la clave no estaba registrada. La degradacion por red de pago y la caducidad de 15 min del diagnostico NO dependen de este param: viven en el motor, que es quien tiene el reloj
 };

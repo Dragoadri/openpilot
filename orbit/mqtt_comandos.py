@@ -28,6 +28,7 @@ from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 import os
 
+from openpilot.orbit import config_v2 as cfg2
 from openpilot.orbit.command_router import CommandRouter
 from openpilot.orbit.command_spec import TOPIC_CAPS, TOPIC_CMD, ahora_epoch_ms, get_spec
 from openpilot.orbit.command_state import get_command_plane
@@ -496,7 +497,6 @@ class MQTTComandos:
         f"telemetry_config/{self.DongleID}/overtake",        # Adelantamiento automático (detecta BSM automáticamente)
         f"telemetry_config/{self.DongleID}/brutebreak",      # Frenado de emergencia brusco
         f"telemetry_config/{self.DongleID}/camera_config",   # Configuración de cámara desde app ORBIT
-        f"telemetry_config/{self.DongleID}/jetson_config",   # Configuracion de Jetson (por dongle_id)
         f"telemetry_config/{self.DongleID}/steer_torque_mode", # Modo de torque del volante (por dongle_id)
         f"telemetry_config/{self.DongleID}/enroll_ack",      # Ack de enrolamiento ORBIT (backend → firmware)
         f"telemetry_config/{self.DongleID}/healthcheck"      # Peticion de diagnostico remoto (backend/app → firmware)
@@ -504,7 +504,13 @@ class MQTTComandos:
 
       for topic in topics:
         client.subscribe(topic, qos=0)
-      cloudlog.warning(f"[Bemposta] MQTTComandos CONECTADO (rc={rc}), suscrito a comandos v2+v1 para dongle={self.DongleID}")
+
+      # --- configuracion deseada (seccion 8). qos 1 y RETENIDO A PROPOSITO: es estado,
+      # no una orden, y el coche tiene que recibirlo al conectar sin preguntarle a nadie.
+      # Sustituye a telemetry_config/<dongle>/jetson_config, que ya no se escucha (ver
+      # el docstring de on_message): ese topic reescribia jetson_ip sin validar nada.
+      client.subscribe(cfg2.TOPIC_CFG_DESIRED.format(self.DongleID), qos=1)
+      cloudlog.warning(f"[Bemposta] MQTTComandos CONECTADO (rc={rc}), suscrito a comandos v2+v1 y a cfg/desired para dongle={self.DongleID}")
 
       # Descriptor de capacidades: forzado en cada conexion porque el retenido vive en EL
       # BROKER, y este puede ser otro (cambio de IP desde Ajustes) o haberlo perdido.
@@ -596,12 +602,16 @@ class MQTTComandos:
     except Exception:
       pass  # Silenciar errores para no afectar el flujo principal
 
-  # Topics de ESTADO idempotente cuyo publicador manda retained A PROPOSITO para
-  # el cold-start (la app publica jetson_config con retain:true; el backend publica
-  # enroll_ack con retain=True y tiene un test que lo fija). NINGUNO de estos dos
-  # actua sobre el coche y los dos llevan anti-eco.
-  # Todo lo demas son MANDOS y no puede venir retenido.
-  RETAIN_PERMITIDO = ("/jetson_config", "/enroll_ack")
+  # Topic de ESTADO idempotente cuyo publicador manda retained A PROPOSITO para el
+  # cold-start: el backend publica enroll_ack con retain=True y tiene un test que lo fija.
+  # No actua sobre el coche y lleva anti-eco. Todo lo demas del namespace v1 son MANDOS y
+  # no puede venir retenido.
+  #
+  # `/jetson_config` SALIO de aqui y ademas dejo de estar suscrito (ver on_connect y el
+  # docstring de on_message): aceptaba retenido, no pasaba por el router y reescribia
+  # jetson_ip, que decide de que maquina vienen los offsets de direccion del modo 3. Lo
+  # sustituye el sobre `orbit/v2/cfg/desired/<dongle>` (seccion 8).
+  RETAIN_PERMITIDO = ("/enroll_ack",)
 
   # steer_torque_mode SI actua sobre el coche y por eso salio de la lista de
   # arriba: su ejecutor escribe SteerTorqueMode, y controlsd pone
@@ -626,23 +636,26 @@ class MQTTComandos:
         (verbo, args) y fabrica un SOBRE v2 con router.submit_local(). A partir de ahi es
         indistinguible de un mando v2: mismos gates, mismo modo, mismo TTL, mismo ACK.
 
-    Los CUATRO topics v1 que NO son verbos y por tanto no pasan por el router, con lo que
+    Y un tercer camino que no es mando: `orbit/v2/cfg/desired/<dongle>` (seccion 8) va al
+    buzon de configuracion (config_v2.get_bus()), que es RAM pura. Quien lo APLICA es el
+    hilo del loop de mqtt_envio_general, porque aplicar toca Params, un JSON con flock y el
+    CameraSender, y nada de eso puede pasar en el hilo de red.
+
+    EL TOPIC QUE MURIO. `telemetry_config/<dongle>/jetson_config` ya no se escucha: no esta
+    en la lista de suscripcion de on_connect ni en RETAIN_PERMITIDO, y su handler dejo de
+    existir. Aceptaba retenido, no pasaba por el router y reescribia orbit/config_jetson.json
+    campo a campo sin validar ninguno, jetson_ip incluido -- que es DE QUE MAQUINA viene
+    JetsonObstaclePulse, es decir de que maquina vienen los offsets de direccion del modo 3
+    (COMMA+JETSON), el modo de producto, que NO exige armado de banco cuando se elige en la
+    pantalla del comma. Sus anti-eco (source=="comma_ui", _version) los ponia el propio
+    emisor, asi que no eran una barrera. Ahora la IP solo entra por el sobre de
+    configuracion, donde se valida el RANGO (privada/loopback/link-local) y la version no
+    retrocede. Esto NO autentica a nadie -- D1 deja el broker abierto y sin TLS -- pero
+    acota a un vocabulario cerrado lo que se puede escribir.
+
+    Los TRES topics v1 que NO son verbos y por tanto no pasan por el router, con lo que
     hace cada uno (revisado uno a uno; ninguno mueve un actuador):
 
-      /jetson_config    reescribe orbit/config_jetson.json (IP, puertos, calidad JPEG) y
-                        levanta un flag para que el CameraSender recargue.
-                        AVISO, y no es un detalle: esto decide DE QUE MAQUINA viene
-                        JetsonObstaclePulse. En modo 3 (COMMA+JETSON) —que es el modo de
-                        producto del proyecto y que NO exige armado de banco cuando se
-                        selecciona en la pantalla del comma— quien reescriba este topic
-                        apunta el enlace a su propia Jetson y esta inyectando offsets de
-                        direccion. No pasa por el router: sin sesion, sin gates y sin ACK.
-                        Los anti-eco (source=="comma_ui", _version) los controla quien
-                        publica, asi que no son una barrera.
-                        Se mantiene abierto porque D1 acepta el broker sin autenticar y la
-                        seccion 9 conserva el selector local. La salida es F4: jetson_ip
-                        pasa a configuracion firmada por el backend
-                        (orbit/v2/cfg/desired/<dongle>), no a un topic anonimo.
       /camera_config    enciende/apaga el envio de imagenes y su frecuencia. Es privacidad
                         y ancho de banda, no conduccion. El interruptor local de la
                         pantalla lo sigue mandando (seccion 9, innegociable).
@@ -659,6 +672,18 @@ class MQTTComandos:
       # Guardar mensaje para modo debug (tambien los que se descartan abajo, para
       # que el panel muestre que el mensaje llego y no parezca perdido)
       self.save_debug_message(topic, payload)
+
+      # --- v2 cfg: configuracion deseada (seccion 8). Aqui el RETENIDO ES LO NORMAL --es
+      # estado, no una orden-- asi que va ANTES del filtro de retenidos del namespace v1.
+      # Este hilo solo parsea y deja el sobre en el buzon: aplicar toca Params, un JSON con
+      # flock y el CameraSender, y eso es del hilo del loop.
+      if isinstance(topic, str) and topic.startswith(cfg2.TOPIC_CFG_DESIRED.format("")):
+        if not payload:
+          # Payload vacio = borrado del retenido, no "configuracion sin claves".
+          cloudlog.warning(f"[Bemposta] cfg/desired vacio en {topic} (borrado de retenido), ignorado")
+          return
+        cfg2.get_bus().recibir(payload)
+        return
 
       # --- v2: el router hace sus propios filtros (retain, payload vacio, dongle ajeno).
       if isinstance(topic, str) and topic.startswith(TOPIC_CMD.format("")):
@@ -687,7 +712,10 @@ class MQTTComandos:
 
       # --- topics v1 de CONFIGURACION (no son verbos: ver el docstring).
       if topic.endswith("/jetson_config"):
-        self.handle_jetson_config(payload)
+        # Ni suscrito ni atendido. Aqui solo puede llegar por una suscripcion con comodin
+        # que hoy no existe; el rechazo explicito esta para que, si alguien la anade, el
+        # agujero no vuelva solo y quede en el log.
+        cloudlog.warning(f"[Bemposta] {topic} IGNORADO: la config de la Jetson va por orbit/v2/cfg/desired (§8)")
         return
       if topic.endswith("/camera_config"):
         self.handle_camera_config(payload)
@@ -978,151 +1006,6 @@ class MQTTComandos:
     except (ValueError, Exception):
       pass  # Error silenciado para no afectar al flujo principal
 
-
-  def handle_jetson_config(self, payload):
-    """Maneja la configuracion de Jetson recibida desde la app ORBIT.
-
-    Actualiza config_jetson.json y reinicia el ZMQ client si es necesario.
-
-    Topic: telemetry_config/{dongle_id}/jetson_config
-
-    Payload esperado (campos opcionales):
-    {
-      "jetson_enabled": true|false,
-      "jetson_ip": "192.168.1.50",
-      "jetson_img_port": 5555,
-      "jetson_torque_port": 5556,
-      "jpeg_quality": 80,
-      "_version": "1712345678901"   # opcional, ms desde epoch
-    }
-
-    Anti-eco en capas:
-      1) source == "comma_ui"                  -> ignorar (retained propio).
-      2) _version_entrante <= _version_local   -> ignorar (retained viejo).
-      3) Sin cambios de campo                  -> no escribir a disco.
-
-    Concurrencia:
-      La lectura + escritura se protege con fcntl.flock para que un lector
-      en otro proceso (UI Qt via QSaveFile, camera_sender.py) no observe un
-      archivo a medio escribir ni haya doble escritura concurrente.
-    """
-    try:
-      import fcntl
-      import json as json_mod
-      data = json_mod.loads(payload)
-      print(f"[JETSON SYNC] handle_jetson_config data: {data}")
-
-      # Defensa en profundidad. El docstring promete "por dongle_id" y el codigo
-      # nunca lo comprobo: con el topic jetson_config/global retirado esta es la
-      # segunda barrera, para que un payload dirigido a OTRO comma no reconfigure
-      # la Jetson (IP, puertos) de este si alguien reintroduce un topic comun.
-      dongle_msg = data.get("dongle_id")
-      if dongle_msg and dongle_msg != self.DongleID:
-        cloudlog.warning(f"[Bemposta] jetson_config descartado: dongle_id ajeno {dongle_msg!r} != {self.DongleID!r}")
-        print(f"[JETSON SYNC] Descartado: dongle_id ajeno ({dongle_msg} != {self.DongleID})")
-        return
-
-      # Anti-eco 1: el propio Comma publica retained al conectar a MQTT con
-      # source="comma_ui". Si recibimos nuestro propio retained, ignorar.
-      if data.get("source") == "comma_ui":
-        print("[JETSON SYNC] Ignorado eco de comma_ui (propio retained)")
-        return
-
-      # Parsear _version entrante (si existe)
-      incoming_version = None
-      if "_version" in data:
-        try:
-          incoming_version = int(data["_version"])
-        except (ValueError, TypeError):
-          incoming_version = None
-
-      # Lectura + escritura protegidas con filelock exclusivo.
-      config_path = os.path.join(self.base_path, "config_jetson.json")
-      lock_path = config_path + ".lock"
-
-      # Abrir (o crear) el archivo de lock y adquirir lock exclusivo. Esto
-      # bloquea a OTROS PROCESOS Python (mqtt_envio si concurriera) durante
-      # la seccion critica. Nota: QSaveFile desde C++ usa tempfile+rename
-      # que es atomico en el filesystem, asi que la UI no sufre lock pero
-      # si lee durante nuestra escritura vera el contenido anterior completo.
-      lock_fd = open(lock_path, 'w')
-      try:
-        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
-
-        # Leer config actual (dentro del lock)
-        current_config = {}
-        if os.path.exists(config_path):
-          try:
-            with open(config_path) as f:
-              current_config = json_mod.load(f)
-          except Exception:
-            current_config = {}
-
-        print(f"[JETSON SYNC] Config actual: {current_config}")
-
-        # Anti-eco 2: comparar versiones. Si entrante <= local, descartar.
-        local_version = 0
-        if "_version" in current_config:
-          try:
-            local_version = int(current_config["_version"])
-          except (ValueError, TypeError):
-            local_version = 0
-
-        if incoming_version is not None and incoming_version <= local_version:
-          print(f"[JETSON SYNC] Ignorado: _version entrante {incoming_version} <= local {local_version} (retained viejo o eco)")
-          return
-
-        # Actualizar solo los campos recibidos
-        changed = False
-        for key in ["jetson_enabled", "jetson_ip", "comma_ip", "jetson_img_port", "jetson_torque_port", "jpeg_quality"]:
-          if key in data:
-            old_val = current_config.get(key)
-            current_config[key] = data[key]
-            if old_val != data[key]:
-              changed = True
-              print(f"[JETSON SYNC] Campo {key}: {old_val} -> {data[key]}")
-
-        if not changed:
-          print("[JETSON SYNC] Sin cambios de campo")
-          return
-
-        # Persistir _version: si el payload traia una, la conservamos; si no,
-        # generamos una local (ms desde epoch) para marcar esta escritura.
-        if incoming_version is not None:
-          current_config["_version"] = str(incoming_version)
-        else:
-          # epoch ms REAL: es la version que compara la app, no un plazo interno.
-          current_config["_version"] = str(ahora_epoch_ms())
-
-        # Escritura atomica: escribimos a .tmp y renombramos. Esto evita que
-        # un lector vea el archivo a medio escribir.
-        tmp_path = config_path + ".tmp"
-        with open(tmp_path, 'w') as f:
-          json_mod.dump(current_config, f, indent=4)
-          f.flush()
-          os.fsync(f.fileno())
-        os.replace(tmp_path, config_path)
-        print(f"[JETSON SYNC] config_jetson.json actualizado: {current_config}")
-
-        # Señalizar al CameraSender que debe recargar la config.
-        # NO llamamos reload_jetson_config() directamente desde este hilo
-        # (thread de paho-mqtt). El CameraSender corre en su propio hilo y
-        # estaria usando self.zmq_client.send_image en paralelo; un reload
-        # desde fuera causaba race condition con el socket siendo cerrado
-        # a la vez que otro hilo lo usa. En su lugar ponemos un flag y
-        # dejamos que el propio loop del CameraSender se recargue en su
-        # siguiente iteracion (mismo mecanismo que usa la UI Qt del Comma).
-        self.params.put_bool("JetsonConfigChanged", True)
-        print("[JETSON SYNC] flag JetsonConfigChanged=True (el CameraSender recargara en su loop)")
-      finally:
-        try:
-          fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-        except Exception:
-          pass
-        lock_fd.close()
-
-    except Exception as e:
-      print(f"[JETSON SYNC] ERROR handle_jetson_config: {e}")
 
   def _v1_steer_torque_mode(self, payload, retenido=False):
     """/steer_torque_mode -> verbo torque_mode (o disarm_all si vuelve al modo 0).

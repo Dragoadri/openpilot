@@ -146,6 +146,8 @@ Códigos: `OK`, `TYPE`, `RANGE`, `MODE`, `GATE_<nombre>`, `DUPLICATE`, `EXPIRED`
 
 **Ningún control de la app muestra éxito antes de `applied`.** El estado intermedio se dice con palabras: «enviado, sin confirmación».
 
+**Y `applied` lo cierra el consumidor, no el router.** Los handlers solo escriben un Param; quien acepta o rechaza un cambio de carril es `desire_helper`, que puede negarlo por nueve motivos propios. Emitir `applied` en cuanto el handler retorna es anunciar «hecho» cuando lo único cierto es que hay un flag en disco. Los verbos marcados `cierra_consumidor` en el catálogo se quedan en `executing` hasta que el consumidor publica su veredicto en el param `OrbitCmdResult` (`{v, verb, id, phase, reason, detail, ts_ms, mono_ms}`), que el router lee y consume. Si nadie contesta dentro del TTL más un margen, se cierra con `FAILED / NO_RESULT` — nunca con `applied`.
+
 ### 3.4 Semántica de entrega
 
 QoS 1 es *at-least-once*: **el broker reentrega**. Un `lane_change` duplicado son dos cambios de carril. Por tanto:
@@ -204,6 +206,17 @@ Subir de modo exige además **gesto explícito del usuario** en la app (§10.2: 
 
 `OrbitCommandMode` se registra como `CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION`. **Jamás `PERSISTENT`**: el precedente de `SteerTorqueMode` persistente es exactamente por qué `manager.py:92-99` tuvo que añadir un fail-safe de arranque.
 
+**El banco no está en la escala de modos.** Como `set_mode` no lo ofrece, compararlo numéricamente contra el modo vigente dejaba los verbos físicos inalcanzables *incluso con el banco armado en la pantalla del coche* — caían en la comprobación de modo antes de llegar a la del armado, mientras el diálogo prometía lo contrario. `_comprobar_modo` trata los verbos de banco aparte: **quien concede banco es el armado físico**, y es lo único que se comprueba para ellos.
+
+**Dos autorizaciones distintas, y mezclarlas fue un fallo con consecuencias:**
+
+| Param | Qué autoriza |
+|---|---|
+| `OrbitBenchArmed` | los verbos **físicos por MQTT** (`torque_mode`, `steering_pulse`, `physical_control`) |
+| `OrbitSteerModeLocal` | que alguien haya elegido el modo de volante **en la pantalla del coche**, estando delante. No habilita nada remoto |
+
+Una versión intermedia armaba el **banco** para devolverle la función al selector local, y renovaba ese armado indefinidamente mientras el modo siguiera elegido. La consecuencia: con el conductor en modo Jetson, cualquiera que conociera el `dongle_id` podía mandar `torque_mode {mode: 2}` y poner el volante al tope. El «motivo en RAM» que lo justificaba no protegía de nada, porque gobernaba el acto de armar y no el gate del router, que solo mira el param.
+
 ### 4.2 El evaluador de gates
 
 `orbit/command_gates.py` — `GateMonitor` con `SubMaster(['carState','selfdriveState','carControl','carParams','deviceState'])` a 10 Hz **en el proceso manager**, inyectado por referencia (el patrón ya existe en `_link_camera_to_comandos`). **Cero lecturas de Params en el camino de decisión.**
@@ -254,7 +267,7 @@ Leyenda de modo mínimo: **O**bservador · **C**opiloto · **M**aniobra · **B**
 | `location_now` | C | — | 10 s | — | nuevo (GPS continuo apagado por defecto) |
 | `healthcheck` | C | — | 30 s | — | existe en firmware, **sin publicador** |
 | `cruise_delta` | C | ENGAGED, LONG_ACTIVE | 2 s | ±5 km/h por orden, ±20 km/h por minuto | unifica los **cuatro** caminos actuales |
-| `cruise_button` | C | ENGAGED | 2 s | `cancel` \| `resume` \| `set` | nuevo; `cancel` es el botón de pánico |
+| `cruise_button` | C | ENGAGED | 2 s | **solo `cancel`** | nuevo; es el botón de pánico |
 | `follow_distance` | C | ENGAGED | 5 s | personality 0-2 | nuevo |
 | `mads` / `experimental` / `dec` / `nnlc` | C | — | 10 s | bool | nuevo (hoy solo en la pantalla del comma) |
 | `openpilot_enable` | C | standstill | 10 s | bool | nuevo, kill switch del dueño |
@@ -277,7 +290,23 @@ Leyenda de modo mínimo: **O**bservador · **C**opiloto · **M**aniobra · **B**
 
 ## 7. Telemetría v1
 
-Hoy se publica el `to_dict()` **completo** de 8 mensajes cereal a 1 Hz porque `keys_importantes` está vacío en los 8 canales: el mecanismo de filtrado existe y **nunca se usa**. Eso es del orden de decenas de KB/s sobre LTE.
+Hoy se publica el `to_dict()` **completo** de 8 mensajes cereal a 1 Hz porque `keys_importantes` está vacío en los 8 canales: el mecanismo de filtrado existe y **nunca se usa**.
+
+**Línea base (2026-08-24).** Estimación derivada del esquema por el mismo camino de serialización que usa el firmware — no es una medida de tráfico real, no hay logs en la máquina de desarrollo:
+
+| canal | bytes/ciclo |
+|---|---|
+| `controlsState` | 1 531 |
+| `carState` | 1 454 |
+| `gpsLocationExternal` | 316 |
+| `gpsLocation` | 316 |
+| `carControl` | 315 |
+| `liveCalibration` | 303 |
+| `radarState` | 188 |
+| `drivingModelData` | 127 |
+| **total** | **4 550 → 16,38 MB/h a 1 Hz** |
+
+Más **1,74 MB/h** del heartbeat, que republica `carState` **entero** cada 3 s solo para decir que sigue vivo. Es **cota inferior**: muchos campos van con valor por defecto y los reales ocupan más. Dos canales se llevan dos tercios del gasto, y son justo los dos que la lista blanca ataca.
 
 **Antes de rediseñar hay que medir.** Primer entregable de F3: consumo real por dispositivo y hora, medido, no estimado.
 

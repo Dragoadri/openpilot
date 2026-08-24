@@ -1,61 +1,149 @@
 {
+    "_doc": [
+        "Canales LEGACY v1 (telemetry_mqtt/<dongle>/<canal>). Mueren al cerrar la migracion",
+        "dual de la seccion 13 del diseno de mando remoto v2; el contrato nuevo vive en",
+        "orbit/telemetria_v1.py y publica en orbit/v2/tel/<dongle>/<canal>.",
+        "keys_importantes ES la lista blanca de MQTTEnvioGeneral.enviar_datos_importantes():",
+        "vacia = se publica el to_dict() ENTERO. Los 8 canales la tenian vacia, asi que el",
+        "mecanismo de filtrado existia desde el primer dia y no se habia usado nunca: 4550 B",
+        "por ciclo a 1 Hz = 16,4 MB/h, grupos 'deprecated' y arrays del modelo incluidos.",
+        "",
+        "EL FILTRO ES DE PRIMER NIVEL: enviar_datos_importantes hace {k: datos[k] for k in",
+        "claves}, asi que una clave anidada NO se puede listar aqui; o entra el grupo entero o",
+        "no entra nada de el. Lo que se lista abajo son las claves de primer nivel que leen hoy",
+        "el backend (TOPIC_FIELD_MAPPING + guardar_parcial de backend/server/database.py, que",
+        "tampoco baja de primer nivel salvo en actuators/hudControl/cruiseState/leadOne/leadTwo/",
+        "laneLineMeta/rpyCalib) y la app (models/sunny_data.dart y models/cabin_state.dart),",
+        "quitando las que no existen en el capnp de este build.",
+        "",
+        "LO QUE SE DESCARTA A SABIENDAS, y por que -- comprobado, no supuesto:",
+        " - el grupo 'deprecated' de controlsState, radarState y liveCalibration. La app lo lee",
+        "   (cabin_state.dart _legadoControlsState mira controlsState['deprecated']['alertText1',",
+        "   'alertType','enabled','active']), pero en este build NADIE lo ESCRIBE: el unico",
+        "   publicador vivo de controlsState es selfdrive/controls/controlsd.py, que solo pone",
+        "   curvature, desiredCurvature, longControlState, forceDecel, los *AccelCmd, los",
+        "   monotimes y lateralControlState. Los campos del grupo viajarian con el valor por",
+        "   defecto del capnp SIEMPRE. Medido sobre un mensaje vacio: anadir 'deprecated' a",
+        "   controlsState son +956 B por ciclo (124 -> 1080) para que el banner de alerta siga",
+        "   sin encenderse. La alerta viva esta en selfdriveState (selfdrived.py la escribe",
+        "   ahi), que NO es ninguno de estos 8 canales: llega a la app por el canal v2",
+        "   'openpilot' (alert_text1 / alert_status), no por v1.",
+        " - los *DEPRECATED sueltos (carState.gasDEPRECATED, carControl.brakeDEPRECATED, ...).",
+        " - lo que ningun consumidor nombra: monotimes, contadores de frame, lateralControlState.",
+        "",
+        "Anadir una clave aqui es barato; quitarla rompe al consumidor v1 EN SILENCIO, porque",
+        "el campo simplemente deja de aparecer y el otro lado lo lee como null."
+    ],
     "canales": [
         {
             "topic": "telemetry_mqtt/{0}/carControl",
             "canal": "carControl",
             "enable": 1,
-            "descripcion": "Control del veh\u00edculo",
-            "keys_importantes": []
+            "descripcion": "Control del vehículo",
+            "keys_importantes": [
+                "actuators",
+                "hudControl",
+                "enabled",
+                "latActive",
+                "longActive"
+            ]
         },
         {
             "topic": "telemetry_mqtt/{0}/carState",
             "canal": "carState",
             "enable": 1,
-            "descripcion": "Estado del veh\u00edculo",
-           "keys_importantes": []
-
+            "descripcion": "Estado del vehículo",
+            "keys_importantes": [
+                "vEgo",
+                "vEgoCluster",
+                "aEgo",
+                "cruiseState",
+                "gearShifter",
+                "standstill",
+                "doorOpen",
+                "seatbeltUnlatched",
+                "leftBlinker",
+                "rightBlinker",
+                "leftBlindspot",
+                "rightBlindspot",
+                "gasPressed",
+                "brakePressed",
+                "steeringAngleDeg",
+                "steeringRateDeg",
+                "steeringPressed",
+                "steeringTorque",
+                "steeringTorqueEps",
+                "canValid"
+            ]
         },
         {
             "topic": "telemetry_mqtt/{0}/gpsLocationExternal",
             "canal": "gpsLocationExternal",
             "enable": 1,
-            "descripcion": "Ubicaci\u00f3n GPS externa",
-            "keys_importantes": []
+            "descripcion": "Ubicación GPS externa",
+            "keys_importantes": [
+                "latitude",
+                "longitude",
+                "altitude"
+            ]
         },
         {
             "topic": "telemetry_mqtt/{0}/radarState",
             "canal": "radarState",
             "enable": 1,
             "descripcion": "Estado del radar",
-            "keys_importantes": []
+            "keys_importantes": [
+                "leadOne",
+                "leadTwo"
+            ]
         },
         {
             "topic": "telemetry_mqtt/{0}/drivingModelData",
             "canal": "drivingModelData",
             "enable": 1,
-            "descripcion": "Datos del modelo de conducci\u00f3n",
-            "keys_importantes": []
+            "descripcion": "Datos del modelo de conducción",
+            "keys_importantes": [
+                "laneLineMeta"
+            ]
         },
         {
             "topic": "telemetry_mqtt/{0}/controlsState",
             "canal": "controlsState",
             "enable": 1,
             "descripcion": "Estado de controles",
-            "keys_importantes": []
+            "keys_importantes": [
+                "longControlState",
+                "curvature",
+                "desiredCurvature",
+                "forceDecel"
+            ]
         },
         {
             "topic": "telemetry_mqtt/{0}/liveCalibration",
             "canal": "liveCalibration",
             "enable": 1,
             "descripcion": "Calibración en vivo",
-            "keys_importantes": []
+            "keys_importantes": [
+                "calStatus",
+                "calPerc",
+                "rpyCalib"
+            ]
         },
         {
             "topic": "telemetry_mqtt/{0}/gpsLocation",
             "canal": "gpsLocation",
             "enable": 1,
             "descripcion": "Ubicación GPS",
-            "keys_importantes": []
+            "keys_importantes": [
+                "latitude",
+                "longitude",
+                "altitude",
+                "speed",
+                "bearingDeg",
+                "horizontalAccuracy",
+                "unixTimestampMillis",
+                "source"
+            ]
         }
     ]
 }
