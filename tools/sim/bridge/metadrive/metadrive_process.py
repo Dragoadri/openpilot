@@ -105,7 +105,16 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
 
   rk = Ratekeeper(100, None)
 
-  steer_ratio = 8
+  # Desmultiplicacion UNICA para las dos conversiones de este lazo. Antes la
+  # orden dividia por 8 y la realimentacion no dividia por nada, asi que:
+  #   - el coche giraba 15.38/8 ~ 1.9x mas de lo pedido (el control lateral
+  #     convierte curvatura -> angulo de VOLANTE con CP.steerRatio=15.38), y
+  #   - openpilot se leia a si mismo girando 8x menos de lo ordenado, con lo
+  #     que pedia todavia mas.
+  # Las dos cosas empujan en el mismo sentido: sobreoscilacion y salida de
+  # carril en la primera curva. 15.38 es el steerRatio del HONDA_CIVIC_2022
+  # que fuerza launch_openpilot.sh (opendbc honda/values.py).
+  steer_ratio = 15.38
   vc = [0,0]
 
   while not exit_event.is_set():
@@ -113,7 +122,7 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
       velocity=vec3(x=float(env.vehicle.velocity[0]), y=float(env.vehicle.velocity[1]), z=0),
       position=env.vehicle.position,
       bearing=float(math.degrees(env.vehicle.heading_theta)),
-      steering_angle=env.vehicle.steering * env.vehicle.MAX_STEERING
+      steering_angle=env.vehicle.steering * env.vehicle.MAX_STEERING * steer_ratio
     )
     vehicle_state_send.send(vehicle_state)
 

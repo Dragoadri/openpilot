@@ -19,8 +19,14 @@ Es de SOLO LECTURA y nunca debe lanzar excepciones hacia manager.
 import glob
 import os
 
-# orbit/ está un nivel por debajo de la raíz del repo
-_BASEDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# orbit/ está un nivel por debajo de la raíz del repo.
+# realpath y NO abspath: en PC el paquete se importa por la granja de symlinks
+# de `openpilot/` (openpilot/orbit -> ../orbit), asi que abspath dejaba el
+# BASEDIR en `<repo>/openpilot`, donde no hay ningun submodulo, y el chequeo
+# denunciaba los seis como ausentes en cada arranque del simulador. Es el mismo
+# criterio que common/basedir.py. En el dispositivo no hay symlinks y realpath
+# es un no-op.
+_BASEDIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
 # Fichero centinela por submódulo: si existe, el submódulo está inicializado.
 _SUBMODULE_SENTINELS = {
