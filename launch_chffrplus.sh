@@ -16,7 +16,9 @@ function agnos_init {
   # udev does this, but sometimes we startup faster
   sudo chgrp gpu /dev/adsprpc-smd /dev/ion /dev/kgsl-3d0
   sudo chmod 660 /dev/adsprpc-smd /dev/ion /dev/kgsl-3d0
+}
 
+function agnos_update {
   # Check if AGNOS update is required
   if [ $(< /VERSION) != "$AGNOS_VERSION" ]; then
     AGNOS_PY="$DIR/system/hardware/tici/agnos.py"
@@ -75,17 +77,21 @@ function launch {
     agnos_init
   fi
 
-  # [ORBIT] Auto-reparacion de la instalacion ANTES de compilar.
+  # [ORBIT] Auto-reparacion de la instalacion (orbit/install_repair.py).
   #
-  # Si el clon quedo sin objetos git-lfs (el instalador del comma no garantiza
-  # el `git lfs pull`, y .lfsconfig apunta a un GitLab de terceros), faltan las
-  # FUENTES y los ICONOS de la UI y la pantalla se queda en el logo para
-  # siempre: sin menu, sin ajustes y sin ningun sitio donde ver el aviso. Aqui
-  # se detecta y se intenta arreglar solo, con logs por stdout. Va DESPUES de
-  # agnos_init para no retrasar el `abctl --set_success` que marca la particion
-  # como buena, y nunca puede fallar hacia arriba.
-  if [ -x "$DIR/orbit/install_repair.sh" ]; then
-    "$DIR/orbit/install_repair.sh" || true
+  # Si el arbol tiene punteros git-lfs sin descargar o submodulos vacios, lo
+  # arregla aqui, informando por el spinner y con todo lo de red acotado por
+  # timeout. En un arbol sano no ejecuta nada. Va DESPUES de agnos_init (que
+  # marca la particion como buena con `abctl --set_success`) y ANTES de
+  # agnos_update, porque el binario `updater` que esa comprobacion ejecuta es
+  # el mismo un fichero LFS. Nunca puede fallar hacia arriba; el `timeout`
+  # externo es la ultima red de seguridad si el script se quedase colgado.
+  if [ -f "$DIR/orbit/install_repair.py" ]; then
+    timeout -k 15 1800 python3 "$DIR/orbit/install_repair.py" || true
+  fi
+
+  if [ -f /AGNOS ]; then
+    agnos_update
   fi
 
   # write tmux scrollback to a file

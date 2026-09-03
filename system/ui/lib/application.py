@@ -485,6 +485,14 @@ class GuiApplication(GuiApplicationExt):
     """Load and resize an image, storing it for later automatic unloading."""
     image = rl.load_image(image_path)
 
+    # raylib returns a 0x0 image when the file is missing or undecodable (corrupt PNG, an
+    # undownloaded git-lfs pointer, a renamed asset). Drawing the resulting empty texture is a
+    # harmless no-op; scaling by its dimensions is a ZeroDivisionError that takes the whole
+    # process down (spinner at boot, UI in a restart loop). Degrade like raylib does with fonts.
+    if image.width <= 0 or image.height <= 0:
+      cloudlog.error(f"failed to load image {image_path}")
+      return image
+
     if alpha_premultiply:
       rl.image_alpha_premultiply(image)
 

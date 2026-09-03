@@ -18,13 +18,14 @@ LFS sin descargar**.
 
 ### Opción A — instalador (recomendada)
 
-Usa el instalador de software custom del dispositivo con la URL del repo:
+Usa el instalador de software custom del dispositivo (URL de instalador de
+fork, p. ej. `installer.comma.ai/Dragoadri/orbit-master`, que clona
+`https://github.com/Dragoadri/openpilot.git` rama `orbit-master`).
 
-```
-https://github.com/Dragoadri/ORBITPILOT
-```
-
-El instalador clona con submódulos. Tras instalar, verifica LFS (ver abajo).
+El instalador clona con submódulos y, como AGNOS trae git-lfs configurado para
+el usuario `comma`, descarga también los objetos LFS desde el GitLab de
+sunnypilot que indica `.lfsconfig` (si alguna descarga LFS fallase, el propio
+clon fallaría y el instalador no llegaría a "Finishing install").
 
 ### Opción B — manual por SSH
 
@@ -49,11 +50,26 @@ En el primer arranque el dispositivo **compila todo con scons** (puede tardar
 entre 20 y 60 minutos; la pantalla muestra progreso). No apagues el coche ni
 el dispositivo durante el build.
 
-Desde este build, al arrancar manager se ejecuta un **chequeo automático de
-instalación** (`orbit/install_check.py`). Si detecta submódulos vacíos o
-modelos LFS sin descargar, muestra la alerta offroad
-**"ORBIT: la instalación está incompleta"** con el problema exacto y el comando
-para arreglarlo — en vez de caer en dashcam sin explicación.
+Antes de compilar, `launch_chffrplus.sh` ejecuta la **auto-reparación de la
+instalación** (`orbit/install_repair.py`): si el árbol tiene punteros LFS sin
+descargar o submódulos vacíos, hace `git lfs pull` (excluyendo los modelos
+`big_*` de USB-GPU, que el comma no usa) y `git submodule update`, mostrando el
+progreso en el spinner y con todo lo de red acotado por timeout. En un árbol
+sano no ejecuta nada. Su registro queda en `/tmp/orbit_install_repair.log` y en
+la salida de tmux (`/tmp/launch_log`).
+
+Después, al arrancar manager, el **chequeo de instalación**
+(`orbit/install_check.py`) muestra la alerta offroad **"ORBIT: la instalación
+está incompleta"** si algo sigue roto, con el problema exacto y el comando para
+arreglarlo — en vez de caer en dashcam sin explicación.
+
+Si la pantalla se queda en el logo de arranque, por SSH (`ssh comma@<ip>`):
+
+```bash
+cat /tmp/orbit_install_repair.log      # que hizo la auto-reparacion (si hubo algo que reparar)
+cat /tmp/launch_log                    # salida del arranque hasta el build
+tmux a                                 # sesion viva del arranque (Ctrl-b d para salir)
+```
 
 ## Verificación post-instalación
 

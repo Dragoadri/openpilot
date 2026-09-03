@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Chequeo de instalación ORBIT al arrancar manager.
 
 Detecta los dos despliegues rotos más comunes en el comma 3X, que antes se
@@ -16,8 +15,10 @@ manifestaban como dashcam mode o procesos caídos SIN ningún aviso claro:
 manager_init los muestra como alerta offroad Offroad_OrbitInstallIncomplete.
 Es de SOLO LECTURA y nunca debe lanzar excepciones hacia manager.
 """
+import fnmatch
 import glob
 import os
+from typing import NamedTuple
 
 # orbit/ está un nivel por debajo de la raíz del repo.
 # realpath y NO abspath: en PC el paquete se importa por la granja de symlinks
@@ -49,8 +50,8 @@ _LFS_POINTER_MAX_SIZE = 1024
 # bytes. Y sin fuentes la UI NO ARRANCA: el coche se queda en el logo, sin menu
 # y sin ajustes -- es decir, sin ningun sitio donde mostrar la alerta offroad
 # que genera este mismo chequeo. Por eso los assets de UI cuentan como problema
-# de instalacion igual que los modelos, y por eso install_repair.sh puede
-# ejecutar este fichero desde el arranque, antes de que exista UI alguna.
+# de instalacion igual que los modelos, y por eso install_repair.py lo usa
+# desde el arranque, antes de que exista UI alguna.
 _LFS_GLOBS = (
   # Modelos: sin ellos modeld no arranca ("openpilot unavailable").
   "selfdrive/modeld/models/*.onnx",
@@ -68,6 +69,14 @@ _LFS_GLOBS = (
   "system/hardware/tici/updater",
 )
 
+# Ficheros LFS que el comma NO usa y que por tanto ni se descargan ni cuentan
+# como instalacion incompleta: los modelos big_* son solo para la GPU USB del
+# banco (USBGPU) y suman 310 MB de los 437 MB totales de LFS. install_repair
+# los excluye del `git lfs pull` con el mismo patron.
+LFS_IGNORE_GLOBS = (
+  "selfdrive/modeld/models/big_*",
+)
+
 
 def _is_lfs_pointer(path: str) -> bool:
   try:
@@ -79,37 +88,56 @@ def _is_lfs_pointer(path: str) -> bool:
     return False
 
 
-def run_install_check() -> list[str]:
+class InstallStatus(NamedTuple):
+  missing_submodules: list[str]  # nombres de submodulo sin inicializar
+  lfs_pointers: list[str]        # rutas relativas que siguen siendo punteros git-lfs
+
+  def ok(self) -> bool:
+    return not self.missing_submodules and not self.lfs_pointers
+
+
+def _ignored(rel: str) -> bool:
+  return any(fnmatch.fnmatch(rel, pat) for pat in LFS_IGNORE_GLOBS)
+
+
+def inspect_install(basedir: str | None = None) -> InstallStatus:
+  """Estado estructurado de la instalación; install_repair decide con él QUÉ reparar."""
+  basedir = basedir or _BASEDIR
+
+  missing = [name for sentinel, name in _SUBMODULE_SENTINELS.items()
+             if not os.path.exists(os.path.join(basedir, sentinel))]
+
+  pointers: set[str] = set()
+  for pattern in _LFS_GLOBS:
+    for path in glob.glob(os.path.join(basedir, pattern), recursive=True):
+      rel = os.path.relpath(path, basedir)
+      if not _ignored(rel) and _is_lfs_pointer(path):
+        pointers.add(rel)
+
+  return InstallStatus(missing, sorted(pointers))
+
+
+def run_install_check(basedir: str | None = None) -> list[str]:
   """Devuelve la lista de problemas de instalación detectados (vacía = OK)."""
+  status = inspect_install(basedir)
   problems: list[str] = []
 
-  # 1) Submódulos
-  missing = [name for sentinel, name in _SUBMODULE_SENTINELS.items()
-             if not os.path.exists(os.path.join(_BASEDIR, sentinel))]
-  if missing:
+  if status.missing_submodules:
     problems.append(
-      "Submódulos sin inicializar: " + ", ".join(missing) +
+      "Submódulos sin inicializar: " + ", ".join(status.missing_submodules) +
       ". Ejecuta: git submodule update --init --recursive")
 
-  # 2) Punteros LFS sin descargar
-  pointers = []
-  for pattern in _LFS_GLOBS:
-    for path in glob.glob(os.path.join(_BASEDIR, pattern), recursive=True):
-      if _is_lfs_pointer(path):
-        pointers.append(os.path.relpath(path, _BASEDIR))
-  if pointers:
-    pointers = sorted(set(pointers))
+  if status.lfs_pointers:
+    pointers = status.lfs_pointers
     shown = ", ".join(pointers[:5]) + ("…" if len(pointers) > 5 else "")
-    problems.append(
-      f"Ficheros sin descargar de git-lfs ({len(pointers)}): {shown}. "
-      "Ejecuta: git lfs pull")
+    problems.append(f"Ficheros sin descargar de git-lfs ({len(pointers)}): {shown}. Ejecuta: git lfs pull")
 
   return problems
 
 
 if __name__ == "__main__":
-  # Codigo de salida != 0 con problemas: install_repair.sh se apoya en el, y un
-  # `print` no se puede consultar desde un script de arranque sin parsear texto.
+  # Codigo de salida != 0 con problemas, para poder consultarlo desde un shell
+  # sin parsear texto (`python3 orbit/install_check.py && echo sano`).
   found = run_install_check()
   print("\n".join(found) if found else "instalación OK")
   raise SystemExit(1 if found else 0)
