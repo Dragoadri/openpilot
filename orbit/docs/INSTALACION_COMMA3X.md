@@ -56,7 +56,9 @@ descargar o submódulos vacíos, hace `git lfs pull` (excluyendo los modelos
 `big_*` de USB-GPU, que el comma no usa) y `git submodule update`, mostrando el
 progreso en el spinner y con todo lo de red acotado por timeout. En un árbol
 sano no ejecuta nada. Su registro queda en `/tmp/orbit_install_repair.log` y en
-la salida de tmux (`/tmp/launch_log`).
+la salida de tmux (`/tmp/launch_log`). En un comma 3 (tici, no X) el arranque
+pasa por `sunnypilot/system/hardware/c3/launch_chffrplus.sh` (AGNOS 12.8), que
+lleva el mismo paso de reparación en el mismo punto.
 
 Después, al arrancar manager, el **chequeo de instalación**
 (`orbit/install_check.py`) muestra la alerta offroad **"ORBIT: la instalación

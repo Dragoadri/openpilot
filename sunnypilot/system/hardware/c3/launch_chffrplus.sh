@@ -16,8 +16,9 @@ function agnos_init {
   # udev does this, but sometimes we startup faster
   sudo chgrp gpu /dev/adsprpc-smd /dev/ion /dev/kgsl-3d0
   sudo chmod 660 /dev/adsprpc-smd /dev/ion /dev/kgsl-3d0
+}
 
-
+function agnos_update {
   if [ $(< /VERSION) != "$AGNOS_VERSION" ]; then
     AGNOS_PY="$DIR/system/hardware/tici/agnos.py"
     MANIFEST="$SP_C3_DIR/agnos.json"
@@ -73,6 +74,18 @@ function launch {
   # hardware specific init
   if [ -f /AGNOS ]; then
     agnos_init
+  fi
+
+  # [ORBIT] Auto-reparacion de la instalacion (orbit/install_repair.py), igual
+  # que en el launch_chffrplus.sh de la raiz (comma 3X): solo actua si hay
+  # punteros git-lfs o submodulos vacios, informa por el spinner y acota la red
+  # con timeout. Va ANTES de agnos_update porque el `updater` es un fichero LFS.
+  if [ -f "$DIR/orbit/install_repair.py" ]; then
+    timeout -k 15 1800 python3 "$DIR/orbit/install_repair.py" || true
+  fi
+
+  if [ -f /AGNOS ]; then
+    agnos_update
   fi
 
   # write tmux scrollback to a file
