@@ -65,6 +65,14 @@ Después, al arrancar manager, el **chequeo de instalación**
 está incompleta"** si algo sigue roto, con el problema exacto y el comando para
 arreglarlo — en vez de caer en dashcam sin explicación.
 
+El arranque deja además un **registro persistente por fases** en
+`/data/orbit_boot.log` (versión de AGNOS del dispositivo y exigida, fase AGNOS,
+reparación, build, manager). La fase AGNOS se narra en el spinner (`orbit/agnos_update.py`)
+y deja de reintentar tras 3 intentos hacia la misma versión, para que un AGNOS
+que no arranca en esa unidad no deje el dispositivo en bucle. Si `manager.py`
+termina, `orbit/failsafe_screen.py` muestra ese registro en pantalla (solo
+depende de raylib): una foto de esa pantalla es el diagnóstico.
+
 Si la pantalla se queda en el logo de arranque, por SSH (`ssh comma@<ip>`):
 
 ```bash

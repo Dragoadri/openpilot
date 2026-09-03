@@ -23,10 +23,28 @@ function agnos_update {
   if [ $(< /VERSION) != "$AGNOS_VERSION" ]; then
     AGNOS_PY="$DIR/system/hardware/tici/agnos.py"
     MANIFEST="$DIR/system/hardware/tici/agnos.json"
-    if $AGNOS_PY --verify $MANIFEST; then
-      sudo reboot
+    # [ORBIT] Fase narrada en pantalla y con cortafuegos anti-bucle (orbit/agnos_update.py).
+    # Si el script no esta, se hace exactamente lo que hacia upstream.
+    if [ -f "$DIR/orbit/agnos_update.py" ]; then
+      python3 "$DIR/orbit/agnos_update.py" "$AGNOS_PY" "$MANIFEST" "$AGNOS_VERSION" || true
+    else
+      if $AGNOS_PY --verify $MANIFEST; then
+        sudo reboot
+      fi
+      $DIR/system/hardware/tici/updater $AGNOS_PY $MANIFEST
     fi
-    $DIR/system/hardware/tici/updater $AGNOS_PY $MANIFEST
+  else
+    rm -f /data/orbit_agnos_attempts.json
+  fi
+}
+
+# [ORBIT] Registro persistente del arranque (/data/orbit_boot.log): una linea por
+# fase. Si el arranque muere, failsafe_screen.py lo ensena en pantalla.
+function orbit_log {
+  if [ -f "$DIR/orbit/boot_log.py" ]; then
+    python3 "$DIR/orbit/boot_log.py" "$@" || true
+  else
+    echo "[ORBIT boot] $*"
   fi
 }
 
@@ -72,9 +90,12 @@ function launch {
   ln -sfn $(pwd) /data/pythonpath
   export PYTHONPATH="$PWD"
 
+  orbit_log "arranque comma 3X: commit $(git -C "$DIR" rev-parse --short HEAD 2>/dev/null) | AGNOS del dispositivo: $(cat /VERSION 2>/dev/null) | exigido: $AGNOS_VERSION"
+
   # hardware specific init
   if [ -f /AGNOS ]; then
     agnos_init
+    orbit_log "agnos_init OK"
   fi
 
   # [ORBIT] Auto-reparacion de la instalacion (orbit/install_repair.py).
@@ -92,6 +113,7 @@ function launch {
 
   if [ -f /AGNOS ]; then
     agnos_update
+    orbit_log "agnos_update terminado sin reiniciar"
   fi
 
   # write tmux scrollback to a file
@@ -100,11 +122,19 @@ function launch {
   # start manager
   cd system/manager
   if [ ! -f $DIR/prebuilt ]; then
+    orbit_log "build.py: inicio"
     ./build.py
+    orbit_log "build.py: terminado rc=$?"
   fi
+  orbit_log "manager.py: inicio"
   ./manager.py
+  orbit_log "manager.py: terminado rc=$?"
 
   # if broken, keep on screen error
+  # [ORBIT] ...y ensenar el registro del arranque en pantalla (solo pyray).
+  if [ -f "$DIR/orbit/failsafe_screen.py" ]; then
+    python3 "$DIR/orbit/failsafe_screen.py" /data/orbit_boot.log /tmp/launch_log || true
+  fi
   while true; do sleep 1; done
 }
 

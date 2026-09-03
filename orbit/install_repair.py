@@ -43,9 +43,10 @@ from collections.abc import Callable
 _HERE = os.path.dirname(os.path.realpath(__file__))
 BASEDIR = os.path.dirname(_HERE)
 try:
-  from openpilot.orbit import install_check
+  from openpilot.orbit import boot_log, install_check
 except ImportError:  # ejecutado como script suelto, sin el PYTHONPATH del repo
   sys.path.insert(0, _HERE)
+  import boot_log  # type: ignore[no-redef]
   import install_check  # type: ignore[no-redef]
 
 LOG_PATH = "/tmp/orbit_install_repair.log"
@@ -67,7 +68,7 @@ _LFS_PROGRESS_RE = re.compile(r"Downloading LFS objects:\s+\d+% \((\d+)/(\d+)\),
 # --- registro y feedback -----------------------------------------------------
 
 class Log:
-  """Escribe en stdout (tmux) y en LOG_PATH. Nunca lanza."""
+  """Escribe en stdout (tmux), en LOG_PATH y en el registro persistente de arranque. Nunca lanza."""
 
   def __init__(self, path: str | None = None):
     self.path = path or LOG_PATH
@@ -83,6 +84,7 @@ class Log:
         f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
     except Exception:
       pass
+    boot_log.append(line)
 
 
 def spinner_enabled() -> bool:
@@ -167,41 +169,50 @@ def run_logged(cmd: list[str], cwd: str, timeout: float, log: Callable[[str], No
     log(f"no se pudo ejecutar {' '.join(cmd)}: {e}")
     return 127
 
+  assert proc.stdout is not None
+  fd = proc.stdout.fileno()
+
   def _pump():
     buf = b""
-    assert proc.stdout is not None
-    while True:
-      chunk = os.read(proc.stdout.fileno(), 4096)
-      if not chunk:
-        break
-      buf += chunk
-      parts = re.split(rb"[\r\n]", buf)
-      buf = parts.pop()
-      for part in parts:
-        text = part.decode("utf-8", "replace").strip()
-        if text:
-          on_line(text)
+    try:
+      while True:
+        chunk = os.read(fd, 4096)
+        if not chunk:
+          break
+        buf += chunk
+        parts = re.split(rb"[\r\n]", buf)
+        buf = parts.pop()
+        for part in parts:
+          text = part.decode("utf-8", "replace").strip()
+          if text:
+            on_line(text)
+    except (OSError, ValueError):
+      pass  # tubería cerrada al matar al hijo: lo que quede en buf se vuelca abajo
     if buf.strip():
       on_line(buf.decode("utf-8", "replace").strip())
 
   reader = threading.Thread(target=_pump, daemon=True)
   reader.start()
   try:
-    rc = proc.wait(timeout=timeout)
-  except subprocess.TimeoutExpired:
-    log(f"timeout ({timeout:.0f} s) ejecutando {' '.join(cmd)}: matando el proceso")
-    proc.kill()
-    proc.wait(timeout=10)
-    rc = TIMEOUT_RC
-  except BaseException:
-    proc.kill()
-    raise
+    try:
+      rc = proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+      log(f"timeout ({timeout:.0f} s) ejecutando {' '.join(cmd)}: matando el proceso")
+      proc.kill()
+      proc.wait(timeout=10)
+      rc = TIMEOUT_RC
+    except BaseException:
+      proc.kill()
+      raise
+    # El hijo ha terminado: el lector ve EOF y acaba solo. Si un nieto mantiene la
+    # tubería abierta, no esperamos más de 5 s antes de cerrarla nosotros.
+    reader.join(timeout=5)
   finally:
     try:
-      proc.stdout.close()  # type: ignore[union-attr]
+      proc.stdout.close()
     except Exception:
       pass
-  reader.join(timeout=5)
+  reader.join(timeout=1)
   return rc
 
 
