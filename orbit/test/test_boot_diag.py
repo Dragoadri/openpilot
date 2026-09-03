@@ -229,3 +229,17 @@ def test_beacon_targets_ignore_comments(monkeypatch, tmp_path):
   f.write_text("# comentario\n10.1.2.3\n\n 192.168.1.9 # pc\n")
   monkeypatch.setattr(bb, "TARGETS_FILES", (str(f), str(tmp_path / "missing.txt")))
   assert bb.targets() == ["10.1.2.3", "192.168.1.9"]
+
+
+# --- agnos.py debe poder ejecutarse con un venv de AGNOS que no case con el arbol ---
+
+def test_agnos_flash_tool_imports_without_pyserial():
+  """Caso real del comma 3X con AGNOS 19.6: el venv ya no trae pyserial y agnos.py moria al importar
+  (casync -> common -> version -> swaglog -> system.hardware -> lpa -> serial), asi que el dispositivo
+  no podia bajar a 18.4. La herramienta de flasheo no puede depender de la salud de imports del arbol."""
+  agnos_py = os.path.join(os.path.dirname(os.path.dirname(boot_log.__file__)), "system", "hardware", "tici", "agnos.py")
+  # Se ejecuta como SCRIPT (asi lo lanza launch_chffrplus.sh): no pasa por system/hardware/__init__.py.
+  code = ("import runpy, sys; sys.modules['serial'] = None; sys.argv = ['agnos.py', '--help']; "
+          f"runpy.run_path({agnos_py!r}, run_name='__main__')")
+  r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+  assert r.returncode == 0 and "manifest" in r.stdout, (r.stdout[-500:], r.stderr[-1500:])
