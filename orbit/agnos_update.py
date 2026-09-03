@@ -19,7 +19,12 @@ Aquí se hace lo mismo pero:
   * se deja constancia en el registro persistente (boot_log);
   * se cuentan los intentos por versión objetivo en /data y, pasados
     MAX_ATTEMPTS, se deja de reintentar y se sigue arrancando con el AGNOS
-    actual, para que el fallo sea visible en vez de infinito.
+    actual, para que el fallo sea visible en vez de infinito;
+  * si el actualizador gráfico de comma (`updater`, un zipapp que necesita
+    `pyray`) no puede correr en el AGNOS actual, se flashea SIN interfaz con
+    `agnos.py --swap` y se reinicia. Caso real: un comma 3 con AGNOS 10.1 no
+    tiene pyray, el updater muere con ModuleNotFoundError, nada actualiza
+    AGNOS y el dispositivo se queda en el logo para siempre.
 
 Uso:  agnos_update.py <agnos.py> <manifest.json> <version_requerida>
 
@@ -95,6 +100,15 @@ def bump_attempts(current: str, target: str, attempts_file: str | None = None) -
   return data["count"]
 
 
+def pyray_available() -> bool:
+  """¿Puede correr algo gráfico (updater, spinner) en el AGNOS actual?"""
+  try:
+    return subprocess.run(["python3", "-c", "import pyray"], timeout=60,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+  except Exception:
+    return False
+
+
 def reboot(log) -> None:
   log("reiniciando…")
   try:
@@ -107,8 +121,8 @@ def reboot(log) -> None:
 
 def update(agnos_py: str, manifest: str, target: str, log, feedback,
            current: str | None = None, attempts_file: str | None = None,
-           run=install_repair.run_logged, do_reboot=reboot) -> str:
-  """Ejecuta la fase. Devuelve una palabra con lo que hizo: 'ok', 'reboot', 'updater', 'skipped'."""
+           run=install_repair.run_logged, do_reboot=reboot, graphics_ok=pyray_available) -> str:
+  """Ejecuta la fase. Devuelve lo que hizo: 'ok', 'reboot', 'updater', 'skipped' o 'failed'."""
   current = read_version() if current is None else current
   if current == target:
     clear_attempts(attempts_file)
@@ -135,13 +149,31 @@ def update(agnos_py: str, manifest: str, target: str, log, feedback,
     do_reboot(log)
     return "reboot"
 
-  log(f"AGNOS: el otro slot no tiene {target} (rc={rc}); descargando y flasheando con el updater (10-20 min)")
-  feedback.text(f"ORBIT: descargando AGNOS {target}. Va a salir la pantalla del actualizador…", force=True)
-  time.sleep(3.0)
-  feedback.close()  # el updater pinta su propia UI
-  rc = run([updater, agnos_py, manifest], cwd=os.path.dirname(agnos_py), timeout=UPDATER_TIMEOUT_S, log=log)
-  log(f"AGNOS: updater terminó rc={rc} sin reiniciar; el arranque sigue con AGNOS {current or '?'}")
-  return "updater"
+  log(f"AGNOS: el otro slot no tiene {target} (rc={rc}); hay que descargar y flashear (10-25 min)")
+  if graphics_ok():
+    feedback.text(f"ORBIT: descargando AGNOS {target}. Va a salir la pantalla del actualizador…", force=True)
+    time.sleep(3.0)
+    feedback.close()  # el updater pinta su propia UI
+    rc = run([updater, agnos_py, manifest], cwd=os.path.dirname(agnos_py), timeout=UPDATER_TIMEOUT_S, log=log)
+    if rc == 0:
+      log("AGNOS: updater terminó rc=0 sin reiniciar; el arranque sigue")
+      return "updater"
+    log(f"AGNOS: el updater gráfico falló (rc={rc}); se pasa al flasheo sin interfaz")
+  else:
+    log(f"AGNOS: este AGNOS ({current or '?'}) no tiene pyray: el updater gráfico no puede correr, flasheo sin interfaz")
+    feedback.close()
+
+  # Sin interfaz: agnos.py descarga y flashea el otro slot hasta que verifica, y lo
+  # activa. Solo necesita requests y abctl, que existen en cualquier AGNOS. La
+  # pantalla seguirá en el logo mientras dure; la baliza y el registro cuentan el progreso.
+  log(f"AGNOS: flasheando {target} sin interfaz con agnos.py --swap (la pantalla no cambiará hasta el reinicio)")
+  rc = run([agnos_py, "--swap", manifest], cwd=os.path.dirname(agnos_py), timeout=UPDATER_TIMEOUT_S, log=log)
+  if rc == 0:
+    log(f"AGNOS: {target} flasheado y slot activado; reiniciando")
+    do_reboot(log)
+    return "reboot"
+  log(f"AGNOS: el flasheo sin interfaz FALLÓ (rc={rc}); el arranque sigue con AGNOS {current or '?'}")
+  return "failed"
 
 
 def main(argv: list[str]) -> int:

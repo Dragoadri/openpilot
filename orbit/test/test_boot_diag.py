@@ -84,12 +84,63 @@ def test_agnos_other_slot_ready_swaps_and_reboots(tmp_path, fast):
   assert any("12.8" in m and "18.4" in m for m in msgs)  # la narración dice de qué versión a cuál
 
 
-def test_agnos_not_ready_runs_updater_and_does_not_reboot_itself(tmp_path, fast):
+def test_agnos_not_ready_runs_graphical_updater_when_pyray_exists(tmp_path, fast):
   rec = Recorder(verify_rc=1, updater_rc=0)
   out = au.update("/x/agnos.py", "/x/agnos.json", "18.4", log=lambda m: None, feedback=ir.Feedback(enabled=False),
-                  current="12.8", attempts_file=str(tmp_path / "a.json"), run=rec.run, do_reboot=rec.reboot)
+                  current="12.8", attempts_file=str(tmp_path / "a.json"), run=rec.run, do_reboot=rec.reboot,
+                  graphics_ok=lambda: True)
   assert out == "updater" and rec.rebooted == 0
   assert rec.calls[1] == ["/x/updater", "/x/agnos.py", "/x/agnos.json"]
+  assert not any("--swap" in c for c in rec.calls)
+
+
+def test_agnos_without_pyray_flashes_headless_and_reboots(tmp_path, fast):
+  """Caso real del comma 3 con AGNOS 10.1: el updater grafico no puede ni importar pyray."""
+  class R(Recorder):
+    def run(self, cmd, cwd, timeout, log, on_line=None, env=None):
+      self.calls.append(cmd)
+      if "--verify" in cmd:
+        return 1
+      if "--swap" in cmd:
+        return 0
+      raise AssertionError("no debe intentar el updater grafico sin pyray")
+  rec = R(verify_rc=1)
+  msgs = []
+  out = au.update("/x/agnos.py", "/x/agnos.json", "12.8", log=msgs.append, feedback=ir.Feedback(enabled=False),
+                  current="10.1", attempts_file=str(tmp_path / "a.json"), run=rec.run, do_reboot=rec.reboot,
+                  graphics_ok=lambda: False)
+  assert out == "reboot" and rec.rebooted == 1
+  assert rec.calls == [["/x/agnos.py", "--verify", "/x/agnos.json"], ["/x/agnos.py", "--swap", "/x/agnos.json"]]
+  assert any("pyray" in m for m in msgs)
+
+
+def test_agnos_graphical_updater_failure_falls_back_to_headless(tmp_path, fast):
+  class R(Recorder):
+    def run(self, cmd, cwd, timeout, log, on_line=None, env=None):
+      self.calls.append(cmd)
+      if "--verify" in cmd:
+        return 1
+      if cmd[0].endswith("/updater"):
+        return 1  # p. ej. ModuleNotFoundError dentro del zipapp
+      return 0  # --swap
+  rec = R(verify_rc=1)
+  out = au.update("/x/agnos.py", "/x/agnos.json", "12.8", log=lambda m: None, feedback=ir.Feedback(enabled=False),
+                  current="10.1", attempts_file=str(tmp_path / "a.json"), run=rec.run, do_reboot=rec.reboot,
+                  graphics_ok=lambda: True)
+  assert out == "reboot" and rec.rebooted == 1
+  assert [c[1] if len(c) > 1 else c[0] for c in rec.calls] == ["--verify", "/x/agnos.py", "--swap"]
+
+
+def test_agnos_headless_failure_does_not_reboot(tmp_path, fast):
+  class R(Recorder):
+    def run(self, cmd, cwd, timeout, log, on_line=None, env=None):
+      self.calls.append(cmd)
+      return 1
+  rec = R(verify_rc=1)
+  out = au.update("/x/agnos.py", "/x/agnos.json", "12.8", log=lambda m: None, feedback=ir.Feedback(enabled=False),
+                  current="10.1", attempts_file=str(tmp_path / "a.json"), run=rec.run, do_reboot=rec.reboot,
+                  graphics_ok=lambda: False)
+  assert out == "failed" and rec.rebooted == 0
 
 
 def test_agnos_gives_up_after_max_attempts(tmp_path, fast):
@@ -98,7 +149,8 @@ def test_agnos_gives_up_after_max_attempts(tmp_path, fast):
   results = []
   for _ in range(au.MAX_ATTEMPTS + 2):
     results.append(au.update("/x/agnos.py", "/x/agnos.json", "18.4", log=lambda m: None, feedback=ir.Feedback(enabled=False),
-                             current="12.8", attempts_file=str(attempts), run=rec.run, do_reboot=rec.reboot))
+                             current="12.8", attempts_file=str(attempts), run=rec.run, do_reboot=rec.reboot,
+                             graphics_ok=lambda: True))
   assert results == ["reboot"] * au.MAX_ATTEMPTS + ["skipped", "skipped"]
   assert rec.rebooted == au.MAX_ATTEMPTS  # tras el tope no se reinicia más: el fallo queda visible
 
