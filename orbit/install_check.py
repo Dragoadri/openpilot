@@ -39,15 +39,33 @@ _SUBMODULE_SENTINELS = {
 }
 
 _LFS_POINTER_PREFIX = b"version https://git-lfs"
-# Un puntero LFS son ~130 bytes de texto; cualquier modelo real pesa >> 1 KB.
+# Un puntero LFS son ~130 bytes de texto; cualquier fichero real pesa >> 1 KB.
 _LFS_POINTER_MAX_SIZE = 1024
 
-# Patrones de modelos que modeld/dmonitoringd necesitan en el dispositivo.
-_MODEL_GLOBS = (
+# Ficheros que .gitattributes marca como LFS y que el dispositivo NECESITA.
+#
+# No son solo los modelos: en este fork *.ttf, *.png y *.wav tambien van por
+# LFS, asi que sin descargar quedan FUENTES, ICONOS y SONIDOS de la UI en 130
+# bytes. Y sin fuentes la UI NO ARRANCA: el coche se queda en el logo, sin menu
+# y sin ajustes -- es decir, sin ningun sitio donde mostrar la alerta offroad
+# que genera este mismo chequeo. Por eso los assets de UI cuentan como problema
+# de instalacion igual que los modelos, y por eso install_repair.sh puede
+# ejecutar este fichero desde el arranque, antes de que exista UI alguna.
+_LFS_GLOBS = (
+  # Modelos: sin ellos modeld no arranca ("openpilot unavailable").
   "selfdrive/modeld/models/*.onnx",
   "selfdrive/modeld/models/*.pkl",
   "selfdrive/modeld/models/*.chunk*",
   "selfdrive/monitoring/assets/*.onnx",
+  # Assets de la UI: sin ellos no hay pantalla.
+  "selfdrive/assets/fonts/*.ttf",
+  "selfdrive/assets/fonts/*.otf",
+  "selfdrive/assets/*.png",
+  "selfdrive/assets/**/*.png",
+  "selfdrive/assets/sounds/*.wav",
+  # Binario del actualizador de AGNOS, que launch_chffrplus.sh ejecuta en
+  # agnos_init cuando la version del dispositivo no coincide con la de la rama.
+  "system/hardware/tici/updater",
 )
 
 
@@ -75,19 +93,23 @@ def run_install_check() -> list[str]:
 
   # 2) Punteros LFS sin descargar
   pointers = []
-  for pattern in _MODEL_GLOBS:
-    for path in glob.glob(os.path.join(_BASEDIR, pattern)):
+  for pattern in _LFS_GLOBS:
+    for path in glob.glob(os.path.join(_BASEDIR, pattern), recursive=True):
       if _is_lfs_pointer(path):
         pointers.append(os.path.relpath(path, _BASEDIR))
   if pointers:
+    pointers = sorted(set(pointers))
     shown = ", ".join(pointers[:5]) + ("…" if len(pointers) > 5 else "")
     problems.append(
-      f"Modelos sin descargar de git-lfs ({len(pointers)}): {shown}. "
+      f"Ficheros sin descargar de git-lfs ({len(pointers)}): {shown}. "
       "Ejecuta: git lfs pull")
 
   return problems
 
 
 if __name__ == "__main__":
+  # Codigo de salida != 0 con problemas: install_repair.sh se apoya en el, y un
+  # `print` no se puede consultar desde un script de arranque sin parsear texto.
   found = run_install_check()
   print("\n".join(found) if found else "instalación OK")
+  raise SystemExit(1 if found else 0)

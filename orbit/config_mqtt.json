@@ -1,5 +1,5 @@
 {
-    "broker": "192.168.1.49",
+    "broker": "",
     "broker_port": 1883,
     "backend_port": 8010,
     "username": "",

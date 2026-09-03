@@ -75,6 +75,19 @@ function launch {
     agnos_init
   fi
 
+  # [ORBIT] Auto-reparacion de la instalacion ANTES de compilar.
+  #
+  # Si el clon quedo sin objetos git-lfs (el instalador del comma no garantiza
+  # el `git lfs pull`, y .lfsconfig apunta a un GitLab de terceros), faltan las
+  # FUENTES y los ICONOS de la UI y la pantalla se queda en el logo para
+  # siempre: sin menu, sin ajustes y sin ningun sitio donde ver el aviso. Aqui
+  # se detecta y se intenta arreglar solo, con logs por stdout. Va DESPUES de
+  # agnos_init para no retrasar el `abctl --set_success` que marca la particion
+  # como buena, y nunca puede fallar hacia arriba.
+  if [ -x "$DIR/orbit/install_repair.sh" ]; then
+    "$DIR/orbit/install_repair.sh" || true
+  fi
+
   # write tmux scrollback to a file
   tmux capture-pane -pq -S-1000 > /tmp/launch_log
 
