@@ -22,7 +22,9 @@ function agnos_update {
   # Check if AGNOS update is required
   if [ $(< /VERSION) != "$AGNOS_VERSION" ]; then
     AGNOS_PY="$DIR/system/hardware/tici/agnos.py"
-    MANIFEST="$SP_C3_DIR/agnos.json"
+    # [ORBIT] manifiesto de AGNOS 18.4 (el mismo del 3X); el agnos.json de este
+    # directorio es el de 12.8 y se conserva solo como referencia.
+    MANIFEST="$DIR/system/hardware/tici/agnos.json"
     # [ORBIT] Fase narrada en pantalla y con cortafuegos anti-bucle (orbit/agnos_update.py).
     # Si el script no esta, se hace exactamente lo que hacia upstream.
     if [ -f "$DIR/orbit/agnos_update.py" ]; then

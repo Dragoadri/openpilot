@@ -39,6 +39,7 @@ CHUNK_BYTES = 1200
 BOOT_LOG = "/data/orbit_boot.log"
 TARGETS_FILES = (os.path.join(_HERE, "beacon_targets.txt"), "/data/orbit_beacon_targets.txt")
 MQTT_FILE = os.path.join(_HERE, "beacon_mqtt.txt")
+TMUX_NOISE = re.compile(r"^\s*(raylib:|INFO: |WARNING: FILEIO|WARNING: FONT|\S*\.fnt\]|[a-z]+\.fnt\] )")
 WATCHED = ("launch_chffrplus", "install_repair", "agnos_update", "updater", "build.py", "scons",
            "spinner.py", "text.py", "manager.py", "ui.py", "failsafe_screen", "pandad", "hardwared")
 
@@ -89,7 +90,8 @@ def snapshot(seq: int, t0: float) -> str:
     f"procs: {watched_procs()}",
   ]
   body = ["-- " + BOOT_LOG + " (últimas 15)"] + tail_lines(read(BOOT_LOG), 15)
-  body += ["-- tmux (últimas 25)"] + tail_lines(sh("tmux capture-pane -p -S -200 2>/dev/null || tmux capture-pane -p -t comma -S -200 2>/dev/null"), 25)
+  tmux = sh("tmux capture-pane -p -S -400 2>/dev/null || tmux capture-pane -p -t comma -S -400 2>/dev/null")
+  body += ["-- tmux (últimas 30 sin ruido raylib/INFO)"] + tail_lines("\n".join(ln for ln in tmux.splitlines() if not TMUX_NOISE.match(ln)), 30)
   body += ["-- dmesg (últimas 6)"] + tail_lines(sh("dmesg 2>/dev/null | tail -n 6"), 6)
   return "\n".join(head + body) + "\n"
 

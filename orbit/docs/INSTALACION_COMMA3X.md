@@ -44,6 +44,25 @@ Los dos errores típicos:
 | Clon sin `--recurse-submodules` | build falla o procesos no arrancan | `git submodule update --init --recursive` |
 | Olvidar `git lfs pull` | modeld caído ("openpilot unavailable") | `git lfs pull` |
 
+## AGNOS: lo que exige este árbol
+
+Este árbol (base sunnypilot de junio de 2026) toma sus librerías C (acados,
+capnproto, zeromq, zstd, ffmpeg…) de paquetes Python del venv de **AGNOS 18.4**.
+Un dispositivo con un AGNOS anterior no puede ni compilar (`No module named
+'acados'` en `SConstruct`), y el actualizador gráfico de AGNOS que va en el repo
+(`system/hardware/tici/updater`) necesita `pyray`, que los AGNOS antiguos (p. ej.
+10.1) no tienen: por eso una instalación en un dispositivo con AGNOS viejo se
+quedaba en el logo de comma para siempre. Desde `orbit/agnos_update.py`, si el
+actualizador gráfico no puede correr, AGNOS se flashea sin interfaz con
+`agnos.py --swap` (unos 5 minutos con buena WiFi, pantalla en el logo de comma
+mientras dura) y el dispositivo reinicia solo en 18.4.
+
+- **comma 3X:** AGNOS 18.4 (pin de upstream).
+- **comma 3 (tici):** sunnypilot lo fijaba a 12.8, que no puede compilar este
+  árbol, y ha abandonado ese soporte. Aquí se fija **también a 18.4**: es la
+  misma familia de imagen (mismo SoC), pero está fuera de lo que comma valida
+  para el comma 3. Experimental.
+
 ## Primer arranque
 
 En el primer arranque el dispositivo **compila todo con scons** (puede tardar
