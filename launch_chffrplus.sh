@@ -90,6 +90,13 @@ function launch {
   ln -sfn $(pwd) /data/pythonpath
   export PYTHONPATH="$PWD"
 
+  # [ORBIT] Baliza de arranque: durante 30 min emite por UDP/WiFi el estado del
+  # dispositivo (fase, procesos, tmux, AGNOS) para verlo desde un PC cuando la
+  # pantalla se queda en el logo. Segundo plano, nunca bloquea (orbit/boot_beacon.py).
+  if [ -f "$DIR/orbit/boot_beacon.py" ]; then
+    (python3 "$DIR/orbit/boot_beacon.py" >/dev/null 2>&1 &) || true
+  fi
+
   orbit_log "arranque comma 3X: commit $(git -C "$DIR" rev-parse --short HEAD 2>/dev/null) | AGNOS del dispositivo: $(cat /VERSION 2>/dev/null) | exigido: $AGNOS_VERSION"
 
   # hardware specific init

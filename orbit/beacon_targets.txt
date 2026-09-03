@@ -1,0 +1,5 @@
+# Destinos UDP unicast de la baliza de arranque (orbit/boot_beacon.py), uno por linea.
+# Ademas de estos, la baliza siempre emite por broadcast a la red local.
+# Pon aqui la IP del PC que escucha con tools/orbit/boot_beacon_listen.py.
+10.172.161.3
+192.168.1.49

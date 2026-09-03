@@ -144,3 +144,36 @@ def test_failsafe_screen_renders_one_frame_with_only_pyray(tmp_path):
   if "Failed to initialize" in r.stderr or "GLFW" in r.stderr and r.returncode != 0:
     pytest.skip("no display available for raylib")
   assert r.returncode == 0, r.stderr[-800:]
+
+
+# --- boot_beacon ----------------------------------------------------------------
+
+def test_beacon_chunks_reassemble_to_the_original(tmp_path):
+  from openpilot.orbit import boot_beacon as bb
+  sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(boot_log.__file__)), "tools", "orbit"))
+  import boot_beacon_listen as bl
+  text = "cabecera\n" + "\n".join(f"linea {i} " + "x" * 90 for i in range(60)) + "\n"
+  parts = bb.chunks(7, text)
+  assert len(parts) > 1 and all(len(p) <= bb.CHUNK_BYTES + 60 for p in parts)
+  rs = bl.Reassembler()
+  out = None
+  for p in reversed(parts):  # llegan desordenados
+    out = rs.feed("10.0.0.5", p) or out
+  assert out == text
+  assert bl.parse_part(b"no es una parte") is None
+  assert rs.feed("10.0.0.5", b"texto suelto") == "texto suelto"
+
+
+def test_beacon_snapshot_is_text_and_never_raises(monkeypatch, tmp_path):
+  from openpilot.orbit import boot_beacon as bb
+  monkeypatch.setattr(bb, "BOOT_LOG", str(tmp_path / "nope.log"))
+  s = bb.snapshot(3, 0.0)
+  assert s.startswith("ORBIT-BEACON seq=3 ") and "procs:" in s and "-- tmux" in s
+
+
+def test_beacon_targets_ignore_comments(monkeypatch, tmp_path):
+  from openpilot.orbit import boot_beacon as bb
+  f = tmp_path / "targets.txt"
+  f.write_text("# comentario\n10.1.2.3\n\n 192.168.1.9 # pc\n")
+  monkeypatch.setattr(bb, "TARGETS_FILES", (str(f), str(tmp_path / "missing.txt")))
+  assert bb.targets() == ["10.1.2.3", "192.168.1.9"]
