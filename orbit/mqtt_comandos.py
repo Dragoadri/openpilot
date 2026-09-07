@@ -33,6 +33,28 @@ from openpilot.orbit.command_router import CommandRouter
 from openpilot.orbit.command_spec import TOPIC_CAPS, TOPIC_CMD, ahora_epoch_ms, get_spec
 from openpilot.orbit.command_state import get_command_plane
 
+# Politica del reintento del connect() inicial. La COMPARTEN los dos hilos de conexion
+# (mqtt_envio_general.py la importa de aqui) para que telemetria y mandos no puedan
+# divergir. Antes era un 5 s plano: con el broker caido eran 2 lineas por cliente cada
+# 5 s en el rlog, indefinidamente.
+#   fallo 1 -> 5 s, fallo 2 -> 10 s, fallo 3 -> 20 s, del 4 en adelante -> 60 s (tope).
+CONN_RETRY_SECS = (5.0, 10.0, 20.0, 60.0)
+# config_mqtt.json se distribuye con "broker": "" y paho rechaza connect("") al instante
+# ("Invalid host."): no hay nada que reintentar. El hilo se queda ESPERANDO -- no sale:
+# nadie mas volveria a intentarlo, la reconexion automatica de paho solo existe tras un
+# primer connect() bueno -- y mira cada tanto si ya hay broker. La relectura en caliente
+# del JSON relanza el hilo en cuanto la UI escribe uno; esta espera es la red de seguridad.
+CONN_SIN_BROKER_SECS = 30.0
+
+
+def espera_reintento(fallos_previos: int) -> float:
+  """Segundos a esperar tras un connect() fallido: 5, 10, 20 y luego 60 fijo.
+
+  `fallos_previos` es cuantos connect() habian fallado YA antes de este (0 en el primero).
+  """
+  return CONN_RETRY_SECS[min(fallos_previos, len(CONN_RETRY_SECS) - 1)]
+
+
 class MQTTComandos:
   def __init__(self, plane=None):
     self.base_path = os.path.dirname(os.path.abspath(__file__))
@@ -393,10 +415,28 @@ class MQTTComandos:
 
   def setup_mqtt(self, stop=None):
     """Bucle de conexion inicial. Corre en el hilo unico de conexion; `stop` es
-    su senal de relevo (la pone _relanzar_hilo_conexion antes de sustituirlo)."""
+    su senal de relevo (la pone _relanzar_hilo_conexion antes de sustituirlo).
+
+    El estado del reintento (fallos seguidos, aviso de 'sin broker') es LOCAL a
+    proposito: cada relevo (reload_broker tras escribir un broker desde Ajustes)
+    arranca limpio en 5 s. El hilo NO sale mientras no conecte (ver
+    CONN_SIN_BROKER_SECS); el supervisor del manager no lo vigila."""
     if stop is None:
       stop = self._conn_stop
+    fallos = 0
+    sin_broker_avisado = False
     while not self.stop_event.is_set() and not stop.is_set():
+      if not str(self.broker_address or "").strip():
+        # config_mqtt.json de fabrica ("broker": ""): paho lanza 'Invalid host.' al
+        # instante y esto giraba cada 5 s llenando el rlog de todos los dispositivos
+        # sin configurar. Un aviso y a esperar. Va ANTES de coger _conn_lock: la
+        # espera larga nunca se hace con el lock cogido (bloquearia al relevo).
+        if not sin_broker_avisado:
+          cloudlog.warning("[Bemposta] MQTTComandos: broker no configurado; esperando configuracion (Ajustes -> Servidor Orbit)")
+          sin_broker_avisado = True
+        if stop.wait(CONN_SIN_BROKER_SECS):
+          break
+        continue
       try:
         cloudlog.warning(f"[Bemposta] MQTTComandos conectando a broker {self.broker_address}:{self.broker_port}")
         with self._conn_lock:
@@ -410,10 +450,12 @@ class MQTTComandos:
             self.conectado = True
         break
       except Exception as e:
-        cloudlog.warning(f"[Bemposta] MQTTComandos NO pudo conectar a {self.broker_address}:{self.broker_port}: {e}. Reintento en 5s")
+        espera = espera_reintento(fallos)
+        fallos += 1
+        cloudlog.warning(f"[Bemposta] MQTTComandos NO pudo conectar a {self.broker_address}:{self.broker_port}: {e}. Reintento en {espera:g}s")
         # Espera INTERRUMPIBLE: con time.sleep(5) el relevo tardaba hasta 5 s en
         # notarse, y ese es justo el hueco en el que se solapaban los dos hilos.
-        if stop.wait(5.0):
+        if stop.wait(espera):
           break
 
   def reload_broker(self, new_broker):

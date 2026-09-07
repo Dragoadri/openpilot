@@ -9,7 +9,7 @@ from cereal.services import SERVICE_LIST
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 import os
-from .mqtt_comandos import MQTTComandos
+from .mqtt_comandos import CONN_SIN_BROKER_SECS, MQTTComandos, espera_reintento
 from .camera_sender import CameraSender
 from .command_state import get_command_plane
 from . import telemetria_v1 as tel2
@@ -515,10 +515,31 @@ class MQTTEnvioGeneral:
 
   def setup_mqtt(self, stop=None):
     """Bucle de conexion inicial. Corre en el hilo unico de conexion; `stop` es
-    su senal de relevo (la pone _relanzar_hilo_conexion antes de sustituirlo)."""
+    su senal de relevo (la pone _relanzar_hilo_conexion antes de sustituirlo).
+
+    El estado del reintento (fallos seguidos, aviso de 'sin broker') es LOCAL a
+    proposito: cada relevo (_relanzar_hilo_conexion tras escribir un broker desde
+    Ajustes) arranca limpio en 5 s. El hilo NO sale mientras no conecte: la
+    reconexion automatica de paho solo existe tras un primer connect() bueno, y el
+    supervisor del manager no vigila este hilo (is_alive mira el loop; healthy no
+    mira _conn_thread). La politica (escalera 5/10/20/60 y espera sin broker) se
+    importa de mqtt_comandos para que los dos clientes no diverjan."""
     if stop is None:
       stop = self._conn_stop
+    fallos = 0
+    sin_broker_avisado = False
     while not self.stop_event.is_set() and not stop.is_set():
+      if not str(self.broker_address or "").strip():
+        # config_mqtt.json de fabrica ("broker": ""): paho lanza 'Invalid host.' al
+        # instante y esto giraba cada 5 s llenando el rlog de todos los dispositivos
+        # sin configurar. Un aviso y a esperar a que la UI escriba el broker (la
+        # relectura en caliente relanza este hilo; la espera es la red de seguridad).
+        if not sin_broker_avisado:
+          cloudlog.warning("[Bemposta] MQTTEnvioGeneral: broker no configurado; esperando configuracion (Ajustes -> Servidor Orbit)")
+          sin_broker_avisado = True
+        if stop.wait(CONN_SIN_BROKER_SECS):
+          break
+        continue
       try:
         cloudlog.warning(f"[Bemposta] MQTTEnvioGeneral conectando a broker {self.broker_address}:{self.broker_port}")
         self.mqttc.connect(self.broker_address, self.broker_port, 60)
@@ -530,10 +551,12 @@ class MQTTEnvioGeneral:
       except Exception as e:
         # Diagnostico clave: si el broker cambio de IP (IP domestica dinamica),
         # este es el log que lo delata. Antes estaba silenciado y no se veia nada.
-        cloudlog.warning(f"[Bemposta] MQTTEnvioGeneral NO pudo conectar a {self.broker_address}:{self.broker_port}: {e}. Reintento en 5s")
+        espera = espera_reintento(fallos)
+        fallos += 1
+        cloudlog.warning(f"[Bemposta] MQTTEnvioGeneral NO pudo conectar a {self.broker_address}:{self.broker_port}: {e}. Reintento en {espera:g}s")
         # Espera interrumpible: con time.sleep(5) el relevo tardaba hasta 5 s en
         # notarse y era cuando se solapaban los dos hilos de conexion.
-        if stop.wait(5.0):
+        if stop.wait(espera):
           break
 
   def on_connect(self, client, userdata, flags, rc):
