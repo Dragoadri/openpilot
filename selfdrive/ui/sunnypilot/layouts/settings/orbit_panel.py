@@ -19,8 +19,7 @@ el coche o lo que tiene que funcionar con la red caida.
   * "Restablecer valores seguros".
 
 Se fue a la app: los canales de telemetria (8 toggles) y la configuracion de camara.
-Se borro: la seccion PRUEBAS (modo_debug y silenciar_alertas_comm) junto con el overlay
-que consumia modo_debug.
+Se borro: la seccion PRUEBAS (modo_debug) junto con el overlay que consumia modo_debug.
 
 EL ESTADO DEL MANDO SE LEE DE CEREAL, NO DE PARAMS. `ui_state.orbit_command` es la
 vista del mensaje `orbitCommandState` (10 Hz) que refresca UIStateSP en cada frame. Los
@@ -464,17 +463,15 @@ class OrbitLayout(Widget):
     # 3. cambios de carril forzados pendientes
     _put_bool("ForceLaneChangeLeft", False)
     _put_bool("ForceLaneChangeRight", False)
-    # 4. alertas de comunicacion visibles
-    _put_bool("silenciar_alertas_comm", False)
-    # 5. pulso de direccion remoto
+    # 4. pulso de direccion remoto
     _remove("orbit_steering_pulse")
-    # 6. autoridad del mando: armado de banco y modo, por si el hilo ORBIT esta caido
+    # 5. autoridad del mando: armado de banco y modo, por si el hilo ORBIT esta caido
     fallos.extend(mando.disarm_bench())
     _put(mando.PARAM_COMMAND_MODE, 0)
-    # 7. HUD de adelantamiento: sic_adelantar es PERSISTENT y su overlay ya no existe;
+    # 6. HUD de adelantamiento: sic_adelantar es PERSISTENT y su overlay ya no existe;
     #    apagarlo aqui evita dejar un flag encendido que nadie puede volver a apagar.
     _put_bool("sic_adelantar", False)
-    # 8. volcado de mensajes MQTT a /tmp (era PERSISTENT|BACKUP y sobrevivia a reinicios
+    # 7. volcado de mensajes MQTT a /tmp (era PERSISTENT|BACKUP y sobrevivia a reinicios
     #    y a copias de seguridad; su panel ya no existe, pero el escritor sigue)
     _put_bool("modo_debug", False)
 

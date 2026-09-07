@@ -354,7 +354,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"orbit_steering_pulse", {CLEAR_ON_MANAGER_START, STRING}},   // pulso giro cruceta, 5 campos: "direction:start_ms_pared:start_mono:dur_inicial_ms:magnitud". La expiracion se deriva de start_mono + duracion (reloj MONOTONO: un salto del reloj de pared no puede alargar el pulso). Cruza barrera de proceso a controlsd.
     // Toggles UI / telemetría
     {"modo_debug", {PERSISTENT | BACKUP, BOOL}},
-    {"silenciar_alertas_comm", {CLEAR_ON_MANAGER_START, BOOL}},          // ORBIT: no mostrar commIssue/locationd/paramsd TemporaryError (solo pruebas; no debe sobrevivir a un reinicio ni viajar en backups)
     {"show_blindspot", {PERSISTENT, BOOL}},
     {"carState_toggle", {PERSISTENT, BOOL}},
     {"carControl_toggle", {PERSISTENT, BOOL}},

@@ -136,7 +136,7 @@ firmware de opendbc: habría que añadir sus FW versions (ver `docs/CARS.md` y
 
 - `SteerTorqueMode=2` (TEST MAX, solo banco) **se resetea a 0 en cada
   arranque**. Los modos Jetson (1/3) sí persisten.
-- `ForceLaneChangeLeft/Right` y `silenciar_alertas_comm` se limpian en cada
-  arranque (no sobreviven a reinicios ni viajan en backups).
+- `ForceLaneChangeLeft/Right` se limpian en cada arranque (no sobreviven a
+  reinicios ni viajan en backups).
 - Desde el panel ORBIT de Ajustes, el botón **"Restablecer valores seguros"**
   devuelve todos los params ORBIT a su estado seguro sin reiniciar.

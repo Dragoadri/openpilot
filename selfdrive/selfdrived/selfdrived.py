@@ -110,9 +110,6 @@ class SelfdriveD(CruiseHelper):
     self.is_metric = self.params.get_bool("IsMetric")
     self.is_ldw_enabled = self.params.get_bool("IsLdwEnabled")
     self.disengage_on_accelerator = self.params.get_bool("DisengageOnAccelerator")
-    # [SICUEM] toggle UEM: silenciar alertas de comunicacion (commIssue/locationd/paramsd
-    # TemporaryError). Los cloudlog.event() siguen emitiendose para poder diagnosticar.
-    self.silenciar_alertas_comm = self.params.get_bool("silenciar_alertas_comm")
 
     car_recognized = self.CP.brand != 'mock'
 
@@ -407,21 +404,16 @@ class SelfdriveD(CruiseHelper):
     elif not CS.canValid:
       self.events.add(EventName.canError)
 
-    # [SICUEM] refrescar el toggle cada ~3 s para que aplique sin reiniciar la ruta
-    if self.sm.frame % 300 == 0:
-      self.silenciar_alertas_comm = self.params.get_bool("silenciar_alertas_comm")
-
     # generic catch-all. ideally, a more specific event should be added above instead
     has_disable_events = self.events.contains(ET.NO_ENTRY) and (self.events.contains(ET.SOFT_DISABLE) or self.events.contains(ET.IMMEDIATE_DISABLE))
     no_system_errors = (not has_disable_events) or (len(self.events) == num_events)
     if not self.sm.all_checks() and no_system_errors:
-      if not self.silenciar_alertas_comm:
-        if not self.sm.all_alive():
-          self.events.add(EventName.commIssue)
-        elif not self.sm.all_freq_ok():
-          self.events.add(EventName.commIssueAvgFreq)
-        else:
-          self.events.add(EventName.commIssue)
+      if not self.sm.all_alive():
+        self.events.add(EventName.commIssue)
+      elif not self.sm.all_freq_ok():
+        self.events.add(EventName.commIssueAvgFreq)
+      else:
+        self.events.add(EventName.commIssue)
 
       logs = {
         'invalid': [s for s, valid in self.sm.valid.items() if not valid],
@@ -437,10 +429,9 @@ class SelfdriveD(CruiseHelper):
     if not self.CP.notCar:
       if not self.sm['livePose'].posenetOK:
         self.events.add(EventName.posenetInvalid)
-      if not self.sm['livePose'].inputsOK and not self.silenciar_alertas_comm:
+      if not self.sm['livePose'].inputsOK:
         self.events.add(EventName.locationdTemporaryError)
-      if not self.sm['liveParameters'].valid and cal_status == log.LiveCalibrationData.Status.calibrated and not TESTING_CLOSET and (not SIMULATION or REPLAY) \
-         and not self.silenciar_alertas_comm:
+      if not self.sm['liveParameters'].valid and cal_status == log.LiveCalibrationData.Status.calibrated and not TESTING_CLOSET and (not SIMULATION or REPLAY):
         self.events.add(EventName.paramsdTemporaryError)
 
     # conservative HW alert. if the data or frequency are off, locationd will throw an error
