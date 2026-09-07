@@ -6,7 +6,11 @@
   url = https://github.com/sunnypilot/opendbc.git
 [submodule "msgq"]
   path = msgq_repo
-  url = https://github.com/commaai/msgq.git
+  # Fork de commaai/msgq con NUM_READERS 31 (ORBIT tiene 16 lectores de carState; el
+  # msgq original solo admite 15 y expulsa a todos al registrarse el 16). Ver
+  # tools/orbit/README_commissue_msgq.md
+  url = https://github.com/Dragoadri/msgq.git
+  branch = orbit
 [submodule "rednose_repo"]
   path = rednose_repo
   url = https://github.com/commaai/rednose.git
