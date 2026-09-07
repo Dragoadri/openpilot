@@ -9,6 +9,8 @@
 #   arrays not_alive / not_freq_ok / invalid -> dice EXACTAMENTE que servicio
 #   (y por tanto que proceso) llego tarde en el instante de la desactivacion.
 #   Esa es la pista decisiva para confirmar/afinar el fix de contension de I/O.
+#   Ademas (modo pull) guarda un snapshot del device en orbit_snapshot.txt: uname, uptime,
+#   df, free, git, ls /dev/shm y el censo de suscriptores msgq (diag_msgq_readers.py --census).
 #
 # USO:
 #   tools/orbit/grab_orbit_logs.sh pull            # modo offline (tras reproducir el fallo)
@@ -152,8 +154,25 @@ PY
     err "No se hallaron rutas en /data/media/0/realdata."
   fi
 
+  banner "4/4  Snapshot del device (uname/uptime/df/free/git/ls /dev/shm + censo de suscriptores msgq)"
+  # El censo (diag_msgq_readers.py --census) solo LEE las cabeceras de /dev/shm: no crea sockets ni
+  # gasta slots. Si hay un 16º lector de carState (GateMonitor, telemetria, mapd...) aqui sale con "!!".
+  # Cada paso con "|| true": un fallo en el comma no tumba el script.
+  ssh_do "{
+      echo '## uname -a';        uname -a || true;
+      echo '## uptime';          uptime || true;
+      echo '## df -h';           df -h /data /dev/shm 2>/dev/null || true;
+      echo '## free -m';         free -m || true;
+      echo '## git';             cd $REMOTE_OP && git rev-parse --abbrev-ref HEAD && git log -1 --oneline && git status --short 2>/dev/null | head -n 30 || true;
+      echo '## ls -la /dev/shm'; ls -la /dev/shm || true;
+      echo '## censo msgq (tools/orbit/diag_msgq_readers.py --census)';
+      cd $REMOTE_OP && python3 tools/orbit/diag_msgq_readers.py --census 2>&1 | head -80 || true;
+    } 2>&1" | tee "$OUTDIR/orbit_snapshot.txt" || true
+  echo "  -> $OUTDIR/orbit_snapshot.txt"
+
   banner "LISTO. Carpeta de salida: $OUTDIR"
   echo "Mira primero:  $OUTDIR/veredicto.txt  (causa)  y  $OUTDIR/commissue_resumen.txt  (servicio que cae)"
+  echo "Censo msgq (¿carState al limite de suscriptores?):  $OUTDIR/orbit_snapshot.txt"
   echo "Comando util extra (ver el JSON exacto con fichero:linea):"
   echo "  PYTHONPATH=. python3 selfdrive/debug/filter_log_message.py --level ERROR $OUTDIR/route/*/"
 }

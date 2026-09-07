@@ -1,102 +1,94 @@
-# commIssue / locationdTemporaryError cada ~1 s al activar OP — causa raíz y fixes
+# commIssue permanente / "Communication Issue Between Processes" — causa raíz y fix
 
-**Fecha:** 2026-07-02 · **Rama:** `sicuem-mig` · **Device:** comma 3X
-**Evidencia:** rlog `b25afc8f8295c6b3_00000013--4cf886df6f--0` (decodificado con
-`rlog_a_json.py` / analizadores ad-hoc).
+**Primera vez:** 2026-07-02 · rama `sicuem-mig` · comma 3X · rlog `b25afc8f8295c6b3_00000013--4cf886df6f--0`
+**Recurrencia:** 2026-09-03 · rama `orbit-master` (72fd5c4) · comma 3X · Hyundai Tucson 4ª gen · rutas
+`b25afc8f8295c6b3_00000000--13d76952a4` … `00000008--8a7a4e26f1` (logs en `orbit_logs_full_20260907_1241`)
+**Fix definitivo:** 2026-09-07 · fork de msgq con `NUM_READERS 31` (ver abajo)
 
 ## Síntoma
 
-Al conducir (sobre todo con OP activado): "TAKE CONTROL IMMEDIATELY —
-Communication issue between processes" cada ~1 s, alternando a ratos con
-"locationd temporary error". NO lo arreglaron ni el throttle de telemetría en
-controlsd ni `sched_rt_runtime_us=-1` (ambos cambios siguen siendo buenos, pero
-atacaban otra cosa).
+Al intentar activar OP: "Communication Issue Between Processes: liveCalibration, driverMonitoringState,
+longitudinalPlan, livePose". En julio la alerta parpadeaba cada ~1 s; en septiembre OP no se pudo activar
+nunca. En ambos casos NO era CPU, ni el modelo (QCOM, 20 Hz), ni procesos caídos, ni térmico.
 
-## Qué mostró el rlog (lo importante)
+## Qué muestran los rlogs
 
-- **Ningún proceso se atasca**: todos los servicios publican a su frecuencia
-  exacta, sin huecos (carState 100 Hz, modelV2/livePose/cameraOdometry 20 Hz…).
-- Sin embargo `radarState, longitudinalPlan, driverAssistance, liveParameters,
-  driverMonitoringState, liveDelay, liveTorqueParameters, liveCalibration` se
-  publican con **`valid=False` durante EXACTAMENTE 1 mensaje**, en una "ola"
-  que recorre todos los daemons, con **período 1.0008 s** y fase que deriva
-  ~+0.8 ms/s (→ es un bucle userspace con `sleep(1)`, no un timer del kernel).
-- Todos esos daemons publican `valid = sm.all_checks()` y **su único input
-  común es `carState`**: lo que parpadea es el chequeo alive/freq de carState
-  *en el lado receptor* de cada daemon.
-- `modelDataV2SP` va `valid=False` el 100 % del tiempo (su publisher no marca
-  valid): está en la lista `ignore` de selfdrived, es solo ruido en los logs.
-- `gpsLocation` publica a 0.13 Hz (declarado 1 Hz): también ignorado por
-  selfdrived (`gps_packets`), inerte para esta alerta.
+- Todos los servicios publican a su frecuencia exacta (carState 100 Hz, modelV2/cameraOdometry 20 Hz).
+- `liveCalibration, livePose (inputsOK=false), longitudinalPlan, driverMonitoringState, liveParameters,
+  liveDelay, liveTorqueParameters, radarState, driverAssistance` se publican con **`valid=False`**: en julio
+  durante 1 mensaje cada segundo; en septiembre el **100 % del tiempo**, desde el primer segundo de cada ruta.
+- Todos esos daemons publican `valid = sm.all_checks()` y su único input común es **`carState`**: lo que falla
+  es el chequeo alive/freq de carState *en el lado receptor*. Replicando el SubMaster de calibrationd offline
+  con el rlog real, `all_checks()` da True el 99,5 %: el fallo es de runtime, no de datos.
+- loggerd pierde ~3 % de `carState` (5823/6000 por segmento) mientras `carOutput`/`sendcan`/`can` llegan a 6000.
+- `commIssue` es NO_ENTRY: solo se ve en pantalla al intentar activar, pero el evento está activo siempre.
 
 ## Causa raíz
 
-`msgq` limita cada canal a **`NUM_READERS = 15` suscriptores**. Cuando un 16º
-intenta registrarse, `msgq_init_subscriber()` (msgq/msgq.cc) ejecuta el bloque
-*"No more slots available. Reset all subscribers to kick out inactive ones"*:
-**expulsa a TODOS los lectores del canal** (`read_valids=false`,
-`read_uids=0`). Cada víctima se re-registra en su siguiente lectura pero
-**pierde su cola pendiente** → ese ciclo su SubMaster ve carState "no alive" →
-publica su salida con `valid=False` → selfdrived ve `all_checks()=False` →
-`commIssue` (y si le toca a locationd: `livePose.inputsOK=False` →
-`locationdTemporaryError`).
+`msgq` limita cada cola a **`NUM_READERS` lectores** (15 en commaai/msgq, `msgq/msgq.h`). Cuando se registra el
+16º, `msgq_init_subscriber()` (`msgq/msgq.cc`, bloque *"No more slots available. Reset all subscribers"*)
+**expulsa a TODOS** (`read_valids=false`, `read_uids=0`, `num_readers=0`). Cada víctima se re-registra en su
+siguiente lectura saltando al puntero de escritura (pierde lo pendiente). Con **≥16 lectores vivos** el ciclo es
+perpetuo: cada re-registro vuelve a desbordar y expulsa al resto.
 
-Con **≥16 suscriptores vivos el ciclo es perpetuo**: tras cada expulsión los
-daemons rápidos se re-registran en ms, y el más lento — el hilo de telemetría
-MQTT (`MQTTEnvioGeneral.loop()`, `sm.update()` + `time.sleep(1)` ⇒ período
-1.0008 s) — se re-registra ~1 s después, vuelve a desbordar el límite y
-dispara la siguiente expulsión. De ahí el período y la deriva observados.
+Los slots **nunca se liberan** (`msgq_close_queue` solo hace munmap; `num_readers` solo crece): la expulsión es el
+único "GC" de slots de procesos muertos o de SubMasters recreados. Con ≤ límite de lectores vivos es una
+expulsión puntual e inofensiva; con más, la tormenta.
 
-Suscriptores vivos de `carState` en esta rama (contados en código): selfdrived,
-controlsd, plannerd (poll), radard, paramsd, torqued, lagd, calibrationd,
-locationd, dmonitoringd, modeld, loggerd, ui, feedbackd, telemetría MQTT SICUEM
-= **15**, más **mapd** si está instalado (el rlog muestra `locationd_llk`
-arrancando, señal de que el ecosistema mapd está activo) = **16 → tormenta**.
-El sunnypilot stock vive justo en 15; nuestra telemetría (+1) lo desborda.
+Lectores vivos de `carState` en `orbit-master` (censo 2026-09-07):
 
-## Fixes aplicados en esta rama
+| origen | lectores |
+|---|---|
+| openpilot python: controlsd, plannerd, radard, calibrationd, lagd, locationd, paramsd, torqued, modeld, dmonitoringd, selfdrived, ui | 12 |
+| loggerd (C++, suscribe todo lo logueable) | 1 |
+| sunnypilot `locationd_llk` (`sunnypilot/selfdrive/locationd/locationd.cc`) | 1 |
+| **ORBIT** dentro de `manager`: telemetría (`orbit/mqtt_envio_general.py`, 17 servicios) | 1 |
+| **ORBIT** dentro de `manager`: `GateMonitor` del mando remoto (`orbit/command_gates.py`, 7 servicios) | 1 |
+| **total** | **16 > 15** |
 
-1. **`selfdrive/ui/feedback/feedbackd.py`**: quitadas las suscripciones a
-   `carState` y `selfdriveStateSP` (solo las usaba un bloque `if False` —
-   código muerto upstream). carState pasa de 16 a ≤15 suscriptores → se corta
-   el ciclo perpetuo. Cero pérdida de funcionalidad.
-2. **Toggle UEM "SILENCIAR ALERTAS DE COMUNICACION"** (param
-   `silenciar_alertas_comm`, menú UEM): con él activado, selfdrived deja de
-   añadir `commIssue`, `commIssueAvgFreq`, `locationdTemporaryError` y
-   `paramsdTemporaryError`. Los `cloudlog.event("commIssue", ...)` se siguen
-   emitiendo para poder diagnosticar. El resto de alertas de seguridad
-   (cámaras, CAN, sensores, procesos caídos…) NO se tocan. Se refresca cada
-   ~3 s, no hace falta reiniciar la ruta.
+Sunnypilot stock vive en 14. En julio (telemetría + feedbackd) eran 16; quitar la suscripción de feedbackd dejó
+15 justos. El GateMonitor (commit 606f44760, 2026-08-24) fue el nuevo 16º. Además `deviceState` tiene 12
+lectores sin conectividad y ~20 con athenad (4 hilos `upload_handler`, uno por SubMaster) y sunnylink
+conectados: con Internet en el coche también habría desbordado 15.
 
-## Verificación en el device (5 min, sin rebuild)
+Experimento local (`msgq_readers_exp.py`, publicador carState@100 Hz + N SubMasters como calibrationd):
+13/14/15 lectores → `all_checks` OK 99,4 %; 16/17/20 → OK 2-4 %, carState recibido el 42-56 % de los ciclos.
+
+## Fix definitivo (aplicado 2026-09-07)
+
+- Submódulo `msgq_repo` apuntado al fork **`https://github.com/Dragoadri/msgq.git`**, rama `orbit`
+  (base: commit `9beb84a` de commaai/msgq + `NUM_READERS 31`). 31 deja la cabecera shm en 768 B (múltiplo
+  de 64, como los 384 originales). Test en el fork: `msgq/tests/test_poller.py::test_more_subscribers_than_old_limit_all_receive`.
+- Test de regresión en el repo: `cereal/messaging/tests/test_msgq_reader_limit.py` (20 SubMasters como
+  calibrationd; falla con 15, pasa con 31).
+- **Cambia el layout de `/dev/shm`**: tras compilar hay que **reiniciar** (la OTA de `updated` ya lo hace). Si
+  `QuickBootToggle` dejó `/data/openpilot/prebuilt`, borrarlo o no se recompila.
+- Retirado el parche `silenciar_alertas_comm` (ocultaba el síntoma; selfdrived vuelve a ser el de sunnypilot).
+- Fixes anteriores que se mantienen: feedbackd sin suscripción a carState (julio).
+
+## Verificación en el device
 
 ```bash
-# con el coche encendido y openpilot corriendo:
+# coche encendido, openpilot corriendo
 cd /data/openpilot
-python3 tools/orbit/diag_msgq_readers.py --service carState --dur 30
+python3 tools/orbit/diag_msgq_readers.py --census                 # todas las colas: lectores / límite
+python3 tools/orbit/diag_msgq_readers.py --service carState --dur 30   # expulsiones en vivo
 ```
 
-- Si imprime `EVICT-ALL` cada ~1.000-1.001 s → mecanismo confirmado; el
-  "primer registro tras evict" nombra al proceso que desborda.
-- Tras desplegar el fix de feedbackd: repetir → 0 expulsiones (o slots llenos
-  pero estables). En el coche: sin commIssue al activar OP.
-
-## Fix definitivo (opcional, recomendado a medio plazo)
-
-Subir el límite: `tools/orbit/msgq_num_readers.patch` (NUM_READERS 15→31 en
-`msgq_repo/msgq/msgq.h`). Requiere rebuild completo + **reboot** (cambia el
-layout de las colas en /dev/shm). Al ser un submódulo, para hacerlo permanente
-hay que hacer fork de `commaai/msgq` y apuntar `.gitmodules` al fork. Detalles
-en la cabecera del patch.
+- `--census` deriva el límite del tamaño del fichero shm (funciona con builds de 15 y de 31) y marca las colas
+  a ≤ 2 slots del máximo. Esperado tras el fix: `carState` ≥ 16 lectores de 31, ningún `!!`.
+- Modo `--service`: 0 `EVICT-ALL` en 30 s. Si aparece uno aislado es el GC de slots muertos (inofensivo);
+  repetidos = lectores vivos por encima del límite.
+- `tools/orbit/grab_orbit_logs.sh pull` incluye el censo en `orbit_snapshot.txt`.
+- Las colas viven en `/dev/shm/msgq_<servicio>` (o `/dev/shm/msgq_<OPENPILOT_PREFIX>/<servicio>`); no crear
+  nunca sockets desde un diagnóstico: gastan un slot y re-truncan la cola.
 
 ## Reglas para no volver a romperlo
 
-- Cada `SubMaster([...])` / `sub_sock()` NUEVO sobre un canal caliente
-  (carState, carControl, controlsState, liveCalibration, modelV2…) gasta un
-  slot de los 15. Antes de añadir telemetría/overlays que suscriban esos
-  canales, contar suscriptores (o correr `diag_msgq_readers.py`).
-- NUNCA crear SubMaster/sub_sock dentro de un bucle (cada creación registra un
-  suscriptor nuevo; los slots no se liberan al morir el proceso hasta la
-  siguiente expulsión).
-- Si no se usan mapas (SLC), quitar el binario mapd (`/data/media/0/osm/...`,
-  ver `mapd_ready()` en process_config.py) libera otro slot de carState.
+- Cada `SubMaster([...])` / `sub_sock()` gasta un slot en CADA servicio que lista, y **cada re-creación** también
+  (toggles de canal en `mqtt_envio_general.init_submaster`, relevo de hilo del GateMonitor, `athenad.getMessage`,
+  procesos que se reinician). Antes de añadir suscripciones a servicios calientes (carState, deviceState,
+  liveCalibration, carControl, selfdriveState, modelV2) pasar `--census`.
+- NUNCA crear SubMaster/sub_sock dentro de un bucle.
+- El mando remoto y la telemetría deben seguir en SubMasters separados (el plano de mando no puede depender del
+  hilo MQTT), así que ORBIT cuesta 2 lectores en carState por diseño: el margen lo da el límite de 31.
