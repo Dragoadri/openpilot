@@ -184,6 +184,7 @@ def hardware_thread(end_event, hw_queue) -> None:
   engaged_prev = False
   pwrsave = False
   offroad_cycle_count = 0
+  force_onroad_prev = False
 
   params = Params()
   power_monitor = PowerMonitoring()
@@ -222,6 +223,17 @@ def hardware_thread(end_event, hw_queue) -> None:
       if onroad_conditions["ignition"]:
         onroad_conditions["ignition"] = False
         cloudlog.error("panda timed out onroad")
+
+    # ORBIT: modo banco ("Force Onroad", port del Force Drive State de StarPilot). Fuerza SOLO la
+    # ignicion: el resto de condiciones (terminos, temperatura, espacio, OffroadMode) siguen
+    # mandando y OffroadMode gana. Sin coche no hay CAN: card espera y OP no se puede activar.
+    # El param es CLEAR_ON_MANAGER_START: un reinicio siempre lo apaga.
+    force_onroad = params.get_bool("ForceOnroad")
+    if force_onroad:
+      onroad_conditions["ignition"] = True
+    if force_onroad != force_onroad_prev:
+      cloudlog.warning(f"ForceOnroad {'activado: ignicion forzada sin coche' if force_onroad else 'desactivado'}")
+      force_onroad_prev = force_onroad
 
     # Run at 2Hz, plus either edge of ignition
     ign_edge = (started_ts is not None) != all(onroad_conditions.values())

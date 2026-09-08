@@ -110,6 +110,9 @@ class SelfdriveD(CruiseHelper):
     self.is_metric = self.params.get_bool("IsMetric")
     self.is_ldw_enabled = self.params.get_bool("IsLdwEnabled")
     self.disengage_on_accelerator = self.params.get_bool("DisengageOnAccelerator")
+    # ORBIT modo banco (ForceOnroad): onroad sin coche, card nunca recibe CAN. Se lee una vez:
+    # el proceso nace con el modo ya decidido y muere al volver a offroad.
+    self.force_onroad = self.params.get_bool("ForceOnroad")
 
     car_recognized = self.CP.brand != 'mock'
 
@@ -401,7 +404,7 @@ class SelfdriveD(CruiseHelper):
       self.events.add(EventName.usbError)
     if CS.canTimeout:
       self.events.add(EventName.canBusMissing)
-    elif not CS.canValid:
+    elif not CS.canValid and not self.force_onroad:  # en modo banco no hay CAN por diseno
       self.events.add(EventName.canError)
 
     # generic catch-all. ideally, a more specific event should be added above instead

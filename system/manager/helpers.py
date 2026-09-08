@@ -50,6 +50,37 @@ def write_onroad_params(started, params):
   params.put_bool("IsOffroad", not started, block=True)
 
 
+def restore_car_params_for_bench(params) -> bool:
+  """Modo banco (ForceOnroad): deja CarParams/CarParamsSP listos sin coche.
+
+  Sin CAN, card se queda esperando y nunca los escribe, y todo lo que hace
+  params.get("CarParams", block=True) (selfdrived, controlsd, modeld, plannerd, radard,
+  paramsd, lagd, torqued, calibrationd) se quedaria bloqueado. Se copian las copias
+  PERSISTENT de la ultima conduccion real; si no las hay (dispositivo que nunca ha
+  visto un coche) se usa el coche MOCK de opendbc, que arranca el stack en modo
+  dashcam con "Car Unrecognized". Devuelve True si hubo que recurrir al MOCK.
+  """
+  cp = params.get("CarParamsPersistent")
+  cp_sp = params.get("CarParamsSPPersistent")
+  fallback = cp is None
+  if fallback:
+    # import perezoso: opendbc es pesado y manager no lo necesita en el arranque normal
+    from opendbc.car.car_helpers import get_demo_car_params, interfaces
+    from opendbc.car.mock.values import CAR as MOCK
+    from openpilot.selfdrive.car.helpers import convert_to_capnp
+    CP = get_demo_car_params()
+    cp = CP.to_bytes()
+    cp_sp = convert_to_capnp(interfaces[MOCK.MOCK].get_non_essential_params_sp(CP, MOCK.MOCK)).to_bytes()
+  elif cp_sp is None:
+    # card escribe ambos a la vez; por si acaso, un CarParamsSP vacio es valido para los lectores
+    from cereal import custom
+    cp_sp = custom.CarParamsSP.new_message().to_bytes()
+
+  params.put("CarParams", cp, block=True)
+  params.put("CarParamsSP", cp_sp, block=True)
+  return fallback
+
+
 def save_bootlog():
   # copy current params
   tmp = tempfile.mkdtemp()

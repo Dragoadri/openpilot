@@ -13,7 +13,7 @@ from openpilot.common.utils import atomic_write, sudo_write
 from openpilot.common.params import Params, ParamKeyFlag, UnknownKeyName
 from openpilot.common.text_window import TextWindow
 from openpilot.system.hardware import HARDWARE
-from openpilot.system.manager.helpers import unblock_stdout, write_onroad_params, save_bootlog
+from openpilot.system.manager.helpers import unblock_stdout, write_onroad_params, save_bootlog, restore_car_params_for_bench
 from openpilot.system.manager.process import ensure_running
 from openpilot.system.manager.process_config import managed_processes
 from openpilot.system.athena.registration import register, UNREGISTERED_DONGLE_ID
@@ -237,6 +237,12 @@ def manager_thread() -> None:
 
     if started and not started_prev:
       params.clear_all(ParamKeyFlag.CLEAR_ON_ONROAD_TRANSITION)
+      # ORBIT modo banco: hardwared fuerza la ignicion sin coche (ForceOnroad). CarParams y
+      # CarParamsSP acaban de borrarse (CLEAR_ON_ONROAD_TRANSITION) y card no los va a
+      # reponer porque nunca recibira CAN: se restauran de las copias de la ultima conduccion.
+      if params.get_bool("ForceOnroad"):
+        if restore_car_params_for_bench(params):
+          cloudlog.warning("ForceOnroad: sin CarParamsPersistent, arrancando con coche MOCK (dashcam)")
     elif not started and started_prev:
       params.clear_all(ParamKeyFlag.CLEAR_ON_OFFROAD_TRANSITION)
 
