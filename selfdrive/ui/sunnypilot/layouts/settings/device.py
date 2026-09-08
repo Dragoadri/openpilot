@@ -51,6 +51,15 @@ class DeviceLayoutSP(DeviceLayout):
     )
     self._always_offroad_btn.action_item.right_button.set_visible(False)
 
+    # Force Onroad (bench test): same shape as Always Offroad, always placed right after it
+    self._force_onroad_btn = dual_button_item_sp(
+      left_text=lambda: tr("Force Onroad (bench test)"),
+      left_callback=self._handle_force_onroad,
+      right_text="",
+      right_callback=None,
+    )
+    self._force_onroad_btn.action_item.right_button.set_visible(False)
+
     self._max_time_offroad = option_item_sp(
       title=lambda: tr("Max Time Offroad"),
       description=lambda: tr("Device will automatically shutdown after set time once the engine is turned off.\n(30h is the default)"),
@@ -188,6 +197,29 @@ class DeviceLayoutSP(DeviceLayout):
     gui_app.push_widget(ConfirmDialog(_offroad_mode_str, tr("Confirm"), callback=lambda result: _set_always_offroad(result)))
 
   @staticmethod
+  def _handle_force_onroad():
+    if ui_state.engaged:
+      gui_app.push_widget(alert_dialog(tr("Disengage to change Force Onroad")))
+      return
+
+    _force_onroad_state = ui_state.params.get_bool("ForceOnroad")
+    if not _force_onroad_state and ui_state.params.get_bool("OffroadMode"):
+      gui_app.push_widget(alert_dialog(tr("Exit Always Offroad first")))
+      return
+
+    if _force_onroad_state:
+      _force_onroad_str = tr("Exit Force Onroad mode?")
+    else:
+      _force_onroad_str = tr("Force Onroad starts the whole openpilot stack without a car, using the last saved car params. " +
+                             "openpilot cannot be engaged in this mode. It turns off on reboot. Continue?")
+
+    def _set_force_onroad(result: int):
+      if result == DialogResult.CONFIRM and not ui_state.engaged:
+        ui_state.params.put_bool("ForceOnroad", not _force_onroad_state)
+
+    gui_app.push_widget(ConfirmDialog(_force_onroad_str, tr("Confirm"), callback=_set_force_onroad))
+
+  @staticmethod
   def _update_max_time_offroad_label(value: int) -> str:
     label = tr("Always On") if value == 0 else f"{value}" + tr("m") if value < 60 else f"{value // 60}" + tr("h")
     label += tr(" (Default)") if value == 1800 else ""
@@ -205,13 +237,24 @@ class DeviceLayoutSP(DeviceLayout):
     self._always_offroad_btn.action_item.left_button.set_text(offroad_mode_btn_text)
     self._always_offroad_btn.action_item.left_button.set_button_style(offroad_mode_btn_style)
 
-    # Position
+    # Force Onroad (bench test) button: same text/style treatment
+    force_onroad = ui_state.params.get_bool("ForceOnroad")
+    force_onroad_btn_text = tr("Exit Force Onroad") if force_onroad else tr("Force Onroad (bench test)")
+    force_onroad_btn_style = ButtonStyle.PRIMARY if force_onroad else ButtonStyle.DANGER
+    self._force_onroad_btn.action_item.left_button.set_text(force_onroad_btn_text)
+    self._force_onroad_btn.action_item.left_button.set_button_style(force_onroad_btn_style)
+
+    # Position (Force Onroad rides immediately after Always Offroad in both placements)
     if self._scroller._items.__contains__(self._always_offroad_btn):
       self._scroller._items.remove(self._always_offroad_btn)
+    if self._scroller._items.__contains__(self._force_onroad_btn):
+      self._scroller._items.remove(self._force_onroad_btn)
     if ui_state.is_offroad() and not always_offroad:
       self._scroller._items.insert(len(self._scroller._items) - 1, self._always_offroad_btn)
+      self._scroller._items.insert(len(self._scroller._items) - 1, self._force_onroad_btn)
     else:
       self._scroller._items.insert(0, self._always_offroad_btn)
+      self._scroller._items.insert(1, self._force_onroad_btn)
 
     # Quiet Mode button
     self._quiet_mode_and_dcam.action_item.left_button.set_button_style(ButtonStyle.PRIMARY if ui_state.params.get_bool("QuietMode") else ButtonStyle.NORMAL)

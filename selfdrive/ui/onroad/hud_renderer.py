@@ -117,6 +117,9 @@ class HudRenderer(Widget):
 
     self._draw_current_speed(rect)
 
+    if ui_state.force_onroad:
+      self._draw_bench_badge(rect)
+
     button_x = rect.x + rect.width - UI_CONFIG.border_size - UI_CONFIG.button_size
     button_y = rect.y + UI_CONFIG.border_size
     self._exp_button.render(rl.Rectangle(button_x, button_y, UI_CONFIG.button_size, UI_CONFIG.button_size))
@@ -165,6 +168,30 @@ class HudRenderer(Widget):
       FONT_SIZES.set_speed,
       0,
       set_speed_color,
+    )
+
+  def _draw_bench_badge(self, rect: rl.Rectangle) -> None:
+    """Small top-center pill shown only while ForceOnroad (bench test, no car) is active.
+
+    Shares the top band with the ORBIT command pills (which start at rect.y + 20 and are
+    drawn later, so they paint over it: the right priority for a transient notification).
+    U+2022 is used instead of a middle dot because the Inter .fnt atlases lack U+00B7.
+    """
+    text = tr("BENCH • NO CAR")
+    text_size = measure_text_cached(self._font_semi_bold, text, FONT_SIZES.max_speed)
+    pad_x, pad_y = 28, 8
+    badge_w = text_size.x + pad_x * 2
+    badge_h = text_size.y + pad_y * 2
+    badge_rect = rl.Rectangle(rect.x + (rect.width - badge_w) / 2, rect.y + 16, badge_w, badge_h)
+    rl.draw_rectangle_rounded(badge_rect, 0.5, 10, COLORS.BLACK_TRANSLUCENT)
+    rl.draw_rectangle_rounded_lines_ex(badge_rect, 0.5, 10, 3, COLORS.BORDER_TRANSLUCENT)
+    rl.draw_text_ex(
+      self._font_semi_bold,
+      text,
+      rl.Vector2(badge_rect.x + pad_x, badge_rect.y + pad_y),
+      FONT_SIZES.max_speed,
+      0,
+      COLORS.WHITE,
     )
 
   def _draw_current_speed(self, rect: rl.Rectangle) -> None:

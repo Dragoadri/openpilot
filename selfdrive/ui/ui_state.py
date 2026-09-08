@@ -84,6 +84,7 @@ class UIState(UIStateSP):
     self.usbgpu_compiled: bool = self.params.get_bool("UsbGpuCompiled")
     self.started: bool = False
     self.ignition: bool = False
+    self.force_onroad: bool = False  # ForceOnroad param: bench test, hardwared forces ignition with no car/panda
     self.recording_audio: bool = False
     self.panda_type: log.PandaState.PandaType = log.PandaState.PandaType.unknown
     self.personality: log.LongitudinalPersonality = log.LongitudinalPersonality.standard
@@ -157,8 +158,8 @@ class UIState(UIStateSP):
     elif not self.sm.alive["wideRoadCameraState"] or not self.sm.valid["wideRoadCameraState"]:
       self.light_sensor = -1
 
-    # Update started state
-    self.started = self.sm["deviceState"].started and self.ignition
+    # Update started state (Force Onroad: no panda ignition, follow hardwared's forced start)
+    self.started = self.sm["deviceState"].started and (self.ignition or self.force_onroad)
 
     # Update body state
     if self.CP is not None and self.is_body != self.CP.notCar:
@@ -213,6 +214,7 @@ class UIState(UIStateSP):
     self.experimental_mode = self.params.get_bool("ExperimentalMode")
     self.usbgpu = self.params.get_bool("UsbGpuPresent")
     self.usbgpu_compiled = self.params.get_bool("UsbGpuCompiled")
+    self.force_onroad = self.params.get_bool("ForceOnroad")
 
     UIStateSP.update_params(self)
 
@@ -335,7 +337,8 @@ class Device(DeviceSP):
         callback()
     self._prev_timed_out = interaction_timeout
 
-    self._set_awake(ui_state.ignition or not interaction_timeout or PC)
+    # Force Onroad keeps the screen on for the whole bench session, like ignition would
+    self._set_awake(ui_state.ignition or ui_state.force_onroad or not interaction_timeout or PC)
 
   def _set_awake(self, on: bool):
     if on != self._awake:
