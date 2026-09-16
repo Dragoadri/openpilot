@@ -35,6 +35,7 @@ from openpilot.orbit.command_spec import COMMANDS, MODE_WIRE_NAMES, UNSUPPORTED,
 # entorno ORBIT_IOV_BACKEND al directorio `backend/` si esta en otro sitio.
 _CANDIDATOS = (
   os.environ.get("ORBIT_IOV_BACKEND", ""),
+  "/home/drago/Desktop/ORBIT-IoV/backend",
   "/home/drago/Escritorio/PROYECTS/APPS/orbit-iov/backend",
   str(Path(__file__).resolve().parents[3] / "orbit-iov" / "backend"),
 )
