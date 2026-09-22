@@ -332,6 +332,13 @@ class OrbitLayout(Widget):
       callback=self._toggle_bench,
     )
 
+    self._help_button = button_item_sp(
+      title=lambda: tr("Qué significa esto"),
+      button_text=lambda: tr("VER"),
+      description=lambda: tr("Definiciones de ARMAR, DESARMAR, los modos y el enlace."),
+      callback=self._show_help,
+    )
+
     self._privacy_toggle = toggle_item_sp(
       title=lambda: tr("NO EMITIR POSICION NI CAMARA"),
       description=lambda: tr("Interruptor maestro local. Corta el envio de posicion y de imagen " +
@@ -369,6 +376,7 @@ class OrbitLayout(Widget):
     return [
       self._mando_card,
       self._bench_button,
+      self._help_button,
       SectionHeaderSP(tr("VOLANTE")),
       *self._steer_rows.items,
       SectionHeaderSP(tr("CONEXION")),
@@ -426,6 +434,42 @@ class OrbitLayout(Widget):
     self._last_refresh = 0.0
     if fallos:
       gui_app.push_widget(alert_dialog(tr("No se pudo desarmar el banco:") + "\n" + "\n".join(fallos)))
+
+  # ------------------------------------------------------------------ definiciones
+  @_a_salvo("definiciones del panel", avisar=True)
+  def _show_help(self):
+    """Dialogo con las definiciones de la terminologia que menos se explica sola.
+
+    El usuario pidio un boton en el menu que diga que son ARMAR y DESARMAR y el resto
+    de conceptos que no quedan claros. Es un dialogo informativo (sin confirmacion):
+    no toca ningun param, asi que no puede romper nada.
+
+    Se usa rich=True (HTML + Scroller) a proposito: el texto es largo y el modo
+    plano (rich=False) recorta con scissor lo que no cabe en el area fija del modal.
+    Con rich el contenido se desplaza y nada se pierde.
+    """
+    msg = (
+      "<h2>" + tr("ARMAR (modo banco)") + "</h2><p>" +
+      tr("Habilita durante 5 minutos los verbos de control fisico (torque del volante, "
+         "pulso de direccion, control directo) para que se ejecuten DE FORMA REMOTA "
+         "desde la app. Se arma solo desde esta pantalla, con el coche parado y alguien "
+         "delante. Se desarma solo al agotarse el tiempo, al superar los 5 km/h o al "
+         "pasar a offroad.") + "</p>" +
+      "<h2>" + tr("DESARMAR TODO") + "</h2><p>" +
+      tr("Cancela cualquier orden en curso y devuelve el control. Es la unica accion "
+         "que funciona siempre, desde cualquier pantalla y aunque la conexion vaya mal.") + "</p>" +
+      "<h2>" + tr("MODO (observador / copiloto / maniobra)") + "</h2><p>" +
+      tr("El nivel de autoridad que la app tiene sobre el coche. El coche arranca "
+         "siempre en observador; subir el modo desde la app solo dura un rato "
+         "(copiloto 15 min, maniobra 2 min).") + "</p>" +
+      "<h2>" + tr("ENLACE") + "</h2><p>" +
+      tr("Salud de la conexion de mando con el servidor. Si esta caido, las ordenes "
+         "remotas no llegan.") + "</p>" +
+      "<h2>" + tr("BANCO ARMADO") + "</h2><p>" +
+      tr("El modo banco esta activo y quedan los segundos que se muestran. Mientras "
+         "este armado, la app puede ejecutar verbos de control fisico.") + "</p>"
+    )
+    gui_app.push_widget(ConfirmDialog(msg, tr("OK"), rich=True))
 
   # ------------------------------------------------------------------ desarmar todo
   @_a_salvo("DESARMAR TODO", avisar=True)
