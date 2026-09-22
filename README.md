@@ -25,7 +25,7 @@
 
 **[Researcher profile](https://portalcientifico.universidadeuropea.com/investigadores/1299129/detalle)**
 · **[Research group — SICUEM](https://portalcientifico.universidadeuropea.com/grupos/216432/detalle)**
-· **[Backend + app (ORBIT-IoV) ↗](https://github.com/Dragoadri/ORBIT-IoV)**
+· **[Backend + app (ORBIT-IoV) ↗](https://github.com/orbit-pilot/ORBIT-IoV)**
 
 </div>
 
@@ -78,7 +78,7 @@ flowchart LR
     APP -- "REST" --> BE
 ```
 
-Backend, app, database and broker live in **[ORBIT-IoV](https://github.com/Dragoadri/ORBIT-IoV)**. The safety-critical loop never leaves the car: remote commands only act **through openpilot's actuation and safety gates**.
+Backend, app, database and broker live in **[ORBIT-IoV](https://github.com/orbit-pilot/ORBIT-IoV)**. The safety-critical loop never leaves the car: remote commands only act **through openpilot's actuation and safety gates**.
 
 ## 🔗 QR pairing in 10 seconds
 
