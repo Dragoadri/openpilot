@@ -174,10 +174,19 @@ class SelfdriveD(CruiseHelper):
     self.events_sp = EventsSP()
     self.events_sp_prev = []
 
-    # [Orbit] dedup del espejo MQTT de alertas: solo se reenvia a events_mqtt
-    # cuando CAMBIA el conjunto de alert_types activos (antes se recorrian todas
-    # las alertas en cada frame a 100 Hz: filtros, lock y parseo por ciclo).
+    # [Orbit] espejo MQTT de alertas (orbit/events_mqtt.py). El dedup vive en
+    # events_mqtt.mirror_alerts: solo publica cuando CAMBIA el conjunto de alert_types
+    # activos. Se importa aqui, una vez, y se abre el cliente por adelantado: la
+    # conexion es asincrona y sin esto la primera alerta del viaje se perdia siempre.
     self._orbit_alert_types_prev: frozenset = frozenset()
+    self._orbit_mirror_avisado = False
+    try:
+      from openpilot.orbit import events_mqtt as _orbit_events
+      self._orbit_events = _orbit_events
+      self._orbit_events.warmup()
+    except Exception:
+      cloudlog.exception("[Orbit] no se pudo preparar el espejo MQTT de alertas")
+      self._orbit_events = None
 
     self.mads = ModularAssistiveDrivingSystem(self)
     self.icbm = IntelligentCruiseButtonManagement(self.CP, self.CP_SP)
@@ -584,18 +593,17 @@ class SelfdriveD(CruiseHelper):
     self.AM.add_many(self.sm.frame, alerts + alerts_sp)
 
     # [Orbit] espejo de alertas por MQTT (la creación de alertas vive en selfdrived, no en controlsd;
-    # events_mqtt aplica su propio cooldown por evento y usa un cliente MQTT persistente no bloqueante)
-    try:
-      _alert_types = frozenset(getattr(_a, "alert_type", "") for _a in (alerts + alerts_sp))
-      _alert_types.discard("")
-      if _alert_types != self._orbit_alert_types_prev:
-        self._orbit_alert_types_prev = _alert_types
-        from openpilot.orbit import events_mqtt
-        for _a in (alerts + alerts_sp):
-          if getattr(_a, "alert_type", ""):
-            events_mqtt.send_alert(_a)
-    except Exception:
-      pass
+    # events_mqtt aplica su propio cooldown por evento y usa un cliente MQTT persistente no bloqueante).
+    # Un fallo aqui se registra UNA vez y no se traga: la version anterior hacia
+    # frozenset(...).discard(""), que lanza AttributeError, y el `except: pass` lo escondio
+    # durante un mes con el espejo entero muerto (ninguna alerta llegaba a la app).
+    if self._orbit_events is not None:
+      try:
+        self._orbit_alert_types_prev = self._orbit_events.mirror_alerts(alerts + alerts_sp, self._orbit_alert_types_prev)
+      except Exception:
+        if not self._orbit_mirror_avisado:
+          self._orbit_mirror_avisado = True
+          cloudlog.exception("[Orbit] el espejo MQTT de alertas fallo (no se reintenta avisar)")
 
     self.AM.process_alerts(self.sm.frame, clear_event_types)
 

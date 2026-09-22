@@ -3,13 +3,19 @@
 import json
 import time
 from datetime import datetime, UTC
-import os
 import threading
 from typing import Optional, Dict
 
 import paho.mqtt.client as mqtt
 
 from openpilot.common.params import Params
+from openpilot.orbit import config_broker
+
+try:
+  from openpilot.common.swaglog import cloudlog
+except ImportError:  # herramientas sueltas / PC sin zmq
+  import logging
+  cloudlog = logging.getLogger("orbit.events_mqtt")
 
 
 # Cooldown en segundos antes de re-enviar el mismo evento
@@ -48,11 +54,10 @@ def _load_broker() -> tuple[str, int, Optional[str], Optional[str]]:
   if _broker_cfg_cache is not None and (now - _broker_cfg_cache_ts) < _BROKER_CFG_TTL_S:
     return _broker_cfg_cache
 
-  base_path = os.path.dirname(os.path.abspath(__file__))
-  cfg_path = os.path.join(base_path, "config_mqtt.json")
+  # Plantilla del arbol + lo persistido en /data por encima (orbit/config_broker.py):
+  # la IP de la pantalla no vuelve a "" con cada OTA. Sigue siendo disco -> sigue cacheado.
   try:
-    with open(cfg_path, "r") as f:
-      cfg = json.load(f)
+    cfg = config_broker.leer_config()
     broker = cfg.get("broker", "localhost")
     port = int(cfg.get("broker_port", 1883))
     # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
@@ -99,6 +104,14 @@ def _ensure_mqtt_client():
 
   broker, port, username, password = _load_broker()
 
+  # Sin broker configurado (plantilla de fabrica, "broker": "") no hay nada que abrir:
+  # paho lanzaria 'Invalid host.' y, como el cliente quedaba a None, CADA alerta que
+  # pasara el filtro construia un Client nuevo para volver a fallar. Se avisa UNA vez
+  # (por valor) y se espera a que la pantalla escriba una IP; _load_broker la recoge.
+  if not (broker or "").strip():
+    _avisar_una_vez("sin_broker", "[Orbit] events_mqtt: sin broker configurado, los eventos no salen")
+    return None
+
   with _mqtt_client_lock:
     needs_reinit = (
       _mqtt_client is None or
@@ -116,27 +129,91 @@ def _ensure_mqtt_client():
       except Exception:
         pass
 
-      client = mqtt.Client()
-      client.max_queued_messages_set(0)  # No encolar mensajes en RAM si no hay conexión
-      client.on_connect = _on_mqtt_connect
-      client.on_disconnect = _on_mqtt_disconnect
-      client.reconnect_delay_set(min_delay=1, max_delay=30)
-      # Credenciales MQTT opcionales (broker con auth). None = anonimo.
-      if username:
-        client.username_pw_set(username, password)
       try:
-        client.connect_async(broker, port, keepalive=60)
-        client.loop_start()
+        client = mqtt.Client()
+        client.max_queued_messages_set(1)  # como maximo un mensaje QoS>0 pendiente
+        client.on_connect = _on_mqtt_connect
+        client.on_disconnect = _on_mqtt_disconnect
+        client.reconnect_delay_set(min_delay=1, max_delay=30)
+        # Credenciales MQTT opcionales (broker con auth). None = anonimo.
+        if username:
+          client.username_pw_set(username, password)
+        # Publicar el estado inicial ANTES de arrancar el hilo. loop_start puede
+        # ejecutar on_connect inmediatamente; escribir False despues pisaba ese
+        # True y dejaba una conexion viva descartando eventos indefinidamente.
+        _mqtt_connected = False
         _mqtt_broker = broker
         _mqtt_port = port
         _mqtt_username = username
         _mqtt_password = password
         _mqtt_client = client
-      except Exception:
+        client.connect_async(broker, port, keepalive=60)
+        client.loop_start()
+        cloudlog.warning(f"[Orbit] events_mqtt: conectando a {broker}:{port}")
+      except Exception as e:
+        # Antes este fallo era mudo: el cliente quedaba a None y nadie se enteraba de
+        # que los eventos no salian. Una linea por valor de broker, no una por alerta.
+        _avisar_una_vez(f"fallo:{broker}:{port}", f"[Orbit] events_mqtt: no se pudo abrir el cliente MQTT hacia {broker}:{port}: {e}")
         _mqtt_connected = False
         _mqtt_client = None
 
   return _mqtt_client
+
+
+_avisos_dados: set = set()
+
+
+def _avisar_una_vez(clave: str, texto: str) -> None:
+  """Un aviso por clave y proceso: esto corre en el hilo de 100 Hz de selfdrived y un
+  fallo persistente (sin broker, broker inalcanzable) no puede convertirse en un log
+  por ciclo."""
+  if clave in _avisos_dados:
+    return
+  _avisos_dados.add(clave)
+  try:
+    cloudlog.warning(texto)
+  except Exception:
+    pass
+
+
+def warmup() -> None:
+  """Abre el cliente MQTT por adelantado (llamar UNA vez, fuera del bucle de 100 Hz).
+
+  connect_async es asincrono: sin esto, la PRIMERA alerta que pasa el filtro es la que
+  crea el cliente y se pierde siempre (send_event_full exige conexion viva), y con ella
+  cualquier otra del mismo ciclo. Con el cliente abierto desde el arranque de selfdrived,
+  la primera alerta real del viaje ya sale. Nunca lanza."""
+  try:
+    _ensure_mqtt_client()
+  except Exception:
+    pass
+
+
+def mirror_alerts(alerts, prev_types: frozenset) -> frozenset:
+  """Espejo MQTT de las alertas de un ciclo de selfdrived (100 Hz).
+
+  Devuelve el conjunto de `alert_type` vivos. Solo se publica cuando ese conjunto CAMBIA
+  respecto a `prev_types`; el resto de ciclos esto es una comprension y una comparacion
+  de frozensets, sin I/O ni locks. El filtro de relevancia y el cooldown por alert_type
+  siguen viviendo en send_event_full.
+
+  Esta logica estaba inline en selfdrived y llevaba MUERTA desde el 20 de agosto de 2026
+  (commit 5c028bc2a): hacia `frozenset(...).discard("")`, que es un AttributeError
+  (frozenset es inmutable, no tiene discard), dentro de un `except Exception: pass`. Ni
+  una alerta salio por MQTT desde entonces, sin una linea de log. Aqui el conjunto se
+  construye ya sin vacios, y el llamante registra la excepcion en vez de tragarsela.
+  """
+  tipos = frozenset(t for t in (getattr(a, "alert_type", "") or "" for a in alerts) if t)
+  if tipos == prev_types:
+    return prev_types
+  enviadas = True
+  for a in alerts:
+    if getattr(a, "alert_type", ""):
+      enviadas = send_alert(a) and enviadas
+  # connect_async tarda: si aun no habia enlace no memorizamos el conjunto.
+  # El siguiente ciclo vuelve a intentar exactamente las mismas alertas y las
+  # publica en cuanto on_connect confirme la conexion.
+  return tipos if enviadas else prev_types
 
 
 def _should_filter_event(title: str, message: str, priority: int, event_name: Optional[str], alert_type: Optional[str]) -> bool:
@@ -231,7 +308,7 @@ def send_event_full(title: str,
                     dongle_id: Optional[str] = None,
                     event_name: Optional[str] = None,
                     event_type: Optional[str] = None,
-                    alert_type: Optional[str] = None) -> None:
+                    alert_type: Optional[str] = None) -> bool:
   """Envía un evento completo por MQTT con toda su información.
 
   Args:
@@ -246,12 +323,12 @@ def send_event_full(title: str,
   did = dongle_id or _get_dongle_id()
   topic = f"telemetry_mqtt/{did}/event"
 
-  # VALIDACIÓN: No enviar eventos sin título ni mensaje
+  # Algunas alertas de sistema (p. ej. engagement) no tienen texto visible.
+  # El nombre de maquina sigue siendo un evento valido y evita tarjetas vacias.
   title_stripped = (title or "").strip()
   message_stripped = (message or "").strip()
   if not title_stripped and not message_stripped:
-    # Evento sin contenido, no enviar
-    return
+    title = (event_name or (alert_type or "").split("/", 1)[0] or "evento").strip()
 
   # Construir alert_type si no se proporciona
   if not alert_type:
@@ -262,11 +339,6 @@ def send_event_full(title: str,
     else:
       alert_type = "unknown/unknown"
 
-  # FILTRO: Solo enviar eventos que cumplan los criterios específicos
-  if not _should_filter_event(title, message, priority, event_name, alert_type):
-    # Evento filtrado, no enviar (reduce saturación MQTT)
-    return
-
   client = _ensure_mqtt_client()
 
   # Si no hay cliente o la conexión aún no está establecida, no enviar para
@@ -275,12 +347,12 @@ def send_event_full(title: str,
   # porque connect_async es asíncrono) se perdía Y además suprimía los
   # reenvíos del mismo alert_type durante 12/30 s.
   if client is None or not _mqtt_connected:
-    return
+    return False
 
   # Verificar cooldown antes de enviar (con cooldown extendido para "TAKE CONTROL")
   if not _should_send_event(alert_type, title=title):
-    # Evento en cooldown, no enviar
-    return
+    # Ya se entrego este mismo tipo hace unos segundos: cuenta como atendido.
+    return True
 
   # Payload completo con toda la información del evento
   payload = {
@@ -297,13 +369,20 @@ def send_event_full(title: str,
 
   try:
     # Publicar utilizando el cliente persistente (QoS 0 para máximo rendimiento)
-    client.publish(topic, json.dumps(payload), qos=0)
+    info = client.publish(topic, json.dumps(payload), qos=0)
+    if getattr(info, "rc", mqtt.MQTT_ERR_SUCCESS) != mqtt.MQTT_ERR_SUCCESS:
+      # La conexion puede caer entre el flag y publish(). No se consume el
+      # cooldown: mirror_alerts debe reintentarlo tras el siguiente on_connect.
+      _event_last_sent.pop(alert_type, None)
+      return False
+    return True
   except Exception:
     # Error silencioso para no afectar el loop de control
-    pass
+    _event_last_sent.pop(alert_type, None)
+    return False
 
 
-def send_alert(alert) -> None:
+def send_alert(alert) -> bool:
   """Send an Events.Alert-like object (envía evento completo con cooldown).
 
   Expects attributes: alert_text_1, alert_text_2, priority, alert_type, event_name, event_type
@@ -327,10 +406,10 @@ def send_alert(alert) -> None:
 
     # Validar que tenemos alert_type
     if not alert_type:
-      return
+      return False
 
     # Enviar evento completo con cooldown
-    send_event_full(
+    return send_event_full(
       title=title,
       message=message,
       priority=priority,
@@ -341,4 +420,4 @@ def send_alert(alert) -> None:
 
   except Exception:
     # No re-lanzar para no afectar el loop de control
-    pass
+    return False

@@ -25,6 +25,7 @@ import time
 import threading
 import paho.mqtt.client as mqtt
 from openpilot.common.params import Params
+from openpilot.orbit import config_broker
 from openpilot.common.swaglog import cloudlog
 import os
 
@@ -58,7 +59,9 @@ def espera_reintento(fallos_previos: int) -> float:
 class MQTTComandos:
   def __init__(self, plane=None):
     self.base_path = os.path.dirname(os.path.abspath(__file__))
-    self.jsonConfig = os.path.join(self.base_path, "config_mqtt.json")
+    # Fichero real de la config de conexion (en el comma, /data/orbit_config_mqtt.json:
+    # fuera del arbol git, sobrevive al updater). Se lee siempre por config_broker.
+    self.jsonConfig = config_broker.ruta_config()
     self.params = Params()
     self._refrescar_dongle()
     # Plano de mando (GateMonitor + estado compartido). Se INYECTA por referencia -- el
@@ -361,15 +364,15 @@ class MQTTComandos:
     self.params.put("OrbitHealthcheckRequest", str(ahora_epoch_ms() // 1000))
 
   def load_config(self):
-    with open(self.jsonConfig) as f:
-      config = json.load(f)
-      self.broker_address = config.get("broker", "localhost")
-      # broker_port antes se ignoraba aqui (1883 a fuego): en un broker con puerto
-      # no estandar los comandos morian mientras la telemetria si salia.
-      self.broker_port = int(config.get("broker_port", 1883))
-      # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
-      self.mqtt_username = (config.get("username") or "").strip() or None
-      self.mqtt_password = config.get("password") or None
+    # Plantilla del arbol + lo persistido en /data por encima (ver orbit/config_broker.py).
+    config = config_broker.leer_config()
+    self.broker_address = config.get("broker", "localhost")
+    # broker_port antes se ignoraba aqui (1883 a fuego): en un broker con puerto
+    # no estandar los comandos morian mientras la telemetria si salia.
+    self.broker_port = int(config.get("broker_port", 1883))
+    # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
+    self.mqtt_username = (config.get("username") or "").strip() or None
+    self.mqtt_password = config.get("password") or None
 
   def init_mqtt(self):
     self.mqttc = mqtt.Client()

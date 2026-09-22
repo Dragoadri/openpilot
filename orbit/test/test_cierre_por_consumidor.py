@@ -124,3 +124,137 @@ def test_disarm_all_no_espera_a_nadie():
   r.drenar()
   assert _fases(pub)[-1] == Phase.APPLIED
   assert not r._pendientes
+
+
+# ---------------------------------------------------------------------------------------
+# Lo que se vio en el coche (command_log del backend, 2026-09-21): tres lane_change con todo
+# en verde cerrados como failed/NO_RESULT y uno cerrado como `failed` con reason `OK` y
+# detail "maniobra iniciada". Estos tests fijan el arreglo de las dos mitades.
+# ---------------------------------------------------------------------------------------
+
+def test_una_fase_intermedia_del_consumidor_no_cierra_ni_falla():
+  """`executing` ("maniobra iniciada") se reenvia como ACK y la orden sigue pendiente."""
+  r, pub, _ = _router()
+  r.handle_payload(TOPIC, _sobre())
+  r.drenar()
+  r._cerrar_con_resultado({"v": 2, "verb": "lane_change", "id": "test-lane_change",
+                           "phase": "executing", "reason": "OK", "detail": "maniobra iniciada"})
+  ultimo = [p for _, p, _, _ in pub][-1]
+  assert ultimo["phase"] == Phase.EXECUTING
+  assert Phase.FAILED not in _fases(pub), "una maniobra que EMPIEZA se cerraba como fallo"
+  assert "test-lane_change" in r._pendientes, "la orden tiene que seguir esperando su final"
+  # El plazo pasa a ser el de la EJECUCION (una maniobra dura hasta 10 s), no el del sobre.
+  _, limite = r._pendientes["test-lane_change"]
+  assert limite - ahora_mono() > r.MARGEN_RESULTADO_S + 3.0
+  r._cerrar_con_resultado({"v": 2, "verb": "lane_change", "id": "test-lane_change",
+                           "phase": "applied", "reason": "OK", "detail": "cambio de carril completado"})
+  assert _fases(pub)[-1] == Phase.APPLIED
+  assert not r._pendientes
+
+
+def test_un_veredicto_sin_id_se_correlaciona_por_verbo():
+  """desire_helper puede leer el flag antes de ver el cmdId en el plano (20 Hz contra 10 Hz):
+  un veredicto sin id pero con verbo cierra el UNICO pendiente de ese verbo."""
+  r, pub, _ = _router()
+  r.handle_payload(TOPIC, _sobre())
+  r.drenar()
+  r._cerrar_con_resultado({"v": 2, "verb": "lane_change", "id": "",
+                           "phase": "rejected", "reason": "GATE_SPEED_RANGE", "detail": ""})
+  ultimo = [p for _, p, _, _ in pub][-1]
+  assert ultimo["id"] == "test-lane_change"
+  assert ultimo["phase"] == Phase.FAILED
+  assert ultimo["reason"] == "GATE_SPEED_RANGE"
+  assert not r._pendientes
+
+
+def test_un_id_ajeno_no_se_correlaciona_por_verbo():
+  """Con id, el id manda: uno que no es nuestro no cierra nuestra orden aunque el verbo coincida."""
+  r, pub, _ = _router()
+  r.handle_payload(TOPIC, _sobre())
+  r.drenar()
+  antes = len(pub)
+  r._cerrar_con_resultado({"v": 2, "verb": "lane_change", "id": "otra-sesion",
+                           "phase": "applied", "reason": "OK"})
+  assert len(pub) == antes
+  assert "test-lane_change" in r._pendientes
+
+
+def test_el_plano_conserva_el_cmd_id_hasta_el_veredicto():
+  """El consumidor firma con el cmdId que ve en el plano de estado: borrarlo al retornar el
+  handler dejaba el veredicto sin id (y la orden en NO_RESULT)."""
+  r, pub, _ = _router()
+  r.handle_payload(TOPIC, _sobre())
+  r.drenar()
+  assert r.store.snapshot()["cmd_id"] == "test-lane_change"
+  assert r.store.snapshot()["active_verb"] == "lane_change"
+  r._cerrar_con_resultado({"v": 2, "verb": "lane_change", "id": "test-lane_change",
+                           "phase": "executing", "reason": "OK", "detail": "maniobra iniciada"})
+  # Visto por el consumidor: el plano deja de anunciarlo como activo (no da BUSY a otros).
+  assert r.store.snapshot()["cmd_id"] == ""
+  assert r.store.snapshot()["active_verb"] == ""
+
+
+def test_el_no_result_tambien_libera_el_plano():
+  r, pub, _ = _router()
+  r.handle_payload(TOPIC, _sobre())
+  r.drenar()
+  with r._lock:
+    for cid, (verbo, _lim) in list(r._pendientes.items()):
+      r._pendientes[cid] = (verbo, ahora_mono() - 1.0)
+  r._caducar_pendientes()
+  assert r.store.snapshot()["cmd_id"] == ""
+
+
+def test_un_verbo_sin_consumidor_sigue_cerrando_el_plano_al_instante():
+  r, pub, _ = _router(verbo="disarm_all")
+  r.handle_payload(TOPIC, _sobre("disarm_all", args={}))
+  r.drenar()
+  assert r.store.snapshot()["cmd_id"] == ""
+
+
+def test_lane_change_busy_no_roba_el_id_de_la_maniobra_en_curso():
+  """La segunda orden se rechaza con SU id; el final conserva el id de la primera."""
+  from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper, LaneChangeState
+
+  class ParamsFalsos:
+    def __init__(self):
+      self.resultados = []
+
+    def get_bool(self, key):
+      return key == "ForceLaneChangeLeft"
+
+    def remove(self, _key):
+      pass
+
+    def put(self, _key, value):
+      self.resultados.append(json.loads(value))
+
+  class AuthFalsa:
+    active_verb = "lane_change"
+    cmd_id = "segunda"
+
+    def allows(self, *_a):
+      return True, "OK"
+
+  h = DesireHelper.__new__(DesireHelper)
+  h.params = ParamsFalsos()
+  h._orbit_now_mono = ahora_mono()
+  h._orbit_flags = (False, False)
+  h._orbit_flags_hasta = 0.0
+  h._orbit_auth = AuthFalsa()
+  h._orbit_lc_cmd_id = "primera"
+  h._orbit_lc_candidate_cmd_id = ""
+  h._orbit_result_roto = False
+  h.lane_change_state = LaneChangeState.laneChangeStarting
+
+  direccion, motivo = h._orbit_consumir_flag()
+  assert motivo == ""
+  assert h._orbit_lc_cmd_id == "primera"
+  assert h._orbit_lc_candidate_cmd_id == "segunda"
+  assert h._orbit_evaluar(None, True, direccion) == "BUSY"
+
+  h._orbit_reportar("rejected", "BUSY", cmd_id=h._orbit_lc_candidate_cmd_id)
+  assert h.params.resultados[-1]["id"] == "segunda"
+  assert h._orbit_lc_cmd_id == "primera"
+  h._orbit_reportar("applied", "OK")
+  assert h.params.resultados[-1]["id"] == "primera"

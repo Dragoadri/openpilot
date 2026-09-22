@@ -9,19 +9,19 @@ Filas de CONEXION con el servidor ORBIT (broker MQTT).
 `ServerRows` construye las filas compartidas (editar broker + probar conexion)
 que usan dos superficies: la seccion CONEXION del panel ORBIT de ajustes
 (orbit_panel.py) y el modal a pantalla completa que abre la tarjeta SERVIDOR
-de la home (`ServerSettingsLayout`). Edita la key "broker" de
-orbit/config_mqtt.json preservando el resto de keys; mqtt_envio_general
-recarga el broker en caliente al detectar el cambio.
+de la home (`ServerSettingsLayout`). Escribe la key "broker" a traves de
+orbit/config_broker.py: en el comma va a /data/orbit_config_mqtt.json, FUERA
+del arbol git, porque el updater hace `git reset --hard` y devolvia
+orbit/config_mqtt.json a "broker": "" en cada OTA (la IP "se perdia" al
+arrancar). mqtt_envio_general vigila ese fichero y recarga el broker en
+caliente al detectar el cambio.
 """
-import json
-import os
-import tempfile
 import threading
 from collections.abc import Callable
 
 import pyray as rl
 
-from openpilot.common.basedir import BASEDIR
+from openpilot.orbit import config_broker
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.sunnypilot.widgets.input_dialog import InputDialogSP
 from openpilot.selfdrive.ui.widgets.orbit_server import probe_server, probe_backend, read_backend_port
@@ -34,46 +34,6 @@ from openpilot.system.ui.widgets.network import NavButton
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 
 
-def _resolve_path(rel: str) -> str:
-  candidates = [
-    os.path.join(BASEDIR, rel),
-    os.path.join("/data/openpilot", rel),
-  ]
-  for path in candidates:
-    if os.path.exists(path):
-      return path
-  return candidates[0]
-
-
-def _load_json(path: str) -> dict:
-  try:
-    with open(path) as f:
-      data = json.load(f)
-    if isinstance(data, dict):
-      return data
-  except (OSError, ValueError):
-    pass
-  return {}
-
-
-def _save_json(path: str, root: dict) -> bool:
-  directory = os.path.dirname(path)
-  try:
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
-    try:
-      with os.fdopen(fd, "w") as f:
-        json.dump(root, f, indent=4)
-      os.replace(tmp_path, path)
-    except Exception:
-      if os.path.exists(tmp_path):
-        os.remove(tmp_path)
-      raise
-  except OSError:
-    return False
-  return True
-
-
 class ServerRows:
   """Filas broker-EDITAR y PROBAR, con estado del test compartido.
 
@@ -82,7 +42,6 @@ class ServerRows:
   """
 
   def __init__(self):
-    self._orbit_path = _resolve_path("orbit/config_mqtt.json")
     self._test_status = ""
     self._pending_test: str | None = None
 
@@ -111,12 +70,12 @@ class ServerRows:
 
   # ---------------------------------------------------------------- broker
   def _read_broker_ip(self) -> str:
-    broker = _load_json(self._orbit_path).get("broker")
+    broker = config_broker.leer_config().get("broker")
     return broker if isinstance(broker, str) else ""
 
   def _read_broker_port(self) -> int:
     try:
-      return int(_load_json(self._orbit_path).get("broker_port", 1883) or 1883)
+      return int(config_broker.leer_config().get("broker_port", 1883) or 1883)
     except (TypeError, ValueError):
       return 1883
 
@@ -133,9 +92,11 @@ class ServerRows:
       text = text.strip()
       if not text:
         return
-      root = _load_json(self._orbit_path)  # preserva broker_port y el resto de keys
-      root["broker"] = text
-      _save_json(self._orbit_path, root)
+      # Solo la key "broker": el resto (puerto, backend, credenciales) se preserva.
+      # Un fallo de escritura se dice: antes se tragaba y la pantalla seguia
+      # mostrando la IP vieja sin explicar por que.
+      if not config_broker.escribir_config({"broker": text}):
+        gui_app.push_widget(alert_dialog(tr("No se pudo guardar la IP del servidor")))
 
     InputDialogSP(tr("IP del servidor ORBIT"), current_text=current, min_text_size=1, callback=on_input).show()
 

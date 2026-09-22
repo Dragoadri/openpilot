@@ -792,6 +792,24 @@ class CommandRouter:
   MARGEN_RESULTADO_S = 2.0
   # Cadencia del sondeo. Solo se lee el disco si hay algo pendiente.
   PERIODO_RESULTADO_S = 0.1
+  # Plazo que se concede a una maniobra YA EMPEZADA para terminar. En cuanto el consumidor
+  # anuncia una fase intermedia (executing: "maniobra iniciada") la orden deja de estar
+  # limitada por el TTL del sobre -- el TTL dice cuanto vale la orden EN VUELO, no cuanto
+  # dura la maniobra -- y pasa a estarlo por esto. 15 s cubre LANE_CHANGE_TIME_MAX (10 s)
+  # mas el fundido de salida y el margen del consumidor.
+  #
+  # POR QUE HACE FALTA. Medido en el coche (command_log del backend): un cambio de carril
+  # con todo en verde cerraba como `failed/NO_RESULT`, y el unico que llego a cerrar con
+  # el veredicto del consumidor lo hizo como `failed` con reason `OK` y detail "maniobra
+  # iniciada". Dos fallos del mismo camino: (1) el consumidor firma el veredicto con el id
+  # que ve en el plano de estado, y el plano lo BORRABA en cuanto el handler retornaba, asi
+  # que el veredicto llegaba sin id y se tiraba; (2) el primer veredicto que llegaba
+  # (`executing`) se trataba como terminal y como fallo.
+  MARGEN_EJECUCION_S = 15.0
+
+  # Fases que un consumidor puede anunciar SIN cerrar la orden, y las que la cierran.
+  _FASES_INTERMEDIAS = (Phase.RECEIVED, Phase.ACCEPTED, Phase.EXECUTING)
+  _FASES_TERMINALES = (Phase.APPLIED, Phase.REJECTED, Phase.FAILED, Phase.EXPIRED, Phase.SUPERSEDED)
 
   def _registrar_pendiente(self, cmd) -> None:
     """Deja el comando esperando el veredicto de su consumidor."""
@@ -843,23 +861,78 @@ class CommandRouter:
         cloudlog.exception("[Orbit] bucle de resultados")
       self._stop.wait(self.PERIODO_RESULTADO_S)
 
+  def _correlacionar_pendiente(self, cmd_id: str, verbo: str) -> str | None:
+    """Clave del pendiente al que pertenece un veredicto. Se llama CON el lock cogido.
+
+    Con `id` se exige que sea uno de los nuestros: un id ajeno (otra sesion, un comando ya
+    caducado) NO se correlaciona por verbo, porque seria cerrar nuestra orden con el
+    veredicto de otra. SIN `id` se correlaciona por verbo con el pendiente mas antiguo de
+    ese verbo: es el caso real del consumidor que leyo el flag antes de ver el cmdId en el
+    plano de estado (desire_helper corre a 20 Hz y el plano publica a 10 Hz), y con un solo
+    pendiente por verbo -- los verbos que cierra un consumidor no se encadenan -- no hay
+    ambiguedad que resolver.
+    """
+    if cmd_id:
+      return cmd_id if cmd_id in self._pendientes else None
+    if not verbo:
+      return None
+    candidatos = [(limite, cid) for cid, (v, limite) in self._pendientes.items() if v == verbo]
+    if not candidatos:
+      return None
+    return min(candidatos)[1]
+
+  def _liberar_plano(self, cmd_id: str) -> None:
+    """Cierra en el plano de estado el comando `cmd_id` SI sigue siendo el activo.
+
+    Los verbos que cierra un consumidor conservan activeVerb/cmdId en el plano hasta que
+    llega su veredicto (o vence el margen): es de ahi de donde el consumidor lee el id con
+    el que firma. Si mientras tanto empezo otro comando, el plano ya es suyo y no se toca.
+    """
+    if self.store is None:
+      return
+    try:
+      if self.store.snapshot().get("cmd_id") == cmd_id:
+        self.store.end_command()
+    except Exception:
+      pass
+
   def _cerrar_con_resultado(self, dato: dict) -> None:
-    cmd_id = str(dato.get("id") or "")
-    if not cmd_id:
-      return
-    with self._lock:
-      pendiente = self._pendientes.pop(cmd_id, None)
-    if pendiente is None:
-      # Veredicto de un comando que ya caduco, o de otra sesion. No se inventa un ACK.
-      return
-    verbo = pendiente[0]
-    fase = str(dato.get("phase") or "")
-    motivo = str(dato.get("reason") or "")
+    cmd_id = str(dato.get("id") or "").strip()
+    verbo_dato = str(dato.get("verb") or "").strip()
+    fase = str(dato.get("phase") or "").strip().lower()
+    motivo = str(dato.get("reason") or "").strip()
     detalle = str(dato.get("detail") or "")[:512]
-    if fase == "applied" and motivo in ("", "OK"):
-      self._ack(cmd_id, Phase.APPLIED, "OK", detalle, verb=verbo)
+    terminal = fase in self._FASES_TERMINALES
+    if not terminal and fase not in self._FASES_INTERMEDIAS:
+      return  # fase desconocida: no se inventa un ACK
+    with self._lock:
+      clave = self._correlacionar_pendiente(cmd_id, verbo_dato)
+      if clave is None:
+        # Veredicto de un comando que ya caduco, o de otra sesion. No se inventa un ACK.
+        return
+      verbo = self._pendientes[clave][0]
+      if terminal:
+        self._pendientes.pop(clave, None)
+      else:
+        # La maniobra esta en marcha: el plazo pasa a ser el de la EJECUCION, no el del sobre.
+        self._pendientes[clave] = (verbo, ahora_mono() + self.MARGEN_EJECUCION_S)
+    if not terminal:
+      self._ack(clave, fase, "OK" if fase == Phase.ACCEPTED else "", detalle, verb=verbo)
+      # El consumidor ya ha visto el comando (firmo con su id o el router lo correlaciono
+      # por verbo): el plano deja de anunciarlo como activo para no dar BUSY a los demas
+      # consumidores durante la maniobra (OrbitAuthority.busy_with_other).
+      self._liberar_plano(clave)
+      return
+    if fase == Phase.APPLIED and motivo in ("", "OK"):
+      self._ack(clave, Phase.APPLIED, "OK", detalle, verb=verbo)
+    elif fase in (Phase.EXPIRED, Phase.SUPERSEDED):
+      self._ack(clave, fase, motivo or fase.upper(), detalle, verb=verbo)
     else:
-      self._ack(cmd_id, Phase.FAILED, motivo or "REJECTED", detalle, verb=verbo)
+      # rejected / failed del consumidor, o un "applied" con motivo de error (contradiccion:
+      # fail-closed). Ya se publico EXECUTING, asi que el terminal es FAILED (seccion 3.3):
+      # la app trata ambos como fallo y el motivo real viaja en `reason`.
+      self._ack(clave, Phase.FAILED, motivo or "INTERNAL", detalle, verb=verbo)
+    self._liberar_plano(clave)
 
   def _caducar_pendientes(self) -> None:
     ahora = ahora_mono()
@@ -872,6 +945,7 @@ class CommandRouter:
       # un flag en disco y nadie confirmo que se ejecutara.
       self._ack(cid, Phase.FAILED, "NO_RESULT",
                 "el consumidor no confirmo la maniobra dentro del plazo", verb=verbo)
+      self._liberar_plano(cid)
 
   def _bucle_worker(self) -> None:
     while not self._stop.is_set():
@@ -985,7 +1059,8 @@ class CommandRouter:
           pass
       return
 
-    if getattr(spec, "cierra_consumidor", False):
+    cierra_consumidor = bool(getattr(spec, "cierra_consumidor", False))
+    if cierra_consumidor:
       # El handler solo dejo el flag en disco. Quien decide es el consumidor, y puede
       # rechazarlo: anunciar APPLIED aqui seria pintar un "Hecho" en la app por una
       # maniobra que quiza no ocurra nunca. Se queda en EXECUTING hasta que llegue
@@ -1004,7 +1079,11 @@ class CommandRouter:
           # La ventana se cerro entera: el siguiente verbo que arme actuador abre la suya
           # completa y no queda recortado por el deadline de un verbo ya desarmado.
           self._ventana_verb = ""
-        else:
+        elif not cierra_consumidor:
           self.store.end_command()
+        # Los verbos que cierra un consumidor CONSERVAN activeVerb/cmdId en el plano: el
+        # consumidor firma su veredicto con ese id (desire_helper._orbit_consumir_flag) y
+        # con el borrado inmediato el veredicto llegaba sin id y acababa en NO_RESULT. Lo
+        # cierra _liberar_plano al llegar el veredicto o al vencer el margen.
       except Exception:
         pass

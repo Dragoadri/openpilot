@@ -25,6 +25,7 @@ EL ESTADO DEL MANDO SE LEE DE CEREAL, NO DE PARAMS. `ui_state.orbit_command` es 
 vista del mensaje `orbitCommandState` (10 Hz) que refresca UIStateSP en cada frame. Los
 unicos Params que se leen aqui son los de la cuenta atras del armado, y a 1 Hz.
 """
+import functools
 import time
 from enum import IntEnum
 
@@ -62,6 +63,41 @@ _DISARM_FEEDBACK_S = 2.5
 
 _RED = rl.Color(0xF2, 0x55, 0x55, 255)
 _AMBER = rl.Color(0xF5, 0xC8, 0x42, 255)
+
+
+def _a_salvo(etiqueta: str, avisar: bool = False):
+  """Decorador: la funcion NUNCA deja salir una excepcion al bucle de la UI.
+
+  POR QUE. El bucle de render (system/ui/lib/application.py, `render`) no envuelve
+  `widget.render` en ningun try, y los callbacks de los botones se ejecutan dentro de
+  ese mismo render. Cualquier excepcion en un `_render`, en un refresco o en un callback
+  mata el proceso `ui` ENTERO; manager lo resucita (restart_if_crash) y el usuario ve el
+  splash de ORBIT como si el comma se hubiera reiniciado. Y como el armado de banco vive
+  en Params y sobrevive al reinicio de la UI, un fallo que dependa del estado "armado"
+  vuelve a matarla en cuanto se abre este panel: bucle de reinicios. Es exactamente lo
+  que paso al pulsar ARMAR con una referencia a una constante que ya no existia
+  (mando.ARM_REASON_STEER) dentro de `_refresh_status`.
+
+  Con `avisar=True` (acciones del usuario: armar, desarmar, restablecer) ademas se lo
+  cuenta con un dialogo: una accion que falla muda es peor que una que no existe. Los
+  refrescos de pintado solo lo dejan en el log (van a 1 Hz, no inundan).
+  """
+  def decorador(fn):
+    @functools.wraps(fn)
+    def envoltura(*args, **kwargs):
+      try:
+        return fn(*args, **kwargs)
+      except Exception:
+        cloudlog.exception(f"[Orbit/UI] {etiqueta}: excepcion no controlada")
+        if avisar:
+          try:
+            gui_app.push_widget(alert_dialog(tr("Fallo interno en:") + f" {etiqueta}\n" +
+                                             tr("La accion no se ha completado. Revisa el log de la UI.")))
+          except Exception:
+            cloudlog.exception("[Orbit/UI] no se pudo mostrar el aviso de fallo")
+        return None
+    return envoltura
+  return decorador
 
 
 def _publish_age(params) -> float:
@@ -123,6 +159,7 @@ class _MandoCard(Widget):
     super().set_parent_rect(parent_rect)
     self._rect.width = parent_rect.width
 
+  @_a_salvo("refresco de la tarjeta de mando")
   def _refresh(self):
     now = time.monotonic()
     if now - self._last_refresh < _REFRESH_SECONDS:
@@ -345,6 +382,7 @@ class OrbitLayout(Widget):
     ]
 
   # --------------------------------------------------------------- armado de banco
+  @_a_salvo("modo banco", avisar=True)
   def _toggle_bench(self):
     if mando.bench_armed():   # sin cache: es una accion, no un pintado
       self._apply_bench_disarm()
@@ -364,16 +402,22 @@ class OrbitLayout(Widget):
     def on_result(result: DialogResult):
       if result != DialogResult.CONFIRM:
         return
-      fallos = mando.arm_bench()
-      guard = getattr(ui_state, "orbit_bench_guard", None)
-      if guard is not None:
-        guard.note_local_arm(mando.ARM_REASON_BENCH)
-      self._last_refresh = 0.0
-      if fallos:
-        gui_app.push_widget(alert_dialog(tr("No se pudo armar el banco:") + "\n" + "\n".join(fallos)))
+      self._apply_bench_arm()
 
     gui_app.push_widget(ConfirmDialog(msg, tr("SI, armar 5 minutos"), tr("Cancelar"), callback=on_result))
 
+  @_a_salvo("armar el banco", avisar=True)
+  def _apply_bench_arm(self):
+    """Corre como callback del ConfirmDialog, o sea dentro del render: a salvo."""
+    fallos = mando.arm_bench()
+    guard = getattr(ui_state, "orbit_bench_guard", None)
+    if guard is not None:
+      guard.note_local_arm(mando.ARM_REASON_BENCH)
+    self._last_refresh = 0.0
+    if fallos:
+      gui_app.push_widget(alert_dialog(tr("No se pudo armar el banco:") + "\n" + "\n".join(fallos)))
+
+  @_a_salvo("desarmar el banco", avisar=True)
   def _apply_bench_disarm(self):
     fallos = mando.disarm_bench()
     guard = getattr(ui_state, "orbit_bench_guard", None)
@@ -384,6 +428,7 @@ class OrbitLayout(Widget):
       gui_app.push_widget(alert_dialog(tr("No se pudo desarmar el banco:") + "\n" + "\n".join(fallos)))
 
   # ------------------------------------------------------------------ desarmar todo
+  @_a_salvo("DESARMAR TODO", avisar=True)
   def _do_disarm_all(self):
     fallos = mando.disarm_all()
     self._steer_rows.sync()
@@ -397,6 +442,7 @@ class OrbitLayout(Widget):
       self._disarm_feedback_until = time.monotonic() + _DISARM_FEEDBACK_S
 
   # ---------------------------------------------------------------------- privacidad
+  @_a_salvo("interruptor de privacidad", avisar=True)
   def _on_privacy(self, enabled: bool):
     fallos = mando.set_privacy_mute(bool(enabled))
     if fallos:
@@ -421,6 +467,7 @@ class OrbitLayout(Widget):
 
     gui_app.push_widget(ConfirmDialog(msg, tr("SI, restablecer"), tr("Cancelar"), callback=on_result))
 
+  @_a_salvo("restablecer valores seguros", avisar=True)
   def _apply_safe_reset(self):
     """Escrituras INDEPENDIENTES, cada una con su try y su log.
 
@@ -486,6 +533,7 @@ class OrbitLayout(Widget):
                                        "\n" + "\n".join(sorted(set(fallos)))))
 
   # ------------------------------------------------------------------ estado vivo
+  @_a_salvo("refresco del estado del armado")
   def _refresh_status(self):
     now = time.monotonic()
     if now - self._last_refresh < _REFRESH_SECONDS:
@@ -495,14 +543,13 @@ class OrbitLayout(Widget):
     armado, restante_s = mando.bench_snapshot()
     self._bench_armed = armado
     if armado:
-      restante = int(restante_s)
-      guard = getattr(ui_state, "orbit_bench_guard", None)
-      motivo = guard.reason if guard is not None else None
-      if motivo == mando.ARM_REASON_STEER:
-        self._bench_status = (tr("ARMADO por el selector de volante") + f" - {restante}s " +
-                              tr("(se renueva mientras el modo siga elegido)"))
-      else:
-        self._bench_status = tr("ARMADO") + f" - {restante}s " + tr("restantes")
+      # Solo existe UN motivo de armado (ARM_REASON_BENCH, el boton de esta pantalla):
+      # el selector de volante ya no arma el banco, va por OrbitSteerModeLocal (ver
+      # steer_mode.py). Esta rama comparaba con `mando.ARM_REASON_STEER`, una constante
+      # que se retiro con ese cambio, y como solo se ejecuta con el banco ARMADO nadie lo
+      # vio hasta que alguien pulso ARMAR en el coche: AttributeError en cada frame, muerte
+      # del proceso ui y bucle de reinicios (ver _a_salvo).
+      self._bench_status = tr("ARMADO") + f" - {int(restante_s)}s " + tr("restantes")
     else:
       self._bench_status = tr("Desarmado. Los verbos de banco se rechazan.")
 

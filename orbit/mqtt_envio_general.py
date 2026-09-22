@@ -7,6 +7,7 @@ import paho.mqtt.client as mqtt
 import cereal.messaging as messaging
 from cereal.services import SERVICE_LIST
 from openpilot.common.params import Params
+from openpilot.orbit import config_broker
 from openpilot.common.swaglog import cloudlog
 import os
 from .mqtt_comandos import CONN_SIN_BROKER_SECS, MQTTComandos, espera_reintento
@@ -79,7 +80,10 @@ class MQTTEnvioGeneral:
     # canales cuyo mensaje llego en un tick que no publica.
     self._v1_frame = {}
     self.base_path = os.path.dirname(os.path.abspath(__file__))
-    self.jsonConfig = os.path.join(self.base_path, "config_mqtt.json")
+    # Fichero que se VIGILA para la recarga en caliente: en el comma es
+    # /data/orbit_config_mqtt.json (fuera del arbol git, sobrevive al updater), en el PC
+    # la plantilla orbit/config_mqtt.json. El contenido se lee siempre por config_broker.
+    self.jsonConfig = config_broker.ruta_config()
     self.jsonCanales = os.path.join(self.base_path, "canales.json")
     self.espera = 0.5
     self.pause_event = threading.Event()
@@ -184,13 +188,14 @@ class MQTTEnvioGeneral:
     self._link_camera_to_comandos()
 
   def load_config(self):
-    with open(self.jsonConfig) as f:
-      config = json.load(f)
-      self.broker_address = config.get("broker", "localhost")
-      self.broker_port = int(config.get("broker_port", 1883))
-      # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
-      self.mqtt_username = (config.get("username") or "").strip() or None
-      self.mqtt_password = config.get("password") or None
+    # Plantilla del arbol + lo persistido en /data por encima (ver orbit/config_broker.py):
+    # la IP que el usuario escribio en la pantalla no vuelve a "" con cada OTA.
+    config = config_broker.leer_config()
+    self.broker_address = config.get("broker", "localhost")
+    self.broker_port = int(config.get("broker_port", 1883))
+    # Credenciales MQTT opcionales (broker con auth). Vacio/ausente = anonimo.
+    self.mqtt_username = (config.get("username") or "").strip() or None
+    self.mqtt_password = config.get("password") or None
     try:
       self._cfg_mtime = os.path.getmtime(self.jsonConfig)
     except OSError:
@@ -213,8 +218,7 @@ class MQTTEnvioGeneral:
       return
     self._cfg_mtime = mtime
     try:
-      with open(self.jsonConfig) as f:
-        cfg = json.load(f)
+      cfg = config_broker.leer_config()
       new_broker = cfg.get("broker", self.broker_address)
       new_port = int(cfg.get("broker_port", self.broker_port))
       new_username = (cfg.get("username") or "").strip() or None

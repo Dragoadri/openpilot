@@ -1,43 +1,30 @@
 """
 ORBIT server reachability helpers.
 
-Reads the Orbit server address from orbit/config_mqtt.json and checks
+Reads the Orbit server address through orbit/config_broker.py (template in the
+tree + the user value persisted in /data, which survives OTA updates) and checks
 whether it is reachable: a plain TCP connect to the MQTT broker (no MQTT
 handshake) plus an HTTP GET to the backend /api/health endpoint.
 Used by the home screen (live status) and the server-IP settings ("test") button.
 """
-import json
-import os
 import socket
 import threading
 import urllib.request
 
-from openpilot.common.basedir import BASEDIR
+from openpilot.orbit import config_broker
 
-CONFIG_REL = "orbit/config_mqtt.json"
 DEFAULT_BACKEND_PORT = 8010
-
-
-def _resolve(rel: str) -> str:
-  for path in (os.path.join(BASEDIR, rel), os.path.join("/data/openpilot", rel)):
-    if os.path.exists(path):
-      return path
-  return os.path.join(BASEDIR, rel)
 
 
 def _read_config() -> dict:
   try:
-    with open(_resolve(CONFIG_REL)) as f:
-      data = json.load(f)
-    if isinstance(data, dict):
-      return data
+    return config_broker.leer_config()
   except Exception:
-    pass
-  return {}
+    return {}
 
 
 def read_broker() -> tuple[str, int]:
-  """Return (ip, port) of the Orbit MQTT broker from config_mqtt.json."""
+  """Return (ip, port) of the Orbit MQTT broker (template + persisted user value)."""
   data = _read_config()
   ip = data.get("broker") or ""
   try:
@@ -48,7 +35,7 @@ def read_broker() -> tuple[str, int]:
 
 
 def read_backend_port() -> int:
-  """Return the Orbit backend HTTP port from config_mqtt.json."""
+  """Return the Orbit backend HTTP port (template + persisted user value)."""
   try:
     return int(_read_config().get("backend_port", DEFAULT_BACKEND_PORT) or DEFAULT_BACKEND_PORT)
   except Exception:

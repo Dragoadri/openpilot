@@ -99,7 +99,7 @@ Lost acks self-heal, codes can be regenerated from the dialog, and unlinking fro
 ## 🚀 Run it
 
 1. **Install** like any sunnypilot build ([getting started](https://community.sunnypilot.ai/t/getting-started-using-sunnypilot-in-your-supported-car/251)).
-2. **Point** `orbit/config_mqtt.json` at your ORBIT broker (`broker`, `broker_port`, `backend_port`).
+2. **Point** the device at your ORBIT broker: Settings → ORBIT → **Servidor ORBIT** → EDITAR. The value is persisted in `/data/orbit_config_mqtt.json` (outside the git tree, so it survives OTA updates); `orbit/config_mqtt.json` is only the factory template (`broker`, `broker_port`, `backend_port`).
 3. **Pair**: Settings → Device → **Vincular con ORBIT** → scan with the app. Done — telemetry and remote control flow once claimed.
 
 ### 🕹️ Simulator
@@ -156,7 +156,8 @@ ORBITPILOT/
 │   ├── camera_sender.py              # camera frame sender (MQTT)
 │   ├── zmq_client.py                 # Jetson ZeroMQ link
 │   ├── canales.json                  # telemetry channel → topic map
-│   └── config_mqtt.json              # broker host/port + backend port
+│   ├── config_broker.py              # broker config: template + /data/orbit_config_mqtt.json (survives OTA)
+│   └── config_mqtt.json              # factory template: broker host/port + backend port
 ├── selfdrive/ui/
 │   ├── layouts/home.py               # ORBIT home (status cards, telemetry pulse, account pill)
 │   ├── widgets/orbit_enroll_dialog.py# QR pairing dialog (countdown, regenerate, success state)

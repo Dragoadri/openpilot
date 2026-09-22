@@ -56,14 +56,24 @@ def main() -> int:
   # 3) Config del broker ---------------------------------------------------
   print("\n3) CONFIG BROKER")
   broker, port = None, 1883
+  # Misma resolucion que orbit/config_broker.py: la plantilla del arbol y, por encima,
+  # lo que el usuario escribio desde la pantalla (persistido en /data, fuera de git).
   candidates = [
     os.path.join("/data/openpilot", "orbit/config_mqtt.json"),
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                  "orbit/config_mqtt.json"),
   ]
   cfgpath = next((p for p in candidates if os.path.exists(p)), candidates[0])
+  persistente = "/data/orbit_config_mqtt.json"
   try:
     cfg = json.load(open(cfgpath))
+    if os.path.exists(persistente):
+      try:
+        cfg.update({k: v for k, v in json.load(open(persistente)).items()
+                    if v not in (None, "")})
+        info(f"persistido: {persistente}")
+      except Exception as e:
+        bad(f"{persistente} ilegible ({e}); se usa solo la plantilla")
     broker = cfg.get("broker")
     port = int(cfg.get("broker_port", 1883))
     info(f"archivo: {cfgpath}")

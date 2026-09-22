@@ -99,6 +99,7 @@ class DesireHelper:
     self._orbit_lc_en_curso = False         # hay una maniobra REMOTA viva (para reportar el final)
     self._orbit_lc_corte = ""               # motivo por el que se corto, anotado donde se sabe
     self._orbit_lc_cmd_id = ""              # id del comando que la disparo, si se pudo ver
+    self._orbit_lc_candidate_cmd_id = ""    # id de la orden nueva mientras se revalidan sus gates
     self._orbit_result_roto = False         # el param de resultado no existe en este build
     self._orbit_ultimo_error_mono = 0.0     # acota el log de excepciones (20 Hz)
 
@@ -115,7 +116,7 @@ class DesireHelper:
     except Exception:
       self._orbit_auth = None
 
-  def _orbit_reportar(self, phase: str, reason: str, detail: str = "") -> None:
+  def _orbit_reportar(self, phase: str, reason: str, detail: str = "", cmd_id: str | None = None) -> None:
     """Publica el RESULTADO real de la maniobra para que el router cierre el ACK.
 
     Hoy la orden se lanza y nadie sabe que paso: desire_helper consumia el flag y lo
@@ -128,10 +129,20 @@ class DesireHelper:
     """
     if self._orbit_result_roto:
       return
+    # El id con el que se firma. Si al consumir el flag el plano aun no habia publicado el
+    # cmdId (este proceso corre a 20 Hz y el plano a 10 Hz), se vuelve a mirar AHORA: el
+    # router conserva activeVerb/cmdId hasta que llega el veredicto. Sin id el router
+    # correlaciona por verbo, pero con id el cierre es exacto.
+    target_id = self._orbit_lc_cmd_id if cmd_id is None else cmd_id
+    if cmd_id is None and not target_id and self._orbit_auth is not None \
+        and self._orbit_auth.active_verb == ORBIT_LC_VERB:
+      target_id = self._orbit_auth.cmd_id or ""
+      if cmd_id is None:
+        self._orbit_lc_cmd_id = target_id
     payload = {
       "v": 2,
       "verb": ORBIT_LC_VERB,
-      "id": self._orbit_lc_cmd_id,
+      "id": target_id,
       "phase": phase,
       "reason": reason,
       "detail": detail,
@@ -191,10 +202,14 @@ class DesireHelper:
       # Las dos direcciones a la vez es una contradiccion, no una orden: no se ejecuta
       # ninguna. Antes el orden del if/elif decidia por su cuenta que ganaba la izquierda.
       return None, "TYPE"
-    if _ORBIT_MANDO and self._orbit_auth is not None:
-      # cmdId solo esta puesto MIENTRAS corre el handler, asi que casi nunca se ve; se
-      # guarda si esta y el router correlaciona por verbo cuando no.
-      self._orbit_lc_cmd_id = self._orbit_auth.cmd_id or ""
+    # Id del comando que disparo el flag. El router lo deja en el plano de estado hasta que
+    # llega el veredicto (command_router._ejecutar / _liberar_plano); se toma SOLO si el
+    # verbo activo es el nuestro, para no firmar con el id de un cruise_delta que corra a
+    # la vez. Si aun no se ve (carrera de 20 Hz contra 10 Hz), _orbit_reportar lo reintenta
+    # y, en ultimo termino, el router correlaciona por verbo.
+    self._orbit_lc_candidate_cmd_id = ""
+    if _ORBIT_MANDO and self._orbit_auth is not None and self._orbit_auth.active_verb == ORBIT_LC_VERB:
+      self._orbit_lc_candidate_cmd_id = self._orbit_auth.cmd_id or ""
     return (LaneChangeDirection.left if izq else LaneChangeDirection.right), ""
 
   def _orbit_evaluar(self, carstate, lateral_active: bool, direccion) -> str:
@@ -265,6 +280,7 @@ class DesireHelper:
       self._orbit_reportar(OrbitPhase.FAILED if _ORBIT_MANDO else "failed", motivo,
                            "la maniobra se interrumpio antes de terminar")
     self._orbit_lc_corte = ""
+    self._orbit_lc_cmd_id = ""
 
   @staticmethod
   def get_lane_change_direction(CS):
@@ -302,7 +318,8 @@ class DesireHelper:
         motivo = self._orbit_evaluar(carstate, lateral_active, forced_dir)
       if motivo and motivo != "OK":
         self._orbit_reportar(OrbitPhase.REJECTED if _ORBIT_MANDO else "rejected", motivo,
-                             "precondicion en rojo al ejecutar")
+                             "precondicion en rojo al ejecutar", cmd_id=self._orbit_lc_candidate_cmd_id)
+        self._orbit_lc_candidate_cmd_id = ""
         forced_dir = None
     except Exception:
       # Acotado en el tiempo: update() corre a 20 Hz y una excepcion que se repita cada
@@ -327,6 +344,10 @@ class DesireHelper:
       # arranca la maquina de estados y se anota que la maniobra en curso es REMOTA, para
       # poder decir despues si termino o si se aborto.
       if forced_dir is not None:
+        # Solo AHORA pasa a ser el id de la maniobra viva. Una segunda orden
+        # evaluada como BUSY conserva su id candidato y no pisa el de esta.
+        self._orbit_lc_cmd_id = self._orbit_lc_candidate_cmd_id
+        self._orbit_lc_candidate_cmd_id = ""
         self.lane_change_direction = forced_dir
         self.lane_change_state = LaneChangeState.laneChangeStarting
         self.lane_change_ll_prob = 1.0
