@@ -109,6 +109,14 @@ class OpenpilotMetadata:
                                           "github.com/sunnyhaibin/openpilot")
 
   @property
+  def orbit_remote(self) -> bool:
+    # installer.comma.ai clones <org>/openpilot, which GitHub redirects to orbit-pilot/orbitpilot;
+    # Dragoadri/openpilot is where devices installed before the move still point
+    return self.git_normalized_origin in ("github.com/orbit-pilot/orbitpilot",
+                                          "github.com/orbit-pilot/openpilot",
+                                          "github.com/Dragoadri/openpilot")
+
+  @property
   def git_normalized_origin(self) -> str:
     return self.git_origin \
       .replace("git@", "", 1) \

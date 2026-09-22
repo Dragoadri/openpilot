@@ -18,9 +18,15 @@ LFS sin descargar**.
 
 ### Opción A — instalador (recomendada)
 
-Usa el instalador de software custom del dispositivo (URL de instalador de
-fork, p. ej. `installer.comma.ai/Dragoadri/orbit-master`, que clona
-`https://github.com/Dragoadri/openpilot.git` rama `orbit-master`).
+En el setup del dispositivo elige "Custom Software" y escribe
+`orbit-pilot/orbit-master` (se completa a `installer.comma.ai/orbit-pilot/orbit-master`).
+
+El instalador de comma siempre clona `github.com/<usuario>/openpilot.git`, es
+decir `https://github.com/orbit-pilot/openpilot.git`. Ese repo se renombró a
+`orbit-pilot/orbitpilot` y GitHub redirige el nombre antiguo (el mismo truco
+que usa sunnypilot). **Nunca crees ni forkees un repo llamado `openpilot` en
+la organización `orbit-pilot`**: rompería la redirección y con ella el
+instalador y las actualizaciones de todos los dispositivos ya instalados.
 
 El instalador clona con submódulos y, como AGNOS trae git-lfs configurado para
 el usuario `comma`, descarga también los objetos LFS desde el GitLab de
@@ -31,7 +37,7 @@ clon fallaría y el instalador no llegaría a "Finishing install").
 
 ```bash
 cd /data
-git clone --recurse-submodules https://github.com/Dragoadri/ORBITPILOT.git openpilot
+git clone --recurse-submodules https://github.com/orbit-pilot/orbitpilot.git openpilot
 cd openpilot
 git lfs install
 git lfs pull        # descarga los modelos .onnx/.pkl (OBLIGATORIO)
