@@ -27,7 +27,7 @@ class OrbitEnrollDialog(Widget):
     self.last_qr_generation = float('-inf')
     self._last_code: str | None = None
     self._claimed_at: float | None = None
-    self._close_btn = IconButton(gui_app.texture("icons/close.png", 80, 80))
+    self._close_btn = IconButton(gui_app.texture("icons/close2.png", 80, 80))
     self._close_btn.set_click_callback(gui_app.pop_widget)
     self._regen_btn = Button(tr("REGENERAR CODIGO"), self._request_regen, font_size=44,
                              button_style=ButtonStyle.NORMAL, border_radius=16)
@@ -148,6 +148,10 @@ class OrbitEnrollDialog(Widget):
 
     title_wrapped = wrap_text(title_font, title, 75, left_width)
     rl.draw_text_ex(title_font, "\n".join(title_wrapped), rl.Vector2(content_rect.x, y), 75, 0.0, t.TEXTO1)  # titulo
+    # Acento de seccion (vehiculo): filete corto bajo el titulo, como SectionHeaderSP.
+    # Nunca relleno: solo esta marca.
+    rl.draw_rectangle_rounded(rl.Rectangle(content_rect.x, y + len(title_wrapped) * 75 + 10, 24, 4),
+                              1.0, 8, t.SECCION['vehiculo'])
     y += len(title_wrapped) * 75 + 60
 
     # Two columns: instructions and QR code
@@ -207,10 +211,10 @@ class OrbitEnrollDialog(Widget):
 
   def _render_qr_code(self, rect: rl.Rectangle) -> None:
     if not self.qr_texture:
-      rl.draw_rectangle_rounded(rect, 0.1, 20, t.SUP1)  # placeholder, texto de error en rojo
+      rl.draw_rectangle_rounded(rect, 0.1, 20, t.SUP1)  # placeholder, texto de error en tinta PELIGRO
       error_font = gui_app.font(FontWeight.BOLD)
       rl.draw_text_ex(
-        error_font, tr("Error generando el QR"), rl.Vector2(rect.x + 20, rect.y + rect.height // 2 - 15), 30, 0.0, rl.RED
+        error_font, tr("Error generando el QR"), rl.Vector2(rect.x + 20, rect.y + rect.height // 2 - 15), 30, 0.0, t.PELIGRO
       )
       return
 

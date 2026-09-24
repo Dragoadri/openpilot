@@ -25,10 +25,10 @@ UPDATE_INTERVAL_FRAMES = 6   # ~10 Hz: la prediccion cambia rapido, no la perdem
 LATCH_SECONDS = 2.5
 FONT_SIZE = 52
 
-# Chip Grafito: fondo tarjeta, aro de aviso (tinta, no relleno), texto de aviso.
-_FILL = t.SUP1
+# Chip Grafito: relleno AVISO con tinta FONDO encima, contraste ~12:1.
+_FILL = t.con_alfa(t.AVISO, 235 / 255)
 _BORDER = t.AVISO
-_TEXT = t.AVISO
+_TEXT = t.FONDO
 LABEL = "FRENADA PROBABLE"
 
 

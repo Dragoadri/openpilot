@@ -15,6 +15,7 @@ import time
 import pyray as rl
 
 from openpilot.selfdrive.ui import orbit_theme as t
+from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.widgets import orbit_icons
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
@@ -68,7 +69,9 @@ class SectionHeaderSP(Widget):
       glifo = _GLIFO_POR_SECCION.get(self._seccion, self._seccion)
       icon_x, text_x = _geometria_cabecera(text_x)
       icono_y = text_y + size.y / 2 - _ICONO_TAM / 2
-      orbit_icons.draw_orbit_icon(glifo, icon_x, icono_y, _ICONO_TAM, self._acento, orbita=True, t=time.monotonic())
+      # Quieto conduciendo (F-R6/onroad): no anima nada nuevo mientras se conduce.
+      tiempo = 0.0 if ui_state.started else time.monotonic()
+      orbit_icons.draw_orbit_icon(glifo, icon_x, icono_y, _ICONO_TAM, self._acento, orbita=True, t=tiempo)
 
     rl.draw_text_ex(self._font, self._text, rl.Vector2(text_x, text_y), _FONT_SIZE, _LETTER_SPACING, self._color)
 
