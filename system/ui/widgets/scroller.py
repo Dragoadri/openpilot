@@ -8,9 +8,10 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.scroll_panel2 import GuiScrollPanel2, ScrollState
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.nav_widget import NavWidget
+from openpilot.selfdrive.ui import orbit_theme as t
 
 ITEM_SPACING = 20
-LINE_COLOR = rl.Color(43, 62, 95, 255)  # ORBIT: separator HAIRLINE
+LINE_COLOR = t.BORDE  # ORBIT: separator HAIRLINE
 LINE_PADDING = 40
 ANIMATION_SCALE = 0.6
 

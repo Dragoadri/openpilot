@@ -14,6 +14,7 @@ from openpilot.system.ui.widgets.keyboard import Keyboard
 from openpilot.system.ui.widgets.label import gui_label
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 from openpilot.system.ui.widgets.list_view import ButtonAction, ListItem, MultipleButtonAction, ToggleAction, button_item, text_item
+from openpilot.selfdrive.ui import orbit_theme as t
 
 if gui_app.sunnypilot_ui():
   from openpilot.system.ui.sunnypilot.widgets.list_view import button_item_sp as button_item
@@ -66,7 +67,7 @@ class NavButton(Widget):
 
   def _render(self, _):
     # ORBIT palette: neutral nav button NAVY, pressed one step lighter PANEL
-    color = rl.Color(27, 44, 72, 255) if self.is_pressed else rl.Color(22, 35, 58, 255)
+    color = t.SUP2 if self.is_pressed else t.SUP1
     rl.draw_rectangle_rounded(self._rect, 0.6, 10, color)
     gui_label(self.rect, self.text, font_size=60, alignment=rl.GuiTextAlignment.TEXT_ALIGN_CENTER)
 
@@ -357,7 +358,7 @@ class WifiManagerUI(Widget):
       if i < len(self._networks) - 1:
         line_y = int(item_rect.y + item_rect.height - 1)
         # ORBIT palette: row separator HAIRLINE
-        rl.draw_line(int(item_rect.x), int(line_y), int(item_rect.x + item_rect.width), line_y, rl.Color(43, 62, 95, 255))
+        rl.draw_line(int(item_rect.x), int(line_y), int(item_rect.x + item_rect.width), line_y, t.BORDE)
 
     rl.end_scissor_mode()
 

@@ -3,6 +3,7 @@ import pyray as rl
 import select
 import sys
 
+from openpilot.selfdrive.ui import orbit_theme as t
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.text import wrap_text
@@ -25,7 +26,7 @@ DEGREES_PER_SECOND = 360.0  # one full rotation per second
 MARGIN_H = 100
 FONT_SIZE = 96
 LINE_HEIGHT = 104
-TRACK_COLOR = (43, 62, 95, 255)  # ORBIT HAIRLINE
+TRACK_COLOR = t.BORDE
 
 
 def clamp(value, min_value, max_value):
@@ -80,7 +81,7 @@ class Spinner(Widget):
       rl.draw_rectangle_rounded(bar, 1, 10, TRACK_COLOR)
 
       bar.width *= self._progress / 100.0
-      rl.draw_rectangle_rounded(bar, 1, 10, rl.Color(125, 180, 255, 255))  # ORBIT BLUE
+      rl.draw_rectangle_rounded(bar, 1, 10, t.ACCION)  # ORBIT
     elif self._wrapped_lines:
       for i, line in enumerate(self._wrapped_lines):
         text_size = measure_text_cached(gui_app.font(), line, FONT_SIZE)

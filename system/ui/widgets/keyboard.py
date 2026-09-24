@@ -11,6 +11,7 @@ from openpilot.system.ui.widgets import DialogResult, Widget
 from openpilot.system.ui.widgets.button import ButtonStyle, Button
 from openpilot.system.ui.widgets.inputbox import InputBox
 from openpilot.system.ui.widgets.label import Label
+from openpilot.selfdrive.ui import orbit_theme as t
 
 KEY_FONT_SIZE = 96
 DOUBLE_CLICK_THRESHOLD = 0.5  # seconds
@@ -228,7 +229,7 @@ class Keyboard(Widget):
       rl.Vector2(input_rect.x, input_rect.y + input_rect.height - 2),
       rl.Vector2(input_rect.x + input_rect.width, input_rect.y + input_rect.height - 2),
       3.0,  # 3 pixel thickness
-      rl.Color(125, 180, 255, 255),  # ORBIT BLUE (active field underline)
+      t.ACCION,  # ORBIT BLUE (active field underline)
     )
 
   def handle_key_press(self, key):

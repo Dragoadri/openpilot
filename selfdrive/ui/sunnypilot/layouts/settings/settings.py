@@ -38,7 +38,7 @@ from openpilot.selfdrive.ui import orbit_theme as t
 
 # from openpilot.selfdrive.ui.sunnypilot.layouts.settings.navigation import NavigationLayout
 
-OP.PANEL_COLOR = rl.Color(13, 20, 34, 255)   # ORBIT dark ground (was near-black)
+OP.PANEL_COLOR = t.SUP1   # Grafito: mismo fondo de panel que settings.py (ORBIT_NAVY)
 ICON_SIZE = 40               # icono dentro del chip: mas pequeno que el chip para que respire
 NAV_TILE_INSET = 15          # vertical inset per allocated row → top/bottom margin between tiles
 NAV_TILE_H_INSET = 12        # horizontal inset → side margin so tiles float inside the rail

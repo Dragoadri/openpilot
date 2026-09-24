@@ -6,6 +6,7 @@ from openpilot.system.ui.widgets import Widget, DialogResult
 from openpilot.system.ui.widgets.button import Button, ButtonStyle
 from openpilot.system.ui.widgets.label import gui_label
 from openpilot.system.ui.widgets.scroller_tici import Scroller
+from openpilot.selfdrive.ui import orbit_theme as t
 
 # Constants
 MARGIN = 50
@@ -46,7 +47,7 @@ class MultiOptionDialog(Widget):
 
   def _render(self, rect):
     dialog_rect = rl.Rectangle(rect.x + MARGIN, rect.y + MARGIN, rect.width - 2 * MARGIN, rect.height - 2 * MARGIN)
-    rl.draw_rectangle_rounded(dialog_rect, 0.02, 20, rl.Color(22, 35, 58, 255))  # ORBIT NAVY dialog surface
+    rl.draw_rectangle_rounded(dialog_rect, 0.02, 20, t.SUP1)  # ORBIT NAVY dialog surface
 
     content_rect = rl.Rectangle(dialog_rect.x + MARGIN, dialog_rect.y + MARGIN,
                                 dialog_rect.width - 2 * MARGIN, dialog_rect.height - 2 * MARGIN)

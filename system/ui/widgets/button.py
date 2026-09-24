@@ -7,6 +7,7 @@ from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.label import Label
 from openpilot.common.filter_simple import FirstOrderFilter
+from openpilot.selfdrive.ui import orbit_theme as t
 
 
 class ButtonStyle(IntEnum):
@@ -27,53 +28,53 @@ ICON_PADDING = 15
 DEFAULT_BUTTON_FONT_SIZE = 60
 ACTION_BUTTON_FONT_SIZE = 48
 
-# ORBIT text palette: green->near-black, ghost/secondary->BLUE, others->INK, light-bg actions->near-black
+# ORBIT text palette: green->near-black, ghost/secondary->ACCION, others->INK, light-bg actions->tinta ACCION
 BUTTON_TEXT_COLOR = {
-  ButtonStyle.NORMAL: rl.Color(125, 180, 255, 255),  # BLUE on NAVY (ghost)
-  ButtonStyle.PRIMARY: rl.Color(5, 20, 10, 255),  # near-black on GREEN_DEEP
-  ButtonStyle.DANGER: rl.Color(226, 236, 255, 255),  # INK
-  ButtonStyle.TRANSPARENT: rl.Color(226, 236, 255, 255),  # INK
-  ButtonStyle.TRANSPARENT_WHITE_TEXT: rl.Color(226, 236, 255, 255),  # INK
-  ButtonStyle.TRANSPARENT_WHITE_BORDER: rl.Color(226, 236, 255, 255),  # INK
-  ButtonStyle.ACTION: rl.Color(5, 20, 10, 255),  # near-black on BLUE
-  ButtonStyle.LIST_ACTION: rl.Color(226, 236, 255, 255),  # INK
-  ButtonStyle.NO_EFFECT: rl.Color(226, 236, 255, 255),  # INK
-  ButtonStyle.KEYBOARD: rl.Color(226, 236, 255, 255),  # INK
-  ButtonStyle.FORGET_WIFI: rl.Color(5, 20, 10, 255),  # near-black on BLUE
+  ButtonStyle.NORMAL: t.ACCION,  # BLUE_HI on NAVY (ghost)
+  ButtonStyle.PRIMARY: rl.Color(5, 20, 10, 255),  # near-black on GREEN_DEEP (fuera de alcance, ver informe)
+  ButtonStyle.DANGER: t.SOBRE_FRENO,  # blanco sobre FRENO
+  ButtonStyle.TRANSPARENT: t.TEXTO1,  # INK
+  ButtonStyle.TRANSPARENT_WHITE_TEXT: t.TEXTO1,  # INK
+  ButtonStyle.TRANSPARENT_WHITE_BORDER: t.TEXTO1,  # INK
+  ButtonStyle.ACTION: t.SOBRE_ACCION,  # tinta sobre ACCION
+  ButtonStyle.LIST_ACTION: t.TEXTO1,  # INK
+  ButtonStyle.NO_EFFECT: t.TEXTO1,  # INK
+  ButtonStyle.KEYBOARD: t.TEXTO1,  # INK
+  ButtonStyle.FORGET_WIFI: t.SOBRE_ACCION,  # tinta sobre ACCION
 }
 
 BUTTON_DISABLED_TEXT_COLORS = {
-  ButtonStyle.TRANSPARENT_WHITE_TEXT: rl.Color(226, 236, 255, 255),  # INK
+  ButtonStyle.TRANSPARENT_WHITE_TEXT: t.TEXTO1,  # INK
 }
 
-# ORBIT backgrounds: neutral/ghost->NAVY, primary->GREEN_DEEP, danger->red (no ORBIT red), actions->BLUE
+# ORBIT backgrounds: neutral/ghost->NAVY, primary->GREEN_DEEP, danger->FRENO, actions->ACCION
 BUTTON_BACKGROUND_COLORS = {
-  ButtonStyle.NORMAL: rl.Color(22, 35, 58, 255),  # NAVY
-  ButtonStyle.PRIMARY: rl.Color(22, 163, 74, 255),  # GREEN_DEEP
-  ButtonStyle.DANGER: rl.Color(226, 44, 44, 255),
-  ButtonStyle.TRANSPARENT: rl.Color(11, 18, 32, 255),  # VOID
+  ButtonStyle.NORMAL: t.SUP1,  # NAVY
+  ButtonStyle.PRIMARY: rl.Color(22, 163, 74, 255),  # GREEN_DEEP (fuera de alcance, ver informe)
+  ButtonStyle.DANGER: t.FRENO,  # #E22C2C -> unico relleno rojo
+  ButtonStyle.TRANSPARENT: t.FONDO,  # VOID
   ButtonStyle.TRANSPARENT_WHITE_TEXT: rl.BLANK,
-  ButtonStyle.TRANSPARENT_WHITE_BORDER: rl.Color(11, 18, 32, 255),  # VOID
-  ButtonStyle.ACTION: rl.Color(125, 180, 255, 255),  # BLUE
-  ButtonStyle.LIST_ACTION: rl.Color(22, 35, 58, 255),  # NAVY
-  ButtonStyle.NO_EFFECT: rl.Color(22, 35, 58, 255),  # NAVY
-  ButtonStyle.KEYBOARD: rl.Color(27, 44, 72, 255),  # PANEL
-  ButtonStyle.FORGET_WIFI: rl.Color(125, 180, 255, 255),  # BLUE
+  ButtonStyle.TRANSPARENT_WHITE_BORDER: t.FONDO,  # VOID
+  ButtonStyle.ACTION: t.ACCION,  # BLUE_HI
+  ButtonStyle.LIST_ACTION: t.SUP1,  # NAVY
+  ButtonStyle.NO_EFFECT: t.SUP1,  # NAVY
+  ButtonStyle.KEYBOARD: t.SUP2,  # PANEL
+  ButtonStyle.FORGET_WIFI: t.ACCION,  # BLUE_HI
 }
 
 # ORBIT pressed/hover: one step lighter (NAVY->PANEL, GREEN_DEEP->GREEN, BLUE->CYAN)
 BUTTON_PRESSED_BACKGROUND_COLORS = {
-  ButtonStyle.NORMAL: rl.Color(27, 44, 72, 255),  # PANEL
-  ButtonStyle.PRIMARY: rl.Color(74, 222, 128, 255),  # GREEN
-  ButtonStyle.DANGER: rl.Color(255, 36, 36, 255),
-  ButtonStyle.TRANSPARENT: rl.Color(22, 35, 58, 255),  # NAVY
+  ButtonStyle.NORMAL: t.SUP2,  # PANEL
+  ButtonStyle.PRIMARY: rl.Color(74, 222, 128, 255),  # GREEN (fuera de alcance, ver informe)
+  ButtonStyle.DANGER: rl.Color(255, 36, 36, 255),  # variante clara del rojo de freno (fuera de alcance, ver informe)
+  ButtonStyle.TRANSPARENT: t.SUP1,  # NAVY
   ButtonStyle.TRANSPARENT_WHITE_TEXT: rl.BLANK,
   ButtonStyle.TRANSPARENT_WHITE_BORDER: rl.BLANK,
-  ButtonStyle.ACTION: rl.Color(34, 211, 238, 255),  # CYAN
-  ButtonStyle.LIST_ACTION: rl.Color(27, 44, 72, 74),  # PANEL (translucent)
-  ButtonStyle.NO_EFFECT: rl.Color(22, 35, 58, 255),  # NAVY
-  ButtonStyle.KEYBOARD: rl.Color(22, 35, 58, 255),  # NAVY
-  ButtonStyle.FORGET_WIFI: rl.Color(34, 211, 238, 255),  # CYAN
+  ButtonStyle.ACTION: rl.Color(34, 211, 238, 255),  # CYAN (fuera de alcance, ver informe)
+  ButtonStyle.LIST_ACTION: t.con_alfa(t.SUP2, 74 / 255),  # PANEL (translucent)
+  ButtonStyle.NO_EFFECT: t.SUP1,  # NAVY
+  ButtonStyle.KEYBOARD: t.SUP1,  # NAVY
+  ButtonStyle.FORGET_WIFI: rl.Color(34, 211, 238, 255),  # CYAN (fuera de alcance, ver informe)
 }
 
 BUTTON_DISABLED_BACKGROUND_COLORS = {
@@ -124,15 +125,15 @@ class Button(Widget):
         self._background_color = BUTTON_BACKGROUND_COLORS[self._button_style]
     elif self._button_style != ButtonStyle.NO_EFFECT:
       # ORBIT disabled: bg VOID, faint MUTED_DIM text (alpha kept translucent)
-      self._background_color = BUTTON_DISABLED_BACKGROUND_COLORS.get(self._button_style, rl.Color(11, 18, 32, 255))
-      self._label.set_text_color(BUTTON_DISABLED_TEXT_COLORS.get(self._button_style, rl.Color(92, 117, 153, 51)))
+      self._background_color = BUTTON_DISABLED_BACKGROUND_COLORS.get(self._button_style, t.FONDO)
+      self._label.set_text_color(BUTTON_DISABLED_TEXT_COLORS.get(self._button_style, t.con_alfa(t.TEXTO3, 51 / 255)))
 
   def _render(self, _):
     roundness = self._border_radius / (min(self._rect.width, self._rect.height) / 2)
     if self._button_style == ButtonStyle.TRANSPARENT_WHITE_BORDER:
       # ORBIT ghost outline: VOID fill, BLUE hairline border
-      rl.draw_rectangle_rounded(self._rect, roundness, 10, rl.Color(11, 18, 32, 255))
-      rl.draw_rectangle_rounded_lines_ex(self._rect, roundness, 10, 2, rl.Color(125, 180, 255, 255))
+      rl.draw_rectangle_rounded(self._rect, roundness, 10, t.FONDO)
+      rl.draw_rectangle_rounded_lines_ex(self._rect, roundness, 10, 2, t.ACCION)
     else:
       rl.draw_rectangle_rounded(self._rect, roundness, 10, self._background_color)
     self._label.render(self._rect)

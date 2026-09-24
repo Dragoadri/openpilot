@@ -3,6 +3,7 @@ import time
 from openpilot.system.ui.lib.application import gui_app, MousePos, FONT_SCALE
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
+from openpilot.selfdrive.ui import orbit_theme as t
 
 PASSWORD_MASK_CHAR = "•"
 PASSWORD_MASK_DELAY = 1.5  # Seconds to show character before masking
@@ -102,7 +103,7 @@ class InputBox(Widget):
       return True
     return False
 
-  def _render(self, rect, color=rl.Color(22, 35, 58, 255), border_color=rl.Color(43, 62, 95, 255), text_color=rl.WHITE, font_size=80):
+  def _render(self, rect, color=t.SUP1, border_color=t.BORDE, text_color=rl.WHITE, font_size=80):
     # Store dimensions for text offset calculations
     self._visible_width = rect.width
     self._font_size = font_size

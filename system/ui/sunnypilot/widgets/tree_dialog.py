@@ -18,6 +18,7 @@ from openpilot.system.ui.widgets.option_dialog import MultiOptionDialog
 from openpilot.system.ui.sunnypilot.lib.styles import style
 from openpilot.system.ui.sunnypilot.widgets.helpers.fuzzy_search import search_from_list
 from openpilot.system.ui.sunnypilot.widgets.helpers.star_icon import draw_star
+from openpilot.selfdrive.ui import orbit_theme as t
 from openpilot.system.ui.sunnypilot.widgets.input_dialog import InputDialogSP
 
 
@@ -65,7 +66,7 @@ class TreeItemWidget(Button):
 
     if not self.is_folder and self._favorite_callback:
       draw_star(self._rect.x + self._rect.width - 90, self._rect.y + self._rect.height / 2, 40, self.is_favorite,
-                style.ON_BG_COLOR if self.is_favorite else rl.Color(92, 117, 153, 255))  # ORBIT MUTED_DIM inactive star (was rl.GRAY)
+                style.ON_BG_COLOR if self.is_favorite else t.TEXTO3)  # ORBIT MUTED_DIM inactive star (was rl.GRAY)
 
   def _handle_mouse_release(self, mouse_pos):
     star_rect = rl.Rectangle(self._rect.x + self._rect.width - 90 - 40, self._rect.y + self._rect.height / 2 - 40, 80, 80)
@@ -207,7 +208,7 @@ class TreeOptionDialog(MultiOptionDialog):
 
   def _render(self, rect):
     dialog_content_rect = rl.Rectangle(rect.x + 50, rect.y + 50, rect.width - 100, rect.height - 100)
-    rl.draw_rectangle_rounded(dialog_content_rect, 0.02, 20, rl.Color(11, 18, 32, 255))  # ORBIT VOID dialog base (was rl.BLACK)
+    rl.draw_rectangle_rounded(dialog_content_rect, 0.02, 20, t.FONDO)  # ORBIT VOID dialog base (was rl.BLACK)
 
     # Title on the left
     title_rect = rl.Rectangle(dialog_content_rect.x + 50, dialog_content_rect.y + 50, dialog_content_rect.width * 0.5, 70)
@@ -233,7 +234,7 @@ class TreeOptionDialog(MultiOptionDialog):
     rl.draw_rectangle_rounded_lines_ex(input_rect, roundness, 10, 3, style.TREE_DIALOG_SEARCH_BUTTON_BORDER)
 
     # Magnifying glass icon
-    icon_color = rl.Color(147, 180, 230, 240)  # ORBIT MUTED search icon (was grey 180)
+    icon_color = t.con_alfa(t.TEXTO2, 240 / 255)  # ORBIT MUTED search icon (was grey 180)
     cx = input_rect.x + 60
     cy = input_rect.y + input_rect.height / 2 - 5
     radius = min(input_rect.height * 0.28, 26)

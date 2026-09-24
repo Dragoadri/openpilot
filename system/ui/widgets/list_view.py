@@ -10,17 +10,18 @@ from openpilot.system.ui.widgets.button import Button, ButtonStyle
 from openpilot.system.ui.widgets.toggle import Toggle, WIDTH as TOGGLE_WIDTH, HEIGHT as TOGGLE_HEIGHT
 from openpilot.system.ui.widgets.label import gui_label
 from openpilot.system.ui.widgets.html_render import HtmlRenderer, ElementType
+from openpilot.selfdrive.ui import orbit_theme as t
 
 ITEM_BASE_WIDTH = 600
 ITEM_BASE_HEIGHT = 188
 ITEM_PADDING = 20
 ITEM_TEXT_FONT_SIZE = 50
 # ORBIT palette: primary text INK, secondary value MUTED, description MUTED_DIM
-ITEM_TEXT_COLOR = rl.Color(226, 236, 255, 255)  # INK
-ITEM_TEXT_VALUE_COLOR = rl.Color(147, 180, 230, 255)  # MUTED
-ITEM_DESC_TEXT_COLOR = rl.Color(92, 117, 153, 255)  # MUTED_DIM
+ITEM_TEXT_COLOR = t.TEXTO1  # INK
+ITEM_TEXT_VALUE_COLOR = t.TEXTO2  # MUTED
+ITEM_DESC_TEXT_COLOR = t.TEXTO3  # MUTED_DIM
 # ORBIT card: each row renders on its own rounded NAVY card instead of a flat list line.
-ITEM_CARD_COLOR = rl.Color(22, 35, 58, 255)  # NAVY
+ITEM_CARD_COLOR = t.SUP1  # NAVY
 ITEM_CARD_INSET = 8  # vertical gap so cards read as separate tiles
 ITEM_CARD_ROUNDNESS = 0.14
 ITEM_CARD_SEGMENTS = 12
@@ -272,11 +273,11 @@ class MultipleButtonAction(ItemAction):
 
       # Button colors — ORBIT palette: selected CYAN accent, pressed PANEL, neutral NAVY
       if is_selected:
-        bg_color = rl.Color(34, 211, 238, 255)  # CYAN
+        bg_color = rl.Color(34, 211, 238, 255)  # CYAN (t.PULSO es de uso restringido; ver informe)
       elif is_pressed:
-        bg_color = rl.Color(27, 44, 72, 255)  # PANEL
+        bg_color = t.SUP2  # PANEL
       else:
-        bg_color = rl.Color(22, 35, 58, 255)  # NAVY
+        bg_color = t.SUP1  # NAVY
 
       if not self.enabled:
         bg_color = rl.Color(bg_color.r, bg_color.g, bg_color.b, 150)  # Dim
@@ -289,7 +290,7 @@ class MultipleButtonAction(ItemAction):
       text_size = measure_text_cached(self._font, text, 40)
       text_x = button_x + (self.button_width - text_size.x) / 2
       text_y = button_y + (BUTTON_HEIGHT - text_size.y) / 2
-      text_color = rl.Color(226, 236, 255, 255) if self.enabled else rl.Color(92, 117, 153, 255)  # ORBIT: INK / MUTED_DIM
+      text_color = t.TEXTO1 if self.enabled else t.TEXTO3  # ORBIT: INK / MUTED_DIM
       rl.draw_text_ex(self._font, text, rl.Vector2(text_x, text_y), 40, 0, text_color)
 
   def _handle_mouse_release(self, mouse_pos: MousePos):

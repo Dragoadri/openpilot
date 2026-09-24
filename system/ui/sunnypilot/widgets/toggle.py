@@ -11,12 +11,13 @@ from openpilot.common.params import Params
 from openpilot.system.ui.lib.application import MousePos
 from openpilot.system.ui.widgets.toggle import Toggle
 from openpilot.system.ui.sunnypilot.lib.styles import style
+from openpilot.selfdrive.ui import orbit_theme as t
 
 KNOB_PADDING = 5
 KNOB_RADIUS = style.TOGGLE_BG_HEIGHT / 2 - KNOB_PADDING
 # ORBIT pill borders: GREEN on the ON track, HAIRLINE on the OFF/disabled track.
-TRACK_BORDER_ON = rl.Color(74, 222, 128, 255)  # GREEN
-TRACK_BORDER_OFF = rl.Color(43, 62, 95, 255)  # HAIRLINE
+TRACK_BORDER_ON = rl.Color(74, 222, 128, 255)  # GREEN (fuera de alcance, ver informe)
+TRACK_BORDER_OFF = t.BORDE  # HAIRLINE
 
 
 class ToggleSP(Toggle):

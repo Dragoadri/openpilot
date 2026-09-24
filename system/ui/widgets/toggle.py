@@ -2,16 +2,17 @@ import pyray as rl
 from collections.abc import Callable
 from openpilot.system.ui.lib.application import MousePos
 from openpilot.system.ui.widgets import Widget
+from openpilot.selfdrive.ui import orbit_theme as t_tema
 
 # ORBIT pill toggle: GREEN_DEEP/GREEN track when on, NAVY/HAIRLINE track when off.
-ON_COLOR = rl.Color(22, 163, 74, 255)  # GREEN_DEEP
-ON_BORDER_COLOR = rl.Color(74, 222, 128, 255)  # GREEN
-OFF_COLOR = rl.Color(22, 35, 58, 255)  # NAVY
-OFF_BORDER_COLOR = rl.Color(43, 62, 95, 255)  # HAIRLINE
+ON_COLOR = rl.Color(22, 163, 74, 255)  # GREEN_DEEP (fuera de alcance, ver informe)
+ON_BORDER_COLOR = rl.Color(74, 222, 128, 255)  # GREEN (fuera de alcance, ver informe)
+OFF_COLOR = t_tema.SUP1  # NAVY
+OFF_BORDER_COLOR = t_tema.BORDE  # HAIRLINE
 KNOB_COLOR = rl.WHITE
-DISABLED_ON_COLOR = rl.Color(27, 44, 72, 255)  # PANEL
-DISABLED_OFF_COLOR = rl.Color(22, 35, 58, 255)  # NAVY
-DISABLED_KNOB_COLOR = rl.Color(92, 117, 153, 255)  # MUTED_DIM
+DISABLED_ON_COLOR = t_tema.SUP2  # PANEL
+DISABLED_OFF_COLOR = t_tema.SUP1  # NAVY
+DISABLED_KNOB_COLOR = t_tema.TEXTO3  # MUTED_DIM
 WIDTH, HEIGHT = 160, 80
 BG_HEIGHT = 60
 KNOB_PADDING = 5
