@@ -17,6 +17,14 @@ Usa el Params de PC del repo (nunca el del dispositivo real). Cada valor que
 toca se guarda antes de escribirlo y se restaura en un `finally`, así que el
 script no deja estado.
 """
+import os
+
+# SCALE=1.0 antes de cualquier import de openpilot: en PC, application.py
+# autoescala la ventana al monitor si SCALE no esta puesta (aqui da 0.844),
+# y el script dibuja en coordenadas pensadas para 2160x1080 sin re-escalar,
+# asi que sin esto las capturas salen a 1824x912 y recortadas por la derecha.
+os.environ.setdefault("SCALE", "1.0")
+
 import sys
 import time
 from pathlib import Path
@@ -30,9 +38,10 @@ from openpilot.selfdrive.ui.sunnypilot.layouts import orbit_splash
 from openpilot.selfdrive.ui.layouts.home import HomeLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.orbit_panel import OrbitLayout
 from openpilot.selfdrive.ui.widgets.orbit_enroll_dialog import OrbitEnrollDialog
+from openpilot.selfdrive.ui.widgets.orbit_server import ServerMonitor
 
 # Params que toca este script (Params de PC); se restauran al terminar.
-PARAM_KEYS = ["OrbitConnected", "OrbitPairingCode", "OrbitClaimed"]
+PARAM_KEYS = ["OrbitConnected", "OrbitPairingCode", "OrbitClaimed", "OrbitOwner"]
 
 
 def _capturar(widget, out_path: Path) -> None:
@@ -61,17 +70,28 @@ def _capturar_splash(out_dir: Path) -> None:
 
 def _capturar_home(params: Params, out_dir: Path) -> None:
   # El satélite del anillo Dúplex depende de OrbitConnected.
-  for conectado, nombre in ((True, "home_conectado.png"), (False, "home_sin_conexion.png")):
-    # block=True: si no, la escritura es async (putBoolNonBlocking) y la
-    # lectura inmediata de mas abajo (_fast_refresh, en show_event) puede
-    # correr antes de que el valor este en disco.
-    params.put_bool("OrbitConnected", conectado, block=True)
-    home = HomeLayout()
-    home.show_event()
-    # Salta la animacion de entrada (anillo, cascada de tarjetas, fade del
-    # header) para capturar el estado asentado, igual que el script ad-hoc.
-    home._shown_at = time.monotonic() - 5.0
-    _capturar(home, out_dir / nombre)
+  # ServerMonitor sondea la red de verdad en un hilo de fondo (_loop); para
+  # que la escena "conectado" sea coherente (tarjeta SERVIDOR/ENLACE en
+  # verde, no "Sin conexion" en ambar) sin tocar el modulo de producto, se
+  # anula _loop en el scope del script -ninguna instancia sondea la red- y
+  # se fijan los atributos a mano segun el escenario, igual que se fijo el
+  # reloj del splash.
+  with mock.patch.object(ServerMonitor, "_loop", lambda self: None):
+    for conectado, nombre in ((True, "home_conectado.png"), (False, "home_sin_conexion.png")):
+      # block=True: si no, la escritura es async (putBoolNonBlocking) y la
+      # lectura inmediata de mas abajo (_fast_refresh, en show_event) puede
+      # correr antes de que el valor este en disco.
+      params.put_bool("OrbitConnected", conectado, block=True)
+      params.put_bool("OrbitClaimed", conectado, block=True)
+      params.put("OrbitOwner", "demo@orbit" if conectado else "", block=True)
+      home = HomeLayout()
+      home.show_event()
+      home._server._broker_ok = conectado
+      home._server._backend_ok = conectado
+      # Salta la animacion de entrada (anillo, cascada de tarjetas, fade del
+      # header) para capturar el estado asentado, igual que el script ad-hoc.
+      home._shown_at = time.monotonic() - 5.0
+      _capturar(home, out_dir / nombre)
 
 
 def _capturar_panel(out_dir: Path) -> None:
