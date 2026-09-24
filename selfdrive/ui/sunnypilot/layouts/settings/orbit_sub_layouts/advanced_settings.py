@@ -150,15 +150,15 @@ class AdvancedSettingsLayout(Widget):
     )
 
     items = [
-      SectionHeaderSP(tr("PANTALLA")),
+      SectionHeaderSP(tr("PANTALLA"), seccion='desarrollo'),
       self._show_blindspot_toggle,
       self._lane_warn_toggle,
-      SectionHeaderSP(tr("JETSON")),
+      SectionHeaderSP(tr("JETSON"), seccion='desarrollo'),
       self._jetson_enabled_toggle,
-      SectionHeaderSP(tr("ESTADO")),
+      SectionHeaderSP(tr("ESTADO"), seccion='desarrollo'),
       self._status_torque,
       self._status_obstacle,
-      SectionHeaderSP(tr("RED")),
+      SectionHeaderSP(tr("RED"), seccion='desarrollo'),
       self._ip_button,
       self._comma_ip_button,
       self._img_port_button,

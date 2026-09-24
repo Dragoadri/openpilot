@@ -7,6 +7,7 @@ from openpilot.selfdrive.ui.layouts.settings.device import DeviceLayout
 from openpilot.selfdrive.ui.layouts.settings.firehose import FirehoseLayout
 from openpilot.selfdrive.ui.layouts.settings.software import SoftwareLayout
 from openpilot.selfdrive.ui.layouts.settings.toggles import TogglesLayout
+from openpilot.selfdrive.ui import orbit_theme as t
 from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos
 from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.system.ui.lib.text_measure import measure_text_cached
@@ -28,16 +29,17 @@ NAV_TILE_GAP = 18        # vertical gap between tiles
 CLOSE_BTN_H = 92         # close button height
 CLOSE_BTN_MARGIN = 32    # gap from bottom edge
 
-# ORBIT palette (dark "in-car ground station")
-ORBIT_VOID = rl.Color(11, 18, 32, 255)       # #0B1220
-ORBIT_NAVY = rl.Color(22, 35, 58, 255)        # #16233A
-ORBIT_PANEL = rl.Color(27, 44, 72, 255)       # #1B2C48
-ORBIT_HAIRLINE = rl.Color(43, 62, 95, 255)    # #2B3E5F
-ORBIT_BLUE = rl.Color(125, 180, 255, 255)     # #7DB4FF telemetry/uplink
-ORBIT_GREEN = rl.Color(74, 222, 128, 255)     # #4ADE80 commands/downlink
-ORBIT_CYAN = rl.Color(34, 211, 238, 255)      # #22D3EE live pulse accent
-ORBIT_INK = rl.Color(226, 236, 255, 255)      # #E2ECFF
-ORBIT_MUTED = rl.Color(147, 180, 230, 255)    # #93B4E6
+# ORBIT palette: alias hacia los tokens unicos (ver orbit_theme.py). Se conservan
+# los nombres ORBIT_* porque otros modulos los consumen via "settings as OP".
+ORBIT_VOID = t.FONDO
+ORBIT_NAVY = t.SUP1
+ORBIT_PANEL = t.SUP2
+ORBIT_HAIRLINE = t.BORDE
+ORBIT_BLUE = t.ACCION
+ORBIT_GREEN = t.OK
+ORBIT_CYAN = t.PULSO
+ORBIT_INK = t.TEXTO1
+ORBIT_MUTED = t.TEXTO2
 
 # Aliases kept for the (unchanged-behavior) right-hand panel card
 SIDEBAR_COLOR = ORBIT_VOID

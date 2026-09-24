@@ -14,18 +14,21 @@ import random
 
 import pyray as rl
 
-# ORBIT palette (stable; duplicated by design so this module stays leaf-level)
-VOID = rl.Color(11, 18, 32, 255)         # #0B1220
-NAVY = rl.Color(22, 35, 58, 255)         # #16233A
-PANEL = rl.Color(27, 44, 72, 255)        # #1B2C48
-HAIRLINE = rl.Color(43, 62, 95, 255)     # #2B3E5F
-CYAN = rl.Color(34, 211, 238, 255)       # #22D3EE live pulse accent
-BLUE_HI = rl.Color(125, 180, 255, 255)   # #7DB4FF uplink
-GREEN = rl.Color(74, 222, 128, 255)      # #4ADE80 commands/downlink
-INK = rl.Color(226, 236, 255, 255)       # #E2ECFF
-MUTED = rl.Color(147, 180, 230, 255)     # #93B4E6
-MUTED_DIM = rl.Color(92, 117, 153, 255)  # #5C7599
-STAR = rl.Color(190, 215, 255, 255)      # starfield dots
+from openpilot.selfdrive.ui import orbit_theme as t
+
+# ORBIT palette: alias hacia los tokens unicos (paleta Grafito, ver orbit_theme.py).
+# Los nombres se conservan para no romper a los consumidores de este modulo.
+VOID = t.FONDO
+NAVY = t.SUP1
+PANEL = t.SUP2
+HAIRLINE = t.BORDE
+CYAN = t.PULSO
+BLUE_HI = t.ACCION
+GREEN = t.OK
+INK = t.TEXTO1
+MUTED = t.TEXTO2
+MUTED_DIM = t.TEXTO3
+STAR = t.TEXTO1
 
 
 def clamp01(t: float) -> float:
@@ -81,7 +84,7 @@ def draw_glow_circle(cx: float, cy: float, r: float, color: rl.Color, strength: 
 # baseline. (fraction of text height, color) stops.
 WORDMARK_STOPS = ((0.0, rl.Color(255, 255, 255, 255)),
                   (0.7, rl.Color(191, 214, 255, 255)),
-                  (1.0, rl.Color(125, 180, 255, 255)))
+                  (1.0, t.ACCION))
 
 
 def lerp_stops(stops: tuple, f: float) -> rl.Color:

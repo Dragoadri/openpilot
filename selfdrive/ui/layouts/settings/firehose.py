@@ -6,6 +6,7 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.scroll_panel import GuiScrollPanel
 from openpilot.system.ui.lib.wrap_text import wrap_text
 from openpilot.selfdrive.ui.mici.layouts.settings.firehose import FirehoseLayoutBase
+from openpilot.selfdrive.ui import orbit_theme as t
 
 TITLE = tr_noop("Firehose Mode")
 DESCRIPTION = tr_noop(
@@ -23,12 +24,13 @@ INSTRUCTIONS = tr_noop(
   + "Does it matter which software I run? Yes, only upstream openpilot (and particular forks) are able to be used for training."
 )
 
-# ORBIT palette: PANEL cards on the void background, INK title, MUTED body text.
-PANEL = rl.Color(27, 44, 72, 255)
-HAIRLINE = rl.Color(43, 62, 95, 255)
-INK = rl.Color(226, 236, 255, 255)
-MUTED = rl.Color(147, 180, 230, 255)
-MUTED_DIM = rl.Color(92, 117, 153, 255)
+# ORBIT palette: tokens unicos (ver orbit_theme.py). PANEL cards on the void
+# background, INK title, MUTED body text.
+PANEL = t.SUP2
+HAIRLINE = t.BORDE
+INK = t.TEXTO1
+MUTED = t.TEXTO2
+MUTED_DIM = t.TEXTO3
 CARD_PAD = 30
 CARD_GAP = 24
 CARD_ROUNDNESS = 0.12

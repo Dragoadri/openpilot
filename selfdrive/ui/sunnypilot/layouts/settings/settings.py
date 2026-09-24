@@ -34,6 +34,7 @@ from openpilot.system.ui.lib.wifi_manager import WifiManager
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 from openpilot.selfdrive.ui.widgets import orbit_fx as fx
+from openpilot.selfdrive.ui import orbit_theme as t
 
 # from openpilot.selfdrive.ui.sunnypilot.layouts.settings.navigation import NavigationLayout
 
@@ -181,7 +182,7 @@ class SettingsLayoutSP(OP.SettingsLayout):
     rl.draw_rectangle_rec(rect, OP.SIDEBAR_COLOR)
     # Subtle vertical light so the rail reads as lit from above
     rl.draw_rectangle_gradient_v(int(rect.x), int(rect.y), int(rect.width), int(rect.height * 0.45),
-                                 rl.Color(27, 44, 72, 70), rl.Color(27, 44, 72, 0))
+                                 t.con_alfa(t.SUP2, 70 / 255), t.con_alfa(t.SUP2, 0.0))
     mouse_pos = rl.get_mouse_position()
     mouse_down = rl.is_mouse_button_down(rl.MouseButton.MOUSE_BUTTON_LEFT)
 

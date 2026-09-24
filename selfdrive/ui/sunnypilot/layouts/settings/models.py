@@ -19,6 +19,7 @@ from openpilot.system.ui.widgets import DialogResult, Widget
 from openpilot.system.ui.widgets.confirm_dialog import alert_dialog, ConfirmDialog
 from openpilot.system.ui.widgets.scroller_tici import Scroller
 from openpilot.system.ui.widgets.toggle import ON_COLOR
+from openpilot.selfdrive.ui import orbit_theme as t
 
 from openpilot.sunnypilot.models.runners.constants import CUSTOM_MODEL_PATH
 from openpilot.system.ui.sunnypilot.lib.styles import style
@@ -165,7 +166,7 @@ class ModelsLayout(Widget):
       if label := labels.get(getattr(model.type, 'raw', model.type)):
         label.set_visible(True)
         p = model.artifact.downloadProgress
-        text, show, color = f"pending - {bundle.displayName}", False, rl.Color(92, 117, 153, 255)  # ORBIT MUTED_DIM (pending)
+        text, show, color = f"pending - {bundle.displayName}", False, t.TEXTO3  # pendiente
         if p.status == custom.ModelManagerSP.DownloadStatus.downloading:
           text, show = f"{int(p.progress)}% - {bundle.displayName}", True
         elif p.status in (custom.ModelManagerSP.DownloadStatus.downloaded, custom.ModelManagerSP.DownloadStatus.cached):

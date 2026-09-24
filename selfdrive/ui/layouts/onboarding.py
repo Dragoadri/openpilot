@@ -14,6 +14,7 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.version import terms_version, training_version, terms_version_sp
 
 from openpilot.selfdrive.ui.sunnypilot.layouts.onboarding import SunnylinkOnboarding
+from openpilot.selfdrive.ui import orbit_theme as t
 
 DEBUG = False
 
@@ -101,7 +102,7 @@ class TrainingGuide(Widget):
       h = 20
       w = int((step / (len(STEP_RECTS) - 1)) * self._rect.width)
       rl.draw_rectangle(int(self._rect.x), int(self._rect.y + self._rect.height - h),
-                        w, h, rl.Color(37, 99, 235, 255))  # ORBIT BLUE_DEEP
+                        w, h, t.ACCION)
 
     if DEBUG:
       rl.draw_rectangle_lines_ex(STEP_RECTS[step], 3, rl.RED)

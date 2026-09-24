@@ -4,6 +4,7 @@ from openpilot.common.params import Params
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import Widget
+from openpilot.selfdrive.ui import orbit_theme as t
 
 
 class ExpButton(Widget):
@@ -18,9 +19,9 @@ class ExpButton(Widget):
     self._held_mode: bool | None = None
     self._hold_end_time: float | None = None
 
-    # ORBIT chrome: neutral icon tint -> INK, dark circle bg -> VOID (alpha preserved)
-    self._white_color: rl.Color = rl.Color(226, 236, 255, 255)
-    self._black_bg: rl.Color = rl.Color(11, 18, 32, 166)
+    # ORBIT chrome: neutral icon tint -> TEXTO1, dark circle bg -> FONDO (alfa preservada)
+    self._white_color: rl.Color = t.con_alfa(t.TEXTO1, 1.0)
+    self._black_bg: rl.Color = t.con_alfa(t.FONDO, 166 / 255)
     self._txt_wheel: rl.Texture = gui_app.texture('icons/chffr_wheel.png', icon_size, icon_size)
     self._txt_exp: rl.Texture = gui_app.texture('icons/experimental.png', icon_size, icon_size)
     self._rect = rl.Rectangle(0, 0, button_size, button_size)

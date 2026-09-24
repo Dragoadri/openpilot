@@ -11,6 +11,7 @@ from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.wrap_text import wrap_text
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets.button import Button, ButtonStyle, IconButton
+from openpilot.selfdrive.ui import orbit_theme as t
 
 
 class OrbitEnrollDialog(Widget):
@@ -120,7 +121,7 @@ class OrbitEnrollDialog(Widget):
       gui_app.pop_widget()
 
   def _render(self, rect: rl.Rectangle) -> int:
-    rl.clear_background(rl.Color(11, 18, 32, 255))  # ORBIT: VOID background
+    rl.clear_background(t.FONDO)
 
     if self._claimed_at is not None:
       self._render_success(rect)
@@ -146,7 +147,7 @@ class OrbitEnrollDialog(Widget):
     left_width = int(content_rect.width * 0.5 - 15)
 
     title_wrapped = wrap_text(title_font, title, 75, left_width)
-    rl.draw_text_ex(title_font, "\n".join(title_wrapped), rl.Vector2(content_rect.x, y), 75, 0.0, rl.Color(226, 236, 255, 255))  # ORBIT: INK title
+    rl.draw_text_ex(title_font, "\n".join(title_wrapped), rl.Vector2(content_rect.x, y), 75, 0.0, t.TEXTO1)  # titulo
     y += len(title_wrapped) * 75 + 60
 
     # Two columns: instructions and QR code
@@ -163,7 +164,7 @@ class OrbitEnrollDialog(Widget):
       cd_font = gui_app.font(FontWeight.MEDIUM)
       cd_size = measure_text_cached(cd_font, countdown, 40)
       rl.draw_text_ex(cd_font, countdown, rl.Vector2(int(content_rect.x), int(btn_rect.y - 24 - cd_size.y)),
-                      40, 0.0, rl.Color(147, 180, 230, 255))  # ORBIT: MUTED countdown
+                      40, 0.0, t.TEXTO2)  # cuenta atras
     self._regen_btn.render(btn_rect)
 
     # QR code (leave room below it for the pairing code + device ID)
@@ -194,19 +195,19 @@ class OrbitEnrollDialog(Widget):
       text_height = len(wrapped) * 47
       circle_y = y + text_height // 2
 
-      # Circle and number  # ORBIT: BLUE_DEEP circle with INK number
-      rl.draw_circle(int(circle_x), int(circle_y), circle_radius, rl.Color(37, 99, 235, 255))
+      # Circulo: color de seccion (dialogo de vinculacion = vehiculo), numero en SOBRE_ACCION.
+      rl.draw_circle(int(circle_x), int(circle_y), circle_radius, t.SECCION['vehiculo'])
       number = str(i + 1)
       number_size = measure_text_cached(font, number, 30)
-      rl.draw_text_ex(font, number, (int(circle_x - number_size.x // 2), int(circle_y - number_size.y // 2)), 30, 0, rl.Color(226, 236, 255, 255))
+      rl.draw_text_ex(font, number, (int(circle_x - number_size.x // 2), int(circle_y - number_size.y // 2)), 30, 0, t.SOBRE_ACCION)
 
-      # Text  # ORBIT: INK instruction text
-      rl.draw_text_ex(font, "\n".join(wrapped), rl.Vector2(text_x, y), 47, 0.0, rl.Color(226, 236, 255, 255))
+      # Text
+      rl.draw_text_ex(font, "\n".join(wrapped), rl.Vector2(text_x, y), 47, 0.0, t.TEXTO1)
       y += text_height + 50
 
   def _render_qr_code(self, rect: rl.Rectangle) -> None:
     if not self.qr_texture:
-      rl.draw_rectangle_rounded(rect, 0.1, 20, rl.Color(22, 35, 58, 255))  # ORBIT: NAVY error placeholder, keep red error text
+      rl.draw_rectangle_rounded(rect, 0.1, 20, t.SUP1)  # placeholder, texto de error en rojo
       error_font = gui_app.font(FontWeight.BOLD)
       rl.draw_text_ex(
         error_font, tr("Error generando el QR"), rl.Vector2(rect.x + 20, rect.y + rect.height // 2 - 15), 30, 0.0, rl.RED
@@ -229,7 +230,7 @@ class OrbitEnrollDialog(Widget):
     code_measure = measure_text_cached(code_font, code_text, code_size)
     code_x = rect.x + (rect.width - code_measure.x) // 2
     code_y = rect.y + rect.height + 20
-    rl.draw_text_ex(code_font, code_text, rl.Vector2(code_x, code_y), code_size, 0.0, rl.Color(226, 236, 255, 255))  # ORBIT: INK pairing code
+    rl.draw_text_ex(code_font, code_text, rl.Vector2(code_x, code_y), code_size, 0.0, t.TEXTO1)  # codigo
 
     # Full DongleId beneath the code (the app's manual-entry mode asks for it)
     try:
@@ -242,7 +243,7 @@ class OrbitEnrollDialog(Widget):
       id_text = f"ID: {dongle_id}"
       id_measure = measure_text_cached(id_font, id_text, 28)
       id_x = rect.x + (rect.width - id_measure.x) // 2
-      rl.draw_text_ex(id_font, id_text, rl.Vector2(id_x, code_y + code_size + 14), 28, 0.0, rl.Color(147, 180, 230, 255))  # ORBIT: MUTED device id
+      rl.draw_text_ex(id_font, id_text, rl.Vector2(id_x, code_y + code_size + 14), 28, 0.0, t.TEXTO2)  # id del dispositivo
 
   def _render_success(self, rect: rl.Rectangle) -> None:
     # Big green check + owner, held briefly by _update_state before the pop.
@@ -258,8 +259,8 @@ class OrbitEnrollDialog(Widget):
     cx = rect.x + rect.width / 2
     y = rect.y + (rect.height - block_h) / 2
 
-    rl.draw_text_ex(font, "✓", rl.Vector2(int(cx - check_measure.x / 2), int(y)), check_size, 0.0, rl.Color(74, 222, 128, 255))  # ORBIT: GREEN check
-    rl.draw_text_ex(font, text, rl.Vector2(int(cx - text_measure.x / 2), int(y + check_measure.y + gap)), 64, 0.0, rl.Color(226, 236, 255, 255))  # ORBIT: INK
+    rl.draw_text_ex(font, "✓", rl.Vector2(int(cx - check_measure.x / 2), int(y)), check_size, 0.0, t.OK)
+    rl.draw_text_ex(font, text, rl.Vector2(int(cx - text_measure.x / 2), int(y + check_measure.y + gap)), 64, 0.0, t.TEXTO1)
 
   def __del__(self):
     if self.qr_texture and self.qr_texture.id != 0:

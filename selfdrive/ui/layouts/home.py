@@ -18,6 +18,7 @@ from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos, F
 from openpilot.system.ui.lib.multilang import tr, trn
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.widgets import orbit_fx as fx
+from openpilot.selfdrive.ui import orbit_theme as t
 
 HEADER_HEIGHT = 130
 HEAD_BUTTON_FONT_SIZE = 36
@@ -26,19 +27,19 @@ SPACING = 25
 REFRESH_INTERVAL = 10.0       # slow refresh: params for system/updater/network info
 FAST_REFRESH_INTERVAL = 2.0   # fast refresh: orbit link params (claimed/connected/...)
 
-# ORBIT palette (from the logo)
-VOID = rl.Color(11, 18, 32, 255)        # #0B1220 background
-NAVY = rl.Color(22, 35, 58, 255)        # #16233A
-PANEL = rl.Color(27, 44, 72, 255)       # #1B2C48
-HAIRLINE = rl.Color(43, 62, 95, 255)    # #2B3E5F
-COMMANDS = rl.Color(74, 222, 128, 255)   # #4ADE80 downlink green
-PULSE = rl.Color(34, 211, 238, 255)      # #22D3EE live cyan accent
-INK = rl.Color(226, 236, 255, 255)       # #E2ECFF near-white
-MUTED = rl.Color(147, 180, 230, 255)     # #93B4E6
-MUTED_DIM = rl.Color(92, 117, 153, 255)  # #5C7599 tertiary text
-AMBER = rl.Color(245, 200, 66, 255)      # warning / no-connection
-BLUE = rl.Color(37, 99, 235, 255)        # #2563EB action blue
-BLUE_HI = rl.Color(125, 180, 255, 255)   # #7DB4FF
+# ORBIT palette: alias hacia los tokens unicos (ver orbit_theme.py).
+VOID = t.FONDO
+NAVY = t.SUP1
+PANEL = t.SUP2
+HAIRLINE = t.BORDE
+COMMANDS = t.OK             # downlink confirmado
+PULSE = t.PULSO             # accento en vivo
+INK = t.TEXTO1
+MUTED = t.TEXTO2
+MUTED_DIM = t.TEXTO3
+AMBER = t.AVISO             # warning / no-connection
+BLUE = t.ACCION              # relleno de boton de accion
+BLUE_HI = t.ACCION
 
 # Brand block (top-left): logo + wordmark + acronym
 LOGO_SIZE = 120
@@ -323,14 +324,14 @@ class HomeLayout(Widget):
       self.alert_notif_rect.x = right - self.alert_notif_rect.width
       self.alert_notif_rect.y = hdr.y + (hdr.height - self.alert_notif_rect.height) / 2
 
-      highlight_color = rl.Color(255, 70, 70, 255) if self.current_state == HomeLayoutState.ALERTS else rl.Color(226, 44, 44, 255)
-      rl.draw_rectangle_rounded(self.alert_notif_rect, 0.3, 10, highlight_color)
+      # Relleno rojo: unico rojo permitido es FRENO (destructivo/alerta), con texto SOBRE_FRENO.
+      rl.draw_rectangle_rounded(self.alert_notif_rect, 0.3, 10, t.FRENO)
 
       alert_text = trn("{} ALERT", "{} ALERTS", self.alert_count).format(self.alert_count)
       text_size = measure_text_cached(medium, alert_text, HEAD_BUTTON_FONT_SIZE)
       text_x = self.alert_notif_rect.x + (self.alert_notif_rect.width - text_size.x) // 2
       text_y = self.alert_notif_rect.y + (self.alert_notif_rect.height - text_size.y) // 2
-      rl.draw_text_ex(medium, alert_text, rl.Vector2(int(text_x), int(text_y)), HEAD_BUTTON_FONT_SIZE, 0, rl.WHITE)
+      rl.draw_text_ex(medium, alert_text, rl.Vector2(int(text_x), int(text_y)), HEAD_BUTTON_FONT_SIZE, 0, t.SOBRE_FRENO)
       right -= self.alert_notif_rect.width + SPACING
 
     if self.update_available:
@@ -344,7 +345,7 @@ class HomeLayout(Widget):
       text_size = measure_text_cached(medium, text, HEAD_BUTTON_FONT_SIZE)
       text_x = self.update_notif_rect.x + (self.update_notif_rect.width - text_size.x) // 2
       text_y = self.update_notif_rect.y + (self.update_notif_rect.height - text_size.y) // 2
-      rl.draw_text_ex(medium, text, rl.Vector2(int(text_x), int(text_y)), HEAD_BUTTON_FONT_SIZE, 0, rl.WHITE)
+      rl.draw_text_ex(medium, text, rl.Vector2(int(text_x), int(text_y)), HEAD_BUTTON_FONT_SIZE, 0, t.SOBRE_ACCION)
 
   def _render_update_view(self):
     self.update_alert.render(self.content_rect)

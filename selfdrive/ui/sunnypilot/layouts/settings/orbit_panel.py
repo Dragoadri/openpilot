@@ -33,6 +33,7 @@ import pyray as rl
 
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.layouts.settings import settings as OP
+from openpilot.selfdrive.ui import orbit_theme as t
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.widgets import orbit_mando as mando
 from openpilot.selfdrive.ui.widgets.orbit_enroll_dialog import OrbitEnrollDialog
@@ -61,8 +62,9 @@ _DISARM_BAR_HEIGHT = 132
 _DISARM_BAR_GAP = 20
 _DISARM_FEEDBACK_S = 2.5
 
-_RED = rl.Color(0xF2, 0x55, 0x55, 255)
-_AMBER = rl.Color(0xF5, 0xC8, 0x42, 255)
+# Tinta de error/aviso: solo texto (nunca relleno), tokens de orbit_theme.
+_RED = t.PELIGRO
+_AMBER = t.AVISO
 
 
 def _a_salvo(etiqueta: str, avisar: bool = False):
@@ -237,7 +239,8 @@ class _MandoCard(Widget):
     self._refresh()
     card = rl.Rectangle(self._rect.x, self._rect.y + 8, self._rect.width, self._rect.height - 16)
     rl.draw_rectangle_rounded(card, 0.12, 12, OP.ORBIT_NAVY)
-    rl.draw_rectangle_rounded_lines_ex(card, 0.12, 12, 2, OP.ORBIT_HAIRLINE)
+    # Filete de seccion: panel ORBIT / _MandoCard = mando.
+    rl.draw_rectangle_rounded_lines_ex(card, 0.12, 12, 2, t.SECCION['mando'])
 
     pad = 28
     x = card.x + pad
@@ -377,13 +380,13 @@ class OrbitLayout(Widget):
       self._mando_card,
       self._bench_button,
       self._help_button,
-      SectionHeaderSP(tr("VOLANTE")),
+      SectionHeaderSP(tr("VOLANTE"), seccion='mando'),
       *self._steer_rows.items,
-      SectionHeaderSP(tr("CONEXION")),
+      SectionHeaderSP(tr("CONEXION"), seccion='ajustes'),
       self._enroll_button,
       # Solo la fila del broker: "Probar conexion" sigue en el modal SERVIDOR de la home.
       self._server_rows.items[0],
-      SectionHeaderSP(tr("DISPOSITIVO")),
+      SectionHeaderSP(tr("DISPOSITIVO"), seccion='mando'),
       self._privacy_toggle,
       self._advanced_button,
       self._safe_reset_button,

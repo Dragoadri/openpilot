@@ -9,19 +9,21 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.wrap_text import wrap_text
 from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.selfdrive.ui import orbit_theme as t
 
 PERSONALITY_TO_INT = log.LongitudinalPersonality.schema.enumerants
 
-# ORBIT palette (local copy to avoid a circular import with settings.settings).
-VOID = rl.Color(11, 18, 32, 255)
-NAVY = rl.Color(22, 35, 58, 255)
-PANEL = rl.Color(27, 44, 72, 255)
-HAIRLINE = rl.Color(43, 62, 95, 255)
-GREEN = rl.Color(74, 222, 128, 255)
-CYAN = rl.Color(34, 211, 238, 255)
-INK = rl.Color(226, 236, 255, 255)
-MUTED = rl.Color(147, 180, 230, 255)
-MUTED_DIM = rl.Color(92, 117, 153, 255)
+# ORBIT palette: alias hacia los tokens unicos. orbit_theme es una hoja (solo
+# importa pyray) asi que no hay ciclo de importacion con settings.settings.
+VOID = t.FONDO
+NAVY = t.SUP1
+PANEL = t.SUP2
+HAIRLINE = t.BORDE
+GREEN = t.OK
+CYAN = t.PULSO
+INK = t.TEXTO1
+MUTED = t.TEXTO2
+MUTED_DIM = t.TEXTO3
 
 
 def _a(c: rl.Color, alpha: int) -> rl.Color:

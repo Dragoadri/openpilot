@@ -13,17 +13,18 @@ from openpilot.system.ui.lib.wrap_text import wrap_text
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.html_render import HtmlRenderer
 from openpilot.selfdrive.selfdrived.alertmanager import OFFROAD_ALERTS
+from openpilot.selfdrive.ui import orbit_theme as t
 
 
 class AlertColors:
-  HIGH_SEVERITY = rl.Color(226, 44, 44, 255)
-  LOW_SEVERITY = rl.Color(22, 35, 58, 255)  # ORBIT NAVY
-  BACKGROUND = rl.Color(27, 44, 72, 255)  # ORBIT PANEL
-  BUTTON = rl.Color(125, 180, 255, 255)  # ORBIT BLUE
-  BUTTON_PRESSED = rl.Color(34, 211, 238, 255)  # ORBIT CYAN
-  BUTTON_TEXT = rl.Color(5, 20, 10, 255)  # near-black on BLUE
-  SNOOZE_BG = rl.Color(43, 62, 95, 255)  # ORBIT HAIRLINE
-  SNOOZE_BG_PRESSED = rl.Color(92, 117, 153, 255)  # ORBIT MUTED_DIM
+  HIGH_SEVERITY = t.FRENO  # unico relleno rojo
+  LOW_SEVERITY = t.SUP1
+  BACKGROUND = t.SUP2
+  BUTTON = t.ACCION
+  BUTTON_PRESSED = t.PULSO
+  BUTTON_TEXT = t.SOBRE_ACCION  # texto sobre relleno ACCION
+  SNOOZE_BG = t.BORDE
+  SNOOZE_BG_PRESSED = t.TEXTO3
   TEXT = rl.WHITE
 
 

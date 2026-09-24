@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.sunnypilot.sunnylink.api import UNREGISTERED_SUNNYLINK_DONGLE_ID
 from openpilot.system.ui.lib.multilang import tr_noop
+from openpilot.selfdrive.ui import orbit_theme as t
 
 
 PING_TIMEOUT_NS = 80_000_000_000  # 80 seconds in nanoseconds
@@ -19,24 +20,24 @@ METRIC_START_Y = 300
 HOME_BTN = rl.Rectangle(60, 860, 180, 180)
 
 
-# Color scheme — ORBIT palette (dark in-car ground station)
+# Color scheme — tokens unicos ORBIT (ver orbit_theme.py)
 class Colors:
-  # Neutrals: white -> INK, white-dim separators -> HAIRLINE, faint grey -> MUTED_DIM
-  WHITE = rl.Color(226, 236, 255, 255)       # INK
-  WHITE_DIM = rl.Color(43, 62, 95, 255)      # HAIRLINE
-  GRAY = rl.Color(92, 117, 153, 255)         # MUTED_DIM
+  # Neutrales
+  WHITE = t.TEXTO1
+  WHITE_DIM = t.BORDE
+  GRAY = t.TEXTO3
 
-  # Status colors: good -> GREEN, warning -> AMBER, danger -> keep red, progress -> BLUE, disabled -> MUTED_DIM
-  GOOD = rl.Color(74, 222, 128, 255)         # GREEN
-  WARNING = rl.Color(245, 200, 66, 255)      # AMBER
-  DANGER = rl.Color(201, 34, 49, 255)
-  PROGRESS = rl.Color(125, 180, 255, 255)    # BLUE
-  DISABLED = rl.Color(92, 117, 153, 255)     # MUTED_DIM
+  # Estado: bien -> OK, aviso -> AVISO, peligro -> unico rojo (FRENO), progreso -> ACCION, deshabilitado -> TEXTO3
+  GOOD = t.OK
+  WARNING = t.AVISO
+  DANGER = t.FRENO
+  PROGRESS = t.ACCION
+  DISABLED = t.TEXTO3
 
-  # UI elements: borders -> HAIRLINE, button -> INK, pressed -> CYAN (alpha preserved)
-  METRIC_BORDER = rl.Color(43, 62, 95, 255)  # HAIRLINE
-  BUTTON_NORMAL = rl.Color(226, 236, 255, 255)  # INK
-  BUTTON_PRESSED = rl.Color(34, 211, 238, 166)  # CYAN
+  # Elementos de UI: bordes -> BORDE, boton -> TEXTO1, pulsado -> PULSO (alfa igual)
+  METRIC_BORDER = t.BORDE
+  BUTTON_NORMAL = t.TEXTO1
+  BUTTON_PRESSED = t.con_alfa(t.PULSO, 166 / 255)
 
 
 @dataclass(slots=True)

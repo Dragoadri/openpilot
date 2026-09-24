@@ -13,6 +13,7 @@ from openpilot.selfdrive.ui.sunnypilot.onroad.orbit_command_overlay import Orbit
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
 from openpilot.common.transformations.orientation import rot_from_euler
+from openpilot.selfdrive.ui import orbit_theme as t
 
 if gui_app.sunnypilot_ui():
   from openpilot.selfdrive.ui.sunnypilot.onroad.alert_renderer import AlertRendererSP as AlertRenderer
@@ -28,7 +29,7 @@ WIDE_CAM = VisionStreamType.VISION_STREAM_WIDE_ROAD
 DEFAULT_DEVICE_CAMERA = DEVICE_CAMERAS["tici", "ar0231"]
 
 BORDER_COLORS = {
-  UIStatus.DISENGAGED: rl.Color(0x16, 0x23, 0x3A, 0xFF),  # ORBIT navy for disengaged state
+  UIStatus.DISENGAGED: t.SUP1,  # ORBIT navy for disengaged state
   UIStatus.OVERRIDE: rl.Color(0x89, 0x92, 0x8D, 0xFF),  # Gray for override state
   UIStatus.ENGAGED: rl.Color(0x16, 0x7F, 0x40, 0xFF),  # Green for engaged state
   **BORDER_COLORS_SP,
@@ -115,7 +116,7 @@ class AugmentedRoadView(CameraView, AugmentedRoadViewSP):
     pass
 
   def _draw_border(self, rect: rl.Rectangle):
-    rl.draw_rectangle_lines_ex(rect, UI_BORDER_SIZE, rl.Color(0x0B, 0x12, 0x20, 0xFF))  # ORBIT void
+    rl.draw_rectangle_lines_ex(rect, UI_BORDER_SIZE, t.FONDO)
     border_roundness = 0.12
     border_color = BORDER_COLORS.get(ui_state.status, BORDER_COLORS[UIStatus.DISENGAGED])
     border_rect = rl.Rectangle(rect.x + UI_BORDER_SIZE, rect.y + UI_BORDER_SIZE,

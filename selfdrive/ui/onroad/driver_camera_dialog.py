@@ -7,6 +7,7 @@ from openpilot.selfdrive.ui.ui_state import ui_state, device
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.widgets.label import gui_label
+from openpilot.selfdrive.ui import orbit_theme as t
 
 
 class DriverCameraDialog(CameraView):
@@ -69,7 +70,7 @@ class DriverCameraDialog(CameraView):
     box_size = 220
 
     # ORBIT chrome: neutral face-box outline -> INK (alpha semantics preserved)
-    line_color = rl.Color(226, 236, 255, int(alpha * 255))
+    line_color = t.con_alfa(t.TEXTO1, alpha)
     rl.draw_rectangle_rounded_lines_ex(
       rl.Rectangle(fbox_x - box_size / 2, fbox_y - box_size / 2, box_size, box_size),
       35.0 / box_size / 2,

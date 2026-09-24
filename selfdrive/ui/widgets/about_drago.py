@@ -8,6 +8,7 @@ import time
 import pyray as rl
 
 from openpilot.selfdrive.ui.widgets import orbit_fx as fx
+from openpilot.selfdrive.ui import orbit_theme as orbit_t
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
@@ -78,8 +79,9 @@ class AboutDragoDialog(Widget):
     rl.draw_text_ex(normal, NAME, rl.Vector2(int(cx - name_s.x / 2.0), int(y)), 44, 0, fx.col(fx.INK, a))
     y += name_s.y + 16
 
+    # Filete de seccion: pantalla "acerca de" = ayuda.
     line_w = max(alias_s.x, role_s.x) * 0.72
-    rl.draw_rectangle(int(cx - line_w / 2.0), int(y), int(line_w), 2, fx.col(fx.HAIRLINE, a))
+    rl.draw_rectangle(int(cx - line_w / 2.0), int(y), int(line_w), 2, fx.col(orbit_t.SECCION['ayuda'], a))
     y += 18
 
     rl.draw_text_ex(bold, ROLE, rl.Vector2(int(cx - role_s.x / 2.0), int(y)), 36, 0, fx.col(fx.INK, 0.92 * a))

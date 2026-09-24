@@ -10,6 +10,7 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 
 from openpilot.selfdrive.ui.sunnypilot.layouts.sidebar import SidebarSP
+from openpilot.selfdrive.ui import orbit_theme as t
 
 SIDEBAR_WIDTH = 300
 METRIC_HEIGHT = 126
@@ -24,22 +25,22 @@ ThermalStatus = log.DeviceState.ThermalStatus
 NetworkType = log.DeviceState.NetworkType
 
 
-# Color scheme — ORBIT palette (dark in-car ground station)
+# Color scheme — tokens unicos ORBIT (ver orbit_theme.py)
 class Colors:
-  # Neutrals: white -> INK, white-dim separators -> HAIRLINE, faint grey -> MUTED_DIM
-  WHITE = rl.Color(226, 236, 255, 255)       # INK
-  WHITE_DIM = rl.Color(43, 62, 95, 255)      # HAIRLINE
-  GRAY = rl.Color(92, 117, 153, 255)         # MUTED_DIM
+  # Neutrales
+  WHITE = t.TEXTO1
+  WHITE_DIM = t.BORDE
+  GRAY = t.TEXTO3
 
-  # Status colors: good -> GREEN, warning -> AMBER, danger -> keep red
-  GOOD = rl.Color(74, 222, 128, 255)         # GREEN
-  WARNING = rl.Color(245, 200, 66, 255)      # AMBER
-  DANGER = rl.Color(201, 34, 49, 255)
+  # Estado: bien -> OK, aviso -> AVISO, peligro -> unico rojo (FRENO)
+  GOOD = t.OK
+  WARNING = t.AVISO
+  DANGER = t.FRENO
 
-  # UI elements: borders -> HAIRLINE, button -> INK, pressed -> CYAN (alpha preserved)
-  METRIC_BORDER = rl.Color(43, 62, 95, 255)  # HAIRLINE
-  BUTTON_NORMAL = rl.Color(226, 236, 255, 255)  # INK
-  BUTTON_PRESSED = rl.Color(34, 211, 238, 166)  # CYAN
+  # Elementos de UI: bordes -> BORDE, boton -> TEXTO1, pulsado -> PULSO (alfa igual)
+  METRIC_BORDER = t.BORDE
+  BUTTON_NORMAL = t.TEXTO1
+  BUTTON_PRESSED = t.con_alfa(t.PULSO, 166 / 255)
 
 
 NETWORK_TYPES = {
