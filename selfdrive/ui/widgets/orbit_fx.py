@@ -58,20 +58,6 @@ def col(c: rl.Color, a01: float) -> rl.Color:
   return rl.Color(c.r, c.g, c.b, int(255 * clamp01(a01)))
 
 
-# (outset px, alpha at strength=1) per glow layer, inner to outer
-_GLOW_LAYERS = ((3, 0.22), (7, 0.12), (12, 0.06), (18, 0.03))
-
-
-def draw_glow_rounded_rect(rect: rl.Rectangle, roundness: float, color: rl.Color,
-                           strength: float, segments: int = 12) -> None:
-  if strength <= 0.0:
-    return
-  for outset, a in _GLOW_LAYERS:
-    grown = rl.Rectangle(rect.x - outset, rect.y - outset,
-                         rect.width + 2 * outset, rect.height + 2 * outset)
-    rl.draw_rectangle_rounded_lines_ex(grown, roundness, segments, 3, col(color, a * strength))
-
-
 def draw_glow_circle(cx: float, cy: float, r: float, color: rl.Color, strength: float) -> None:
   if strength <= 0.0:
     return
@@ -122,19 +108,12 @@ def draw_text_gradient_v(font, text: str, pos, size: int, spacing: int, *,
     rl.end_scissor_mode()
 
 
-def draw_card(rect: rl.Rectangle, *, accent: rl.Color, border: rl.Color | None = None,
-              glow: float = 0.0, glow_color: rl.Color | None = None, alpha: float = 1.0,
+def draw_card(rect: rl.Rectangle, *, border: rl.Color | None = None, alpha: float = 1.0,
               roundness: float = 0.10, segments: int = 12) -> None:
-  """ORBIT card v2: optional halo + navy base + top light (accent-tinted
-  vertical gradient over the upper 45%) + 2px top accent line + border."""
-  draw_glow_rounded_rect(rect, roundness, glow_color or accent, glow * alpha, segments)
+  """ORBIT card v2 (Grafito plana): relleno t.SUP1 + borde redondeado en
+  `border` (t.BORDE por defecto). Sin degradado, sin línea superior, sin
+  halo — nada de chrome, tal cual «tarjetas t.SUP1 con borde t.BORDE»."""
   rl.draw_rectangle_rounded(rect, roundness, segments, col(NAVY, alpha))
-  inset = 24  # keeps the gradient/light off the rounded corners
-  gx, gw = int(rect.x + inset), int(rect.width - 2 * inset)
-  if gw > 0:
-    rl.draw_rectangle_gradient_v(gx, int(rect.y + 3), gw, int(rect.height * 0.45),
-                                 col(accent, 0.10 * alpha), col(accent, 0.0))
-    rl.draw_rectangle(gx, int(rect.y + 1), gw, 2, col(accent, 0.45 * alpha))
   rl.draw_rectangle_rounded_lines_ex(rect, roundness, segments, 2, col(border or HAIRLINE, alpha))
 
 

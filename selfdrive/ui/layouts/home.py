@@ -390,7 +390,9 @@ class HomeLayout(Widget):
       ("server", "SERVIDOR", server_val, server_color,
        self._broker_addr or "sin configurar", server_sub, True),
       ("link", "ENLACE ORBIT",
-       "Enlazado" if claimed else "Sin enlazar", COMMANDS if claimed else PULSE,
+       # Cyan (PULSO) solo significa «en vivo»: sin enlazar es una invitación
+       # a tocar, no un enlace activo, así que usa tinta/borde neutros.
+       "Enlazado" if claimed else "Sin enlazar", COMMANDS if claimed else INK,
        (f"propietario: {self._owner}" if self._owner else "cuenta ORBIT activa") if claimed else "escanea el QR con la app",
        "dispositivo activo" if claimed else "toca para ver el QR", not claimed),
       ("device", "DISPOSITIVO", dev_val, INK,
@@ -406,16 +408,13 @@ class HomeLayout(Widget):
       a, dy, _scale = self._cascade.values(ts, i)
       card = rl.Rectangle(rect.x + i * (cw + CARD_GAP), rect.y + dy, cw, rect.height)
       self._card_rects[key] = card
-      glow, glow_color = 0.0, color
-      if key == "server" and broker_ok and backend_ok:
-        glow, glow_color = 0.20 + 0.18 * fx.pulse01(now, 3.2), COMMANDS   # breathing: all healthy
-      elif key == "link" and claimed:
-        glow, glow_color = 0.16 + 0.14 * fx.pulse01(now, 3.2), COMMANDS
-      elif tappable:
-        glow = 0.16
+      chevron_color, border = color, None
+      if key == "link" and not claimed:
+        # Ni el borde ni el chevron son PULSO aquí: sin enlazar no hay nada
+        # «en vivo» que marcar. Borde reforzado (tappable, >=3:1) + chevron neutro.
+        chevron_color, border = MUTED, t.BORDE_FUERTE
       self._draw_card(card, title, value, color, detail, sub, tappable, value_size=52,
-                      value_y=rect.height * 0.30, chevron_color=color,
-                      alpha=a, glow=glow, glow_color=glow_color)
+                      value_y=rect.height * 0.30, chevron_color=chevron_color, border=border, alpha=a)
       if key == "server":
         self._render_telemetry_wave(card, alpha=a)
         if self._connected:
@@ -464,25 +463,18 @@ class HomeLayout(Widget):
       a, dy, _scale = self._cascade.values(ts, 3 + i)   # continues after the status row
       card = rl.Rectangle(rect.x + i * (cw + CARD_GAP), rect.y + dy, cw, rect.height)
       self._card_rects[key] = card
-      glow, glow_color = 0.0, color
-      if key == "update" and self.update_available:
-        glow, glow_color = 0.16 + 0.14 * fx.pulse01(now, 3.2), COMMANDS
-      elif tappable:
-        glow = 0.16
       self._draw_card(card, title, value, color, detail, sub, tappable, value_size=42,
-                      value_y=rect.height * 0.28, chevron_color=color,
-                      alpha=a, glow=glow, glow_color=glow_color)
+                      value_y=rect.height * 0.28, chevron_color=color, alpha=a)
 
   def _draw_card(self, card: rl.Rectangle, title: str, value: str, color: rl.Color,
                  detail: str, sub: str, tappable: bool, value_size: int, value_y: float,
-                 chevron_color: rl.Color, alpha: float = 1.0, glow: float = 0.0,
-                 glow_color: rl.Color | None = None):
+                 chevron_color: rl.Color, alpha: float = 1.0, border: rl.Color | None = None):
     hdr_font = gui_app.font(FontWeight.MEDIUM)
     val_font = gui_app.font(FontWeight.BOLD)
     sub_font = gui_app.font(FontWeight.NORMAL)
 
-    fx.draw_card(card, accent=chevron_color, border=chevron_color if tappable else HAIRLINE,
-                 glow=glow, glow_color=glow_color, alpha=alpha)
+    border = border if border is not None else (chevron_color if tappable else HAIRLINE)
+    fx.draw_card(card, border=border, alpha=alpha)
 
     max_w = card.width - 2 * CARD_PAD
     rl.draw_text_ex(hdr_font, title, rl.Vector2(int(card.x + CARD_PAD), int(card.y + 28)), 26, 3,
