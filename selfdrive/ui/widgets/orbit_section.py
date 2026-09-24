@@ -28,8 +28,20 @@ _ICONO_MARGEN = 12
 _FILETE_ANCHO = 24
 _FILETE_ALTO = 4
 
+# Con orbita=True el dibujo ocupa una caja de lado tam*44/24 centrada en la
+# caja nominal (orbit_icons.py:67-69): sobresale tam*10/24 a cada lado.
+_ICONO_SOBRESALE = _ICONO_TAM * 10 / 24
+
 # Glifo por seccion (tabla de la Tarea 8): mismo nombre que la seccion salvo cabina.
 _GLIFO_POR_SECCION = {'cabina': 'enlace'}
+
+
+def _geometria_cabecera(x0: float) -> tuple[float, float]:
+  """x del icono (caja nominal) y x del titulo para que el borde izquierdo
+  real de la orbita quede en `x0` y el satelite no toque el titulo."""
+  icon_x = x0 + _ICONO_SOBRESALE
+  title_x = icon_x + _ICONO_TAM + _ICONO_SOBRESALE + _ICONO_MARGEN
+  return icon_x, title_x
 
 
 class SectionHeaderSP(Widget):
@@ -54,9 +66,9 @@ class SectionHeaderSP(Widget):
 
     if self._seccion:
       glifo = _GLIFO_POR_SECCION.get(self._seccion, self._seccion)
+      icon_x, text_x = _geometria_cabecera(text_x)
       icono_y = text_y + size.y / 2 - _ICONO_TAM / 2
-      orbit_icons.draw_orbit_icon(glifo, text_x, icono_y, _ICONO_TAM, self._acento, orbita=True, t=time.monotonic())
-      text_x += _ICONO_TAM + _ICONO_MARGEN
+      orbit_icons.draw_orbit_icon(glifo, icon_x, icono_y, _ICONO_TAM, self._acento, orbita=True, t=time.monotonic())
 
     rl.draw_text_ex(self._font, self._text, rl.Vector2(text_x, text_y), _FONT_SIZE, _LETTER_SPACING, self._color)
 
