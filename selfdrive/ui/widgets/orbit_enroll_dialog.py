@@ -195,8 +195,8 @@ class OrbitEnrollDialog(Widget):
       text_height = len(wrapped) * 47
       circle_y = y + text_height // 2
 
-      # Circulo: color de seccion (dialogo de vinculacion = vehiculo), numero en SOBRE_ACCION.
-      rl.draw_circle(int(circle_x), int(circle_y), circle_radius, t.SECCION['vehiculo'])
+      # Circulo: relleno de boton (ACCION), no color de seccion; numero en SOBRE_ACCION.
+      rl.draw_circle(int(circle_x), int(circle_y), circle_radius, t.ACCION)
       number = str(i + 1)
       number_size = measure_text_cached(font, number, 30)
       rl.draw_text_ex(font, number, (int(circle_x - number_size.x // 2), int(circle_y - number_size.y // 2)), 30, 0, t.SOBRE_ACCION)
