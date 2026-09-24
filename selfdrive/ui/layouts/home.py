@@ -18,6 +18,7 @@ from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos, F
 from openpilot.system.ui.lib.multilang import tr, trn
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.widgets import orbit_fx as fx
+from openpilot.selfdrive.ui.widgets import orbit_duplex as duplex
 from openpilot.selfdrive.ui import orbit_theme as t
 
 HEADER_HEIGHT = 130
@@ -41,8 +42,10 @@ AMBER = t.AVISO             # warning / no-connection
 BLUE = t.ACCION              # relleno de boton de accion
 BLUE_HI = t.ACCION
 
-# Brand block (top-left): logo + wordmark + acronym
+# Brand block (top-left): anillo Dúplex + wordmark + acronym
 LOGO_SIZE = 120
+DUPLEX_RADIO = LOGO_SIZE * 76 / 240   # mismo ratio r76/caja240 del SVG del logo
+DUPLEX_ENTRADA_S = 0.7                 # s: dibujo 0->1 del anillo al mostrarse el home
 WORDMARK_SIZE = 64
 WORDMARK_SPACING = 10
 TAGLINE = "Open Remote Bidirectional IoV Telemetry"
@@ -166,11 +169,6 @@ class HomeLayout(Widget):
     self.alert_notif_rect = rl.Rectangle(0, 0, 220, 60)
 
     try:
-      self._logo = gui_app.texture("img_orbit_logo.png", LOGO_SIZE, LOGO_SIZE)
-    except Exception:
-      self._logo = None
-
-    try:
       self._drago = gui_app.texture("img_drago_logo.png", int(DRAGO_LOGO_H * DRAGO_ASPECT) + 6,
                                     DRAGO_LOGO_H, keep_aspect_ratio=True)
     except Exception:
@@ -182,7 +180,7 @@ class HomeLayout(Widget):
     self._pill_rect = rl.Rectangle(0, 0, 0, 0)
 
     # Ambient background + entrance cascade
-    self._stars = fx.Starfield(n=70, seed=1234)
+    self._campo = fx.CampoOrbital(seed=7)
     self._cascade = fx.Cascade(stagger=0.07, duration=0.35, rise=24.0)
     self._shown_at = time.monotonic()
     self._last_render_t = time.monotonic()
@@ -226,7 +224,9 @@ class HomeLayout(Widget):
       self._last_fast_refresh = current_time
 
     rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), int(rect.height), VOID)
-    self._stars.render(rect, current_time, intensity=0.5)
+    # Campo orbital detrás de todo, centrado en el anillo Dúplex del bloque de marca.
+    centro_anillo = rl.Vector2(self.header_rect.x + LOGO_SIZE / 2, self.header_rect.y + self.header_rect.height / 2)
+    self._campo.render(rect, centro_anillo, t.SECCION['vehiculo'], current_time, self._connected)
 
     self._render_header()
 
@@ -288,12 +288,10 @@ class HomeLayout(Widget):
 
     ha = fx.ease_out_cubic((time.monotonic() - self._shown_at) / HEADER_FADE_S)
 
-    # Brand block: logo + ORBIT wordmark with cyan accent + acronym below
-    logo_y = hdr.y + (hdr.height - LOGO_SIZE) / 2
-    if self._logo is not None:
-      rl.draw_texture_pro(self._logo, rl.Rectangle(0, 0, self._logo.width, self._logo.height),
-                          rl.Rectangle(hdr.x, logo_y, LOGO_SIZE, LOGO_SIZE), rl.Vector2(0, 0), 0,
-                          rl.Color(255, 255, 255, int(255 * fx.clamp01(ha))))
+    # Brand block: anillo Dúplex + ORBIT wordmark with cyan accent + acronym below
+    entrada = fx.ease_out_cubic((time.monotonic() - self._shown_at) / DUPLEX_ENTRADA_S)
+    duplex.draw_duplex_ring(hdr.x + LOGO_SIZE / 2, hdr.y + hdr.height / 2, DUPLEX_RADIO,
+                            self._connected, dibujo=entrada)
 
     tx = hdr.x + LOGO_SIZE + 30
     xbold = gui_app.font(FontWeight.EXTRA_BOLD)   # wordmark: Inter 800 con degradado, como el mockup

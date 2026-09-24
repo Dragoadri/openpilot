@@ -33,6 +33,13 @@ def test_starfield_deterministic_per_seed():
   assert a.stars != c.stars
 
 
+def test_campo_orbital_determinista():
+  a = fx.CampoOrbital(seed=7)
+  b = fx.CampoOrbital(seed=7)
+  assert a.estrellas == b.estrellas
+  assert len(a.estrellas) == 60
+
+
 def test_cascade_start_and_settle():
   c = fx.Cascade(stagger=0.07, duration=0.35, rise=24.0)
   a0, dy0, s0 = c.values(0.0, index=3)   # index 3 has not started at t=0

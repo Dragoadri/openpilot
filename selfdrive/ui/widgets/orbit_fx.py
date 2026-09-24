@@ -169,6 +169,58 @@ class Starfield:
       rl.draw_ring(center, radius - 1.5, radius, start, start + span, 64, col(CYAN, 0.06 * intensity))
 
 
+class CampoOrbital:
+  """Campo orbital del home offroad: estrellas quietas + tres órbitas
+  inclinadas en el color de la sección + el satélite de ESTE coche (su
+  enlace ORBIT). Puerto de OrbitFieldPainter (app/lib/theme/orbit_field.dart),
+  con un único satélite (no hay flota que pintar en el firmware).
+  Precomputado en construcción con seed fija -> determinista para tests."""
+
+  # Semiejes (a, b) de las tres órbitas, tal cual el lienzo de la app,
+  # escalados x1.6 para el lienzo 2160x1080 del firmware.
+  _ESCALA = 1.6
+  _ORBITAS = ((120 * _ESCALA, 40 * _ESCALA), (205 * _ESCALA, 70 * _ESCALA), (300 * _ESCALA, 104 * _ESCALA))
+  _INCLINACION = math.radians(-14)
+  _SEGMENTOS = 72
+  _PERIODO_SATELITE = 40.0  # s: vuelta completa del satélite en la órbita del medio
+
+  def __init__(self, seed: int = 7, n: int = 60):
+    rng = random.Random(seed)
+    # (x frac, y frac, radio px, alfa) — estrellas quietas, sin parpadeo.
+    self.estrellas = [(rng.random(), rng.random(), rng.uniform(0.4, 1.6), rng.uniform(0.05, 0.15))
+                      for _ in range(n)]
+
+  def _punto(self, centro: tuple[float, float], a: float, b: float, angulo: float) -> tuple[float, float]:
+    x, y = a * math.cos(angulo), b * math.sin(angulo)
+    ci, si = math.cos(self._INCLINACION), math.sin(self._INCLINACION)
+    return (centro[0] + x * ci - y * si, centro[1] + x * si + y * ci)
+
+  def render(self, rect: rl.Rectangle, centro: rl.Vector2, color: rl.Color, t: float,
+             conectado: bool) -> None:
+    for x01, y01, r, a in self.estrellas:
+      x = rect.x + x01 * rect.width
+      y = rect.y + y01 * rect.height
+      rl.draw_circle(int(x), int(y), r, col(STAR, a))
+
+    cxy = (centro.x, centro.y)
+    orbita_color = col(color, 0.20)
+    for a, b in self._ORBITAS:
+      pts = [self._punto(cxy, a, b, i / self._SEGMENTOS * math.tau) for i in range(self._SEGMENTOS + 1)]
+      for p0, p1 in zip(pts, pts[1:], strict=False):
+        rl.draw_line_ex(rl.Vector2(*p0), rl.Vector2(*p1), 1.5, orbita_color)
+
+    a_med, b_med = self._ORBITAS[1]
+    if conectado:
+      angulo = (t / self._PERIODO_SATELITE) * math.tau
+      px, py = self._punto(cxy, a_med, b_med, angulo)
+      rl.draw_circle(int(px), int(py), 18, col(CYAN, 0.35))
+      rl.draw_circle(int(px), int(py), 5, CYAN)
+    else:
+      # Sin conexión: anillo hueco quieto (nada que sugiera un enlace vivo).
+      px, py = self._punto(cxy, a_med, b_med, 0.0)
+      rl.draw_ring(rl.Vector2(px, py), 3.5, 5.0, 0, 360, 24, col(MUTED_DIM, 0.60))
+
+
 class Cascade:
   """Staggered entrance: per-index (alpha01, rise-offset dy, scale) for t since show."""
 
