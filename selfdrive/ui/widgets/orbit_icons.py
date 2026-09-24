@@ -47,17 +47,30 @@ def _bezier(p0: tuple[float, float], p1: tuple[float, float],
   return pts
 
 
+# Puntos (dx, dy) de la elipse orbital ya rotados y escalados, cacheados por
+# `s` (== tam/24): el offset (cx, cy) del icono se aplica en el draw, no aqui.
+_CACHE_ELIPSE_ORBITA: dict[float, list[tuple[float, float]]] = {}
+
+
+def _puntos_elipse_orbita(s: float) -> list[tuple[float, float]]:
+  pts = _CACHE_ELIPSE_ORBITA.get(s)
+  if pts is None:
+    cr, sr = math.cos(_ORBITA_ROT), math.sin(_ORBITA_ROT)
+    n = 64
+    pts = []
+    for i in range(n + 1):
+      a = 2 * math.pi * i / n
+      lx, ly = math.cos(a) * _ORBITA_RX, math.sin(a) * _ORBITA_RY
+      rx_, ry_ = lx * cr - ly * sr, lx * sr + ly * cr
+      pts.append((rx_ * s, ry_ * s))
+    _CACHE_ELIPSE_ORBITA[s] = pts
+  return pts
+
+
 def _elipse_orbita(cx: float, cy: float, s: float, acento: rl.Color) -> None:
   color = ot.con_alfa(acento, 0.35)
   grosor = 1.0 * s
-  cr, sr = math.cos(_ORBITA_ROT), math.sin(_ORBITA_ROT)
-  n = 64
-  pts = []
-  for i in range(n + 1):
-    a = 2 * math.pi * i / n
-    lx, ly = math.cos(a) * _ORBITA_RX, math.sin(a) * _ORBITA_RY
-    rx_, ry_ = lx * cr - ly * sr, lx * sr + ly * cr
-    pts.append(rl.Vector2(cx + rx_ * s, cy + ry_ * s))
+  pts = [rl.Vector2(cx + dx, cy + dy) for dx, dy in _puntos_elipse_orbita(s)]
   for a, b in zip(pts, pts[1:], strict=False):
     rl.draw_line_ex(a, b, grosor, color)
 

@@ -69,7 +69,7 @@ def draw_glow_circle(cx: float, cy: float, r: float, color: rl.Color, strength: 
 # truth): white at the cap line -> pale blue at 70% -> uplink blue at the
 # baseline. (fraction of text height, color) stops.
 WORDMARK_STOPS = ((0.0, rl.Color(255, 255, 255, 255)),
-                  (0.7, rl.Color(191, 214, 255, 255)),
+                  (0.7, t.mezcla(t.TEXTO1, 0.6, t.ACCION)),
                   (1.0, t.ACCION))
 
 
@@ -161,13 +161,17 @@ class CampoOrbital:
   _ORBITAS = ((120 * _ESCALA, 40 * _ESCALA), (205 * _ESCALA, 70 * _ESCALA), (300 * _ESCALA, 104 * _ESCALA))
   _INCLINACION = math.radians(-14)
   _SEGMENTOS = 72
-  _PERIODO_SATELITE = 40.0  # s: vuelta completa del satélite en la órbita del medio
+  _PERIODO_SATELITE = 40.0  # s: vuelta completa del satélite en la órbita interior (F-R6: se ve casi toda la vuelta)
 
   def __init__(self, seed: int = 7, n: int = 60):
     rng = random.Random(seed)
-    # (x frac, y frac, radio px, alfa) — estrellas quietas, sin parpadeo.
-    self.estrellas = [(rng.random(), rng.random(), rng.uniform(0.4, 1.6), rng.uniform(0.05, 0.15))
+    # (x frac, y frac, radio px, color) — estrellas quietas, sin parpadeo:
+    # el color (STAR a un alfa fijo) no cambia frame a frame, se precalcula aqui.
+    self.estrellas = [(rng.random(), rng.random(), rng.uniform(0.4, 1.6), col(STAR, rng.uniform(0.05, 0.15)))
                       for _ in range(n)]
+    # Cache de los puntos de las 3 elipses, valida mientras no cambien centro/escala.
+    self._orbita_cache_clave: tuple[float, float, float] | None = None
+    self._orbita_cache_pts: list[list[rl.Vector2]] = []
 
   def _punto(self, centro: tuple[float, float], a: float, b: float, angulo: float) -> tuple[float, float]:
     x, y = a * math.cos(angulo), b * math.sin(angulo)
@@ -176,27 +180,36 @@ class CampoOrbital:
 
   def render(self, rect: rl.Rectangle, centro: rl.Vector2, color: rl.Color, t: float,
              conectado: bool) -> None:
-    for x01, y01, r, a in self.estrellas:
+    for x01, y01, r, color_estrella in self.estrellas:
       x = rect.x + x01 * rect.width
       y = rect.y + y01 * rect.height
-      rl.draw_circle(int(x), int(y), r, col(STAR, a))
+      rl.draw_circle(int(x), int(y), r, color_estrella)
 
     cxy = (centro.x, centro.y)
-    orbita_color = col(color, 0.20)
-    for a, b in self._ORBITAS:
-      pts = [self._punto(cxy, a, b, i / self._SEGMENTOS * math.tau) for i in range(self._SEGMENTOS + 1)]
-      for p0, p1 in zip(pts, pts[1:], strict=False):
-        rl.draw_line_ex(rl.Vector2(*p0), rl.Vector2(*p1), 1.5, orbita_color)
+    clave = (cxy[0], cxy[1], self._ESCALA)
+    if clave != self._orbita_cache_clave:
+      self._orbita_cache_clave = clave
+      self._orbita_cache_pts = [
+        [rl.Vector2(*self._punto(cxy, a, b, i / self._SEGMENTOS * math.tau)) for i in range(self._SEGMENTOS + 1)]
+        for a, b in self._ORBITAS
+      ]
 
-    a_med, b_med = self._ORBITAS[1]
+    orbita_color = col(color, 0.20)
+    for pts in self._orbita_cache_pts:
+      for p0, p1 in zip(pts, pts[1:], strict=False):
+        rl.draw_line_ex(p0, p1, 1.5, orbita_color)
+
+    # F-R6: el satélite viaja por la órbita interior (la más pequeña), no la
+    # del medio, para que quede visible la mayor parte de la vuelta.
+    a_int, b_int = self._ORBITAS[0]
     if conectado:
       angulo = (t / self._PERIODO_SATELITE) * math.tau
-      px, py = self._punto(cxy, a_med, b_med, angulo)
+      px, py = self._punto(cxy, a_int, b_int, angulo)
       rl.draw_circle(int(px), int(py), 18, col(CYAN, 0.35))
       rl.draw_circle(int(px), int(py), 5, CYAN)
     else:
       # Sin conexión: anillo hueco quieto (nada que sugiera un enlace vivo).
-      px, py = self._punto(cxy, a_med, b_med, 0.0)
+      px, py = self._punto(cxy, a_int, b_int, 0.0)
       rl.draw_ring(rl.Vector2(px, py), 3.5, 5.0, 0, 360, 24, col(MUTED_DIM, 0.60))
 
 

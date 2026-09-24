@@ -36,8 +36,13 @@ def test_starfield_deterministic_per_seed():
 def test_campo_orbital_determinista():
   a = fx.CampoOrbital(seed=7)
   b = fx.CampoOrbital(seed=7)
-  assert a.estrellas == b.estrellas
-  assert len(a.estrellas) == 60
+  # El color va precalculado como rl.Color (coste por frame, tarea 5): dos
+  # instancias iguales no dan structs `==` por valor, asi que se comparan
+  # posicion/radio y el rgba del color por separado.
+  assert len(a.estrellas) == len(b.estrellas) == 60
+  for (ax, ay, ar, ac), (bx, by, br, bc) in zip(a.estrellas, b.estrellas, strict=True):
+    assert (ax, ay, ar) == (bx, by, br)
+    assert (ac.r, ac.g, ac.b, ac.a) == (bc.r, bc.g, bc.b, bc.a)
 
 
 def test_cascade_start_and_settle():
