@@ -19,6 +19,11 @@ def _modulos(arbol):
 
 def test_onroad_sin_animacion_y_con_tokens():
   for nombre in FICHEROS:
-    mods = list(_modulos(ast.parse((ONROAD / nombre).read_text())))
+    texto = (ONROAD / nombre).read_text()
+    mods = list(_modulos(ast.parse(texto)))
     assert not [m for m in mods if any(p in m for p in PROHIBIDOS)], nombre
     assert any('orbit_theme' in m for m in mods), f'{nombre} no usa orbit_theme'
+    # Sin colores sueltos (solo tokens de orbit_theme) y sin `math` (trigonometria
+    # de animacion): estos overlays son latches, no dibujan movimiento nuevo.
+    assert 'rl.Color(' not in texto, f'{nombre} usa un literal rl.Color(...) en vez de un token'
+    assert 'import math' not in texto, f'{nombre} importa math'

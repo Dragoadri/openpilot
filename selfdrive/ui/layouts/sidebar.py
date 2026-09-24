@@ -99,7 +99,7 @@ class Sidebar(Widget, SidebarSP):
 
   def _render(self, rect: rl.Rectangle):
     # Background
-    rl.draw_rectangle_rec(rect, rl.BLACK)
+    rl.draw_rectangle_rec(rect, t.FONDO)
 
     self._draw_buttons(rect)
     self._draw_network_indicator(rect)

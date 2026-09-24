@@ -120,7 +120,9 @@ class OrbitSplash(Widget):
                       TAGLINE_SIZE, TAGLINE_SPACING, orbit_t.con_alfa(orbit_t.TEXTO2, tg_a))
 
     # Badge "powered by DRAGO" (inferior derecha; tap -> pantalla sobre drago)
-    ba = _win(t, 1.5, 2.1)
+    # Ventana 1.0-1.4 s: llega a opacidad completa bastante antes del autocierre
+    # (DURACION=2.2s), para que se pueda leer (antes llegaba 0.1s antes de cerrar).
+    ba = _win(t, 1.0, 1.4)
     self._badge_visible = ba > 0.4
     if self._drago is not None and ba > 0.0:
       s1 = measure_text_cached(normal, "powered by ", POWERED_SIZE)
