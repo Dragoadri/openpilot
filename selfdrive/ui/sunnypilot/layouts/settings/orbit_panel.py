@@ -202,7 +202,11 @@ class _MandoCard(Widget):
       x += 56 + 18
 
     wm = measure_text_cached(self._font_bold, "ORBIT", 36, 3)
-    rl.draw_text_ex(self._font_bold, "ORBIT", rl.Vector2(x, y + (strip_h - wm.y) / 2), 36, 3, OP.ORBIT_INK)
+    titulo_y = y + (strip_h - wm.y) / 2
+    rl.draw_text_ex(self._font_bold, "ORBIT", rl.Vector2(x, titulo_y), 36, 3, OP.ORBIT_INK)
+    # Filete corto en el color de seccion bajo el titulo (como SectionHeaderSP):
+    # el borde de la tarjeta ya no lleva el color de seccion, solo esto.
+    rl.draw_rectangle_rounded(rl.Rectangle(x, titulo_y + wm.y + 6, 24, 4), 1.0, 8, t.SECCION['mando'])
     x += wm.x
 
     chip_h = 46
@@ -239,8 +243,9 @@ class _MandoCard(Widget):
     self._refresh()
     card = rl.Rectangle(self._rect.x, self._rect.y + 8, self._rect.width, self._rect.height - 16)
     rl.draw_rectangle_rounded(card, 0.12, 12, OP.ORBIT_NAVY)
-    # Filete de seccion: panel ORBIT / _MandoCard = mando.
-    rl.draw_rectangle_rounded_lines_ex(card, 0.12, 12, 2, t.SECCION['mando'])
+    # El borde nunca lleva color de seccion (regla de la spec): BORDE liso.
+    # El acento de "mando" queda solo en el filete corto bajo el titulo (_draw_identity).
+    rl.draw_rectangle_rounded_lines_ex(card, 0.12, 12, 2, t.BORDE)
 
     pad = 28
     x = card.x + pad
@@ -262,7 +267,7 @@ class _MandoCard(Widget):
       chip = rl.Rectangle(card.x + card.width - pad - size.x - 36, y - 2, size.x + 36, 42)
       rl.draw_rectangle_rounded(chip, 1.0, 10, _AMBER)
       rl.draw_text_ex(self._font_bold, etiqueta, rl.Vector2(chip.x + 18, chip.y + (42 - size.y) / 2),
-                      24, 1, rl.Color(0x14, 0x1A, 0x0A, 255))
+                      24, 1, t.FONDO)
 
     # 2) salud del enlace de mando
     y += 62

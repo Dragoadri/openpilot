@@ -24,7 +24,7 @@ class AlertColors:
   BUTTON_PRESSED = t.PULSO
   BUTTON_TEXT = t.SOBRE_ACCION  # texto sobre relleno ACCION
   SNOOZE_BG = t.BORDE
-  SNOOZE_BG_PRESSED = t.TEXTO3
+  SNOOZE_BG_PRESSED = t.SUP3  # TEXTO3 daba 2.59:1 con el texto blanco
   TEXT = rl.WHITE
 
 

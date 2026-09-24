@@ -336,8 +336,11 @@ class HomeLayout(Widget):
       self.update_notif_rect.x = right - self.update_notif_rect.width
       self.update_notif_rect.y = hdr.y + (hdr.height - self.update_notif_rect.height) / 2
 
-      highlight_color = BLUE_HI if self.current_state == HomeLayoutState.UPDATE else BLUE
-      rl.draw_rectangle_rounded(self.update_notif_rect, 0.3, 10, highlight_color)
+      # BLUE_HI y BLUE son el mismo token ACCION en Grafito: el resalte de
+      # seleccionado ya no puede ser un relleno mas claro, se marca con un aro.
+      rl.draw_rectangle_rounded(self.update_notif_rect, 0.3, 10, BLUE)
+      if self.current_state == HomeLayoutState.UPDATE:
+        rl.draw_rectangle_rounded_lines_ex(self.update_notif_rect, 0.3, 10, 2, t.TEXTO1)
 
       text = tr("UPDATE")
       text_size = measure_text_cached(medium, text, HEAD_BUTTON_FONT_SIZE)
