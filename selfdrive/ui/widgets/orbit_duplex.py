@@ -178,6 +178,12 @@ def draw_orbit_logo(cx: float, cy: float, tam: float, t: float) -> None:
     rl.draw_ring(center, radio - 2 * s, radio, -90, -90 + 360 * anillo, 64,
                 ot.con_alfa(ot.TEXTO2, 0.18))
 
+  if nucleo > 0.0:
+    # Resplandor plano tras el núcleo (paridad con OrbitLogoPainter de la app:
+    # radial pulse->transparente, r40 en la caja 240×240), antes del ECG/arcos.
+    rl.draw_circle_gradient(center, 40 * s, ot.con_alfa(ot.PULSO, 0.42 * nucleo),
+                            ot.con_alfa(ot.PULSO, 0.0))
+
   if arcos > 0.0:
     grosor = 13 * s
     radio = s * _R_ANILLO
