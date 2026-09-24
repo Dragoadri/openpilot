@@ -25,9 +25,9 @@ UPDATE_INTERVAL_FRAMES = 6   # ~10 Hz: la prediccion cambia rapido, no la perdem
 LATCH_SECONDS = 2.5
 FONT_SIZE = 52
 
-# Chip Grafito: fondo tarjeta, borde fuerte, tinta de aviso (ver orbit_theme.py)
+# Chip Grafito: fondo tarjeta, aro de aviso (tinta, no relleno), texto de aviso.
 _FILL = t.SUP1
-_BORDER = t.BORDE_FUERTE
+_BORDER = t.AVISO
 _TEXT = t.AVISO
 LABEL = "FRENADA PROBABLE"
 

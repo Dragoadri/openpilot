@@ -25,12 +25,14 @@ FONT_SIZE = 46
 MIN_SPEED_MS = 2.5           # por debajo, THW no es significativo (parado/atasco)
 
 # ORBIT palette (Grafito, ver selfdrive/ui/orbit_theme.py)
-_NAVY = t.con_alfa(t.SUP1, 220 / 255)
+_FONDO_PILDORA = t.con_alfa(t.SUP1, 220 / 255)
 _HAIRLINE = t.BORDE_FUERTE
 _INK = t.TEXTO1
-_GREEN = t.OK
-_AMBER = t.AVISO
-_RED = t.PELIGRO
+# Excepcion deliberada a «OK solo = el coche lo confirmo»: aqui OK es la
+# convencion del conductor para "hueco de seguimiento seguro" (verde de trafico).
+_HUECO_SEGURO = t.OK
+_HUECO_JUSTO = t.AVISO
+_HUECO_PELIGRO = t.PELIGRO
 
 # Umbrales THW (segundos): >= SAFE verde, >= WARN ambar, por debajo rojo.
 THW_SAFE = 2.0
@@ -78,11 +80,11 @@ class FollowCoachRenderer:
       return
 
     if self._thw >= THW_SAFE:
-      color = _GREEN
+      color = _HUECO_SEGURO
     elif self._thw >= THW_WARN:
-      color = _AMBER
+      color = _HUECO_JUSTO
     else:
-      color = _RED
+      color = _HUECO_PELIGRO
 
     label = f"SEPARACION {self._thw:.1f}s"
     if self._ttc is not None and self._ttc < 6.0:
@@ -98,7 +100,7 @@ class FollowCoachRenderer:
     box_y = rect.y + rect.height - box_h - 260
     box = rl.Rectangle(box_x, box_y, box_w, box_h)
 
-    rl.draw_rectangle_rounded(box, 0.5, 10, _NAVY)
+    rl.draw_rectangle_rounded(box, 0.5, 10, _FONDO_PILDORA)
     rl.draw_rectangle_rounded_lines_ex(box, 0.5, 10, 3, _HAIRLINE)
     rl.draw_circle(int(box_x + pad_x + dot_r), int(box_y + box_h / 2), dot_r, color)
     text_pos = rl.Vector2(box_x + pad_x + dot_r * 2 + dot_gap, box_y + (box_h - text_size.y) / 2)

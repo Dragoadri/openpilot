@@ -38,20 +38,22 @@ BANNER_HEIGHT = 110
 # ORBIT palette (Grafito, ver selfdrive/ui/orbit_theme.py)
 _PILL_FILL = t.con_alfa(t.SUP1, 220 / 255)  # pill fill (alfa preservada)
 _HAIRLINE = t.BORDE_FUERTE  # pill border
-_BLUE = t.TEXTO1  # telemetry text
-_GREEN = t.TEXTO2  # command text
-_CYAN = t.PULSO  # pulse dot
+# Una velocidad remota importa tanto como un cambio de carril: toda pildora
+# usa la misma tinta, no hay categoria "menos importante".
+_TINTA = t.TEXTO1  # texto de la pildora
+_PUNTO = t.PULSO  # punto de pulso
 # Emergency banner: unico relleno rojo de la paleta (freno / destructivo)
 _BANNER_FILL = t.con_alfa(t.FRENO, 0xF1 / 255)
 _BANNER_TEXT = t.SOBRE_FRENO
 
-# param -> (label, text_color); insertion order is the stacking order
+# param -> label; insertion order is the stacking order. Todas las pildoras
+# comparten tinta (_TINTA), ya no hay color por comando.
 PILL_COMMANDS = {
-  "ForceLaneChangeLeft": ("ORBIT - CAMBIO DE CARRIL IZQ", _BLUE),
-  "ForceLaneChangeRight": ("ORBIT - CAMBIO DE CARRIL DER", _BLUE),
-  "orbit_speed_increase": ("ORBIT - VELOCIDAD +", _GREEN),
-  "orbit_speed_decrease": ("ORBIT - VELOCIDAD -", _GREEN),
-  "orbit_steering_pulse": ("ORBIT - PULSO DE DIRECCION", _BLUE),
+  "ForceLaneChangeLeft": "ORBIT - CAMBIO DE CARRIL IZQ",
+  "ForceLaneChangeRight": "ORBIT - CAMBIO DE CARRIL DER",
+  "orbit_speed_increase": "ORBIT - VELOCIDAD +",
+  "orbit_speed_decrease": "ORBIT - VELOCIDAD -",
+  "orbit_steering_pulse": "ORBIT - PULSO DE DIRECCION",
 }
 _BOOL_PILL_PARAMS = tuple(p for p in PILL_COMMANDS if p != "orbit_steering_pulse")
 
@@ -91,7 +93,7 @@ class OrbitCommandOverlay:
       self._banner_deadline = now + LATCH_DURATION
     self._brutebreak_active = brute
 
-  def _draw_pill(self, label: str, text_color: rl.Color, rect: rl.Rectangle, y: float) -> float:
+  def _draw_pill(self, label: str, rect: rl.Rectangle, y: float) -> float:
     text_size = measure_text_cached(self.font, label, FONT_SIZE)
     pad_x, pad_y = 30, 12
     dot_radius, dot_gap = 9, 18
@@ -103,9 +105,9 @@ class OrbitCommandOverlay:
     rl.draw_rectangle_rounded(box_rect, 0.5, 10, _PILL_FILL)
     rl.draw_rectangle_rounded_lines_ex(box_rect, 0.5, 10, 3, _HAIRLINE)
 
-    rl.draw_circle(int(box_x + pad_x + dot_radius), int(y + box_h / 2), dot_radius, _CYAN)
+    rl.draw_circle(int(box_x + pad_x + dot_radius), int(y + box_h / 2), dot_radius, _PUNTO)
     text_pos = rl.Vector2(box_x + pad_x + dot_radius * 2 + dot_gap, y + (box_h - text_size.y) / 2)
-    rl.draw_text_ex(self.font, label, text_pos, FONT_SIZE, 0, text_color)
+    rl.draw_text_ex(self.font, label, text_pos, FONT_SIZE, 0, _TINTA)
     return box_h
 
   def _draw_banner(self, rect: rl.Rectangle):
@@ -120,9 +122,9 @@ class OrbitCommandOverlay:
 
     banner_visible = self._brutebreak_active or now < self._banner_deadline
     y = rect.y + (BANNER_HEIGHT + 20 if banner_visible else 20)
-    for name, (label, text_color) in PILL_COMMANDS.items():
+    for name, label in PILL_COMMANDS.items():
       if now < self._pill_deadlines.get(name, 0.0):
-        y += self._draw_pill(label, text_color, rect, y) + 12
+        y += self._draw_pill(label, rect, y) + 12
 
     # drawn last so the emergency banner always sits on top
     if banner_visible:
