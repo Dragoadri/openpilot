@@ -19,14 +19,16 @@ import pyray as rl
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
+from openpilot.selfdrive.ui import orbit_theme as t
 
 UPDATE_INTERVAL_FRAMES = 6   # ~10 Hz: la prediccion cambia rapido, no la perdemos
 LATCH_SECONDS = 2.5
 FONT_SIZE = 52
 
-_FILL = rl.Color(0xF5, 0xC8, 0x42, 235)      # ambar de aviso
-_BORDER = rl.Color(0xFF, 0xE4, 0x9A, 255)
-_TEXT = rl.Color(0x14, 0x1A, 0x0A, 255)      # texto oscuro sobre ambar
+# Chip Grafito: fondo tarjeta, borde fuerte, tinta de aviso (ver orbit_theme.py)
+_FILL = t.SUP1
+_BORDER = t.BORDE_FUERTE
+_TEXT = t.AVISO
 LABEL = "FRENADA PROBABLE"
 
 

@@ -27,6 +27,7 @@ import pyray as rl
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
+from openpilot.selfdrive.ui import orbit_theme as t
 
 PARAM_POLL_INTERVAL = 0.25  # seconds (~4 Hz)
 LATCH_DURATION = 3.0  # seconds a notification stays on screen
@@ -34,15 +35,15 @@ FONT_SIZE = 50
 BANNER_FONT_SIZE = 66
 BANNER_HEIGHT = 110
 
-# ORBIT palette (values from system/ui/sunnypilot/lib/styles.py)
-_NAVY_TRANSLUCENT = rl.Color(0x16, 0x23, 0x3A, 220)  # NAVY pill fill
-_HAIRLINE = rl.Color(0x2B, 0x3E, 0x5F, 255)  # pill border
-_BLUE = rl.Color(0x7D, 0xB4, 0xFF, 255)  # telemetry blue text
-_GREEN = rl.Color(0x4A, 0xDE, 0x80, 255)  # command green text
-_CYAN = rl.Color(0x22, 0xD3, 0xEE, 255)  # pulse dot
-# Emergency banner: standard critical alert colors, deliberately not palette
-_BANNER_FILL = rl.Color(0xC9, 0x22, 0x31, 0xF1)
-_BANNER_TEXT = rl.Color(255, 255, 255, 255)
+# ORBIT palette (Grafito, ver selfdrive/ui/orbit_theme.py)
+_PILL_FILL = t.con_alfa(t.SUP1, 220 / 255)  # pill fill (alfa preservada)
+_HAIRLINE = t.BORDE_FUERTE  # pill border
+_BLUE = t.TEXTO1  # telemetry text
+_GREEN = t.TEXTO2  # command text
+_CYAN = t.PULSO  # pulse dot
+# Emergency banner: unico relleno rojo de la paleta (freno / destructivo)
+_BANNER_FILL = t.con_alfa(t.FRENO, 0xF1 / 255)
+_BANNER_TEXT = t.SOBRE_FRENO
 
 # param -> (label, text_color); insertion order is the stacking order
 PILL_COMMANDS = {
@@ -99,7 +100,7 @@ class OrbitCommandOverlay:
     box_x = rect.x + rect.width / 2 - box_w / 2
 
     box_rect = rl.Rectangle(box_x, y, box_w, box_h)
-    rl.draw_rectangle_rounded(box_rect, 0.5, 10, _NAVY_TRANSLUCENT)
+    rl.draw_rectangle_rounded(box_rect, 0.5, 10, _PILL_FILL)
     rl.draw_rectangle_rounded_lines_ex(box_rect, 0.5, 10, 3, _HAIRLINE)
 
     rl.draw_circle(int(box_x + pad_x + dot_radius), int(y + box_h / 2), dot_radius, _CYAN)

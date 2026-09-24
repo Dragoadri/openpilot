@@ -18,18 +18,19 @@ import pyray as rl
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
+from openpilot.selfdrive.ui import orbit_theme as t
 
 UPDATE_INTERVAL_FRAMES = 30  # ~0.5 s a 60 fps
 FONT_SIZE = 46
 MIN_SPEED_MS = 2.5           # por debajo, THW no es significativo (parado/atasco)
 
-# ORBIT palette
-_NAVY = rl.Color(0x16, 0x23, 0x3A, 220)
-_HAIRLINE = rl.Color(0x2B, 0x3E, 0x5F, 255)
-_INK = rl.Color(0xE2, 0xEC, 0xFF, 255)
-_GREEN = rl.Color(0x4A, 0xDE, 0x80, 255)
-_AMBER = rl.Color(0xF5, 0xC8, 0x42, 255)
-_RED = rl.Color(0xF2, 0x55, 0x55, 255)
+# ORBIT palette (Grafito, ver selfdrive/ui/orbit_theme.py)
+_NAVY = t.con_alfa(t.SUP1, 220 / 255)
+_HAIRLINE = t.BORDE_FUERTE
+_INK = t.TEXTO1
+_GREEN = t.OK
+_AMBER = t.AVISO
+_RED = t.PELIGRO
 
 # Umbrales THW (segundos): >= SAFE verde, >= WARN ambar, por debajo rojo.
 THW_SAFE = 2.0

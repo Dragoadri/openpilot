@@ -1,0 +1,24 @@
+# En marcha nada decorativo se mueve: los overlays onroad ORBIT no pueden
+# importar módulos de animación y toman el color de orbit_theme.
+import ast
+import pathlib
+
+ONROAD = pathlib.Path(__file__).resolve().parents[1] / 'sunnypilot' / 'onroad'
+FICHEROS = ['orbit_command_overlay.py', 'orbit_follow_coach.py', 'orbit_hardbrake_overlay.py']
+PROHIBIDOS = {'orbit_fx', 'orbit_duplex', 'orbit_icons'}
+
+
+def _modulos(arbol):
+  for n in ast.walk(arbol):
+    if isinstance(n, ast.Import):
+      yield from (a.name for a in n.names)
+    elif isinstance(n, ast.ImportFrom):
+      yield n.module or ''
+      yield from (f'{n.module}.{a.name}' for a in n.names)
+
+
+def test_onroad_sin_animacion_y_con_tokens():
+  for nombre in FICHEROS:
+    mods = list(_modulos(ast.parse((ONROAD / nombre).read_text())))
+    assert not [m for m in mods if any(p in m for p in PROHIBIDOS)], nombre
+    assert any('orbit_theme' in m for m in mods), f'{nombre} no usa orbit_theme'
